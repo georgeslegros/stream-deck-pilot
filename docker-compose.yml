@@ -1,0 +1,26 @@
+services:
+  stream-deck-pilot:
+    build:
+      context: .
+      dockerfile: src/StreamDeckPilot.Api/Dockerfile
+    environment:
+      - ApiKey=${API_KEY:?API_KEY is required}
+      - Storage__BaseDirectory=/data
+      - Mqtt__Host=${MQTT_HOST:-localhost}
+      - Mqtt__Port=${MQTT_PORT:-1883}
+      - Mqtt__Username=${MQTT_USERNAME:-}
+      - Mqtt__Password=${MQTT_PASSWORD:-}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4317
+    volumes:
+      - stream_deck_data:/data
+    devices:
+      - /dev/hidraw0   # adjust to the correct hidraw node; see Plan 01 Step B
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  stream_deck_data:

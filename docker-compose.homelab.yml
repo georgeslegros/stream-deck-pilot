@@ -1,0 +1,27 @@
+# Homelab overlay — apply on top of docker-compose.yml when deploying to the infra node.
+#
+# Usage:
+#   docker --context infra compose -f docker-compose.yml -f docker-compose.homelab.yml up -d
+#
+# This overlay:
+#   - Puts the service on the traefik network so the Traefik reverse proxy can route to it
+#   - Exposes the service at https://streamdeckpilot.lab.lifecycle.pro
+#   - Points OTLP telemetry at the homelab Alloy agent
+
+services:
+  stream-deck-pilot:
+    container_name: stream-deck-pilot
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy-infra:4317
+    networks:
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.streamdeck.rule=Host(`streamdeckpilot.lab.lifecycle.pro`)"
+      - "traefik.http.routers.streamdeck.entrypoints=https"
+      - "traefik.http.routers.streamdeck.tls.certresolver=gandi"
+      - "traefik.http.services.streamdeck.loadbalancer.server.port=8080"
+
+networks:
+  traefik:
+    external: true

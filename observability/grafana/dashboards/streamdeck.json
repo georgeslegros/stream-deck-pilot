@@ -1,0 +1,80 @@
+{
+  "title": "Stream Deck Pilot",
+  "uid": "streamdeck-pilot",
+  "schemaVersion": 38,
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "10s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Device Connection State",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "streamdeck_device_connection_state",
+          "legendFormat": "{{serial}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "Unknown",      "color": "gray"   } } },
+            { "type": "value", "options": { "1": { "text": "Disconnected", "color": "red"    } } },
+            { "type": "value", "options": { "2": { "text": "Connecting",   "color": "yellow" } } },
+            { "type": "value", "options": { "3": { "text": "Connected",    "color": "green"  } } },
+            { "type": "value", "options": { "4": { "text": "Faulted",      "color": "orange" } } }
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Broker Connected",
+      "type": "stat",
+      "gridPos": { "x": 6, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "streamdeck_broker_connected" }],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "Disconnected", "color": "red"   } } },
+            { "type": "value", "options": { "1": { "text": "Connected",    "color": "green" } } }
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "MQTT Messages/s",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 6 },
+      "targets": [
+        { "expr": "rate(streamdeck_mqtt_messages_received_total[1m])", "legendFormat": "received" },
+        { "expr": "rate(streamdeck_mqtt_messages_dropped_total[1m])",  "legendFormat": "dropped"  }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Button Presses",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 10, "w": 6, "h": 6 },
+      "targets": [{ "expr": "increase(streamdeck_button_presses_total[5m])", "legendFormat": "{{serial}}" }]
+    },
+    {
+      "id": 5,
+      "title": "Render Operations",
+      "type": "timeseries",
+      "gridPos": { "x": 6, "y": 10, "w": 6, "h": 6 },
+      "targets": [
+        { "expr": "rate(streamdeck_render_operations_total[1m])", "legendFormat": "ok {{serial}}"     },
+        { "expr": "rate(streamdeck_render_failures_total[1m])",   "legendFormat": "failed {{serial}}" }
+      ]
+    }
+  ]
+}

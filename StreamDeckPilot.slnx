@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/StreamDeckPilot.Api/StreamDeckPilot.Api.csproj" />
+    <Project Path="src/StreamDeckPilot.Core/StreamDeckPilot.Core.csproj" />
+    <Project Path="src/StreamDeckPilot.Infrastructure/StreamDeckPilot.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/StreamDeckPilot.Tests/StreamDeckPilot.Tests.csproj" />
+  </Folder>
+</Solution>

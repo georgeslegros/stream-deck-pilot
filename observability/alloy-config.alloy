@@ -1,0 +1,30 @@
+// Alloy config — receives OTLP from the app and forwards metrics to Prometheus
+
+otelcol.receiver.otlp "default" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+
+  output {
+    metrics = [otelcol.exporter.prometheus.default.input]
+    traces  = [otelcol.exporter.logging.traces.input]
+  }
+}
+
+otelcol.exporter.prometheus "default" {
+  forward_to = [prometheus.remote_write.default.receiver]
+}
+
+prometheus.remote_write "default" {
+  endpoint {
+    url = "http://prometheus:9090/api/v1/write"
+  }
+}
+
+// Log traces to stdout until Tempo is added (infra-only change when ready)
+otelcol.exporter.logging "traces" {
+  verbosity = "basic"
+}

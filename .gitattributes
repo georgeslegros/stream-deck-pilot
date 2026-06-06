@@ -1,0 +1,10 @@
+# Normalise line endings to LF in the repo; check out as-is on all platforms
+* text=auto eol=lf
+
+# Binaries — no line-ending conversion, no diff
+*.ttf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.pdf binary
