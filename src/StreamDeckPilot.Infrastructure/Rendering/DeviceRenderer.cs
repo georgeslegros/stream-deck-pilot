@@ -40,8 +40,37 @@ public sealed class DeviceRenderer : IDeviceRenderer
     public void RenderAll(IMacroBoard board, string serial, string pageId, DesiredStateStore stateStore)
     {
         if (!board.IsConnected) return;
+
+        var bound = new HashSet<int>();
         foreach (var (keyIndex, state) in stateStore.GetPage(serial, pageId))
+        {
             RenderButton(board, serial, keyIndex, state);
+            bound.Add(keyIndex);
+        }
+
+        // Blank every key with no button on this page. Without this, a key that
+        // showed an icon/value on a previously active page keeps its stale bitmap
+        // after navigation (the old page is never iterated again). An unconfigured
+        // key is true black (see key-rendering-redesign.md, Layout D).
+        for (var keyIndex = 0; keyIndex < board.Keys.Count; keyIndex++)
+        {
+            if (bound.Contains(keyIndex)) continue;
+            ClearKey(board, serial, keyIndex);
+        }
+    }
+
+    private void ClearKey(IMacroBoard board, string serial, int keyIndex)
+    {
+        try
+        {
+            board.SetKeyBitmap(keyIndex, KeyBitmap.Black);
+            _metrics?.RenderOperations.Add(1, [new("serial", serial)]);
+        }
+        catch
+        {
+            _metrics?.RenderFailures.Add(1, [new("serial", serial)]);
+            throw;
+        }
     }
 
     // Colour-only fallback used when no composer is injected (tests)
