@@ -5,6 +5,7 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Drawing.Processing;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
+using StreamDeckPilot.Core.Models.Config;
 using StreamDeckPilot.Core.Rendering;
 using StreamDeckPilot.Infrastructure.Icons;
 
@@ -17,11 +18,11 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
     private static readonly Color DefaultBg = new(new Rgba32(55, 55, 55));
     private static readonly Color InkDark = new(new Rgba32(26, 26, 26));
 
-    // Role-based type ramp (px).
+    // Type ramp (px).
     private static readonly Font? ValueFont = GeneratedIconSource.TryLoadFont(30f, FontStyle.Bold);
     private static readonly Font? ValueFontSmall = GeneratedIconSource.TryLoadFont(26f, FontStyle.Bold);
     private static readonly Font? UnitFont = GeneratedIconSource.TryLoadFont(14f);
-    private static readonly Font? ToggleLabelFont = GeneratedIconSource.TryLoadFont(13f);
+    private static readonly Font? CaptionFont = GeneratedIconSource.TryLoadFont(11f);
 
     public KeyBitmap Compose(ButtonRenderState state, string serial)
     {
@@ -38,15 +39,24 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
         }
 
         var ink = Ink(bg);
-        var isSensor = state.IsSensor;
-        var hasLabel = !string.IsNullOrEmpty(state.LabelText);
+        var hasCenter = !string.IsNullOrEmpty(state.CenterText);
+        var hasBottom = !string.IsNullOrEmpty(state.BottomText);
 
-        if (isSensor)
-            RenderSensor(image, state, serial, ink);
-        else if (hasLabel)
-            RenderToggle(image, state, serial, ink);
-        else
-            RenderIconOnly(image, state, serial, ink);
+        // Icon: placement is the user's choice, never inferred from the data. Centre text,
+        // when present, owns the centre — a Center-placed icon yields to it.
+        if (state.IconReference is not null)
+        {
+            if (state.IconPlacement == IconPlacement.Corner)
+                DrawIcon(image, state.IconReference, serial, ink, size: 18, x: 6, y: 6, centred: false);
+            else if (state.IconPlacement == IconPlacement.Center && !hasCenter)
+                DrawIcon(image, state.IconReference, serial, ink, size: hasBottom ? 40 : 56, x: 8, y: 8, centred: true);
+        }
+
+        if (hasCenter)
+            DrawCenterValue(image, state.CenterText!, ink, hasBottom);
+
+        if (hasBottom)
+            DrawBottomCaption(image, state.BottomText!, ink);
 
         // Staleness marker: small clock glyph, top-right.
         if (state.IsDimmed)
@@ -55,39 +65,30 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
         return KeyBitmap.Create.FromImageSharpImage(image);
     }
 
-    // --- Layout A: sensor (big value hero) ----------------------------------
-    private void RenderSensor(Image<Rgba32> image, ButtonRenderState state, string serial, Color ink)
+    // Large hero value, centred. The value is split from its unit (first space) so the
+    // number reads big and the unit sits small beneath it.
+    private void DrawCenterValue(Image<Rgba32> image, string centerText, Color ink, bool hasBottom)
     {
-        DrawIcon(image, state.IconReference, serial, ink, size: 20, x: 6, y: 6, centred: false);
-
-        var (head, tail) = SplitValueUnit(state.LabelText);
+        var (head, tail) = SplitValueUnit(centerText);
+        var heroBaseline = hasBottom ? 40f : 44f;   // lift the hero when a caption is present so the rows fit
 
         if (!string.IsNullOrEmpty(head) && ValueFont is not null)
         {
             var font = head.Length >= 5 && ValueFontSmall is not null ? ValueFontSmall : ValueFont;
             // 1px black shadow keeps the value legible near the luminance threshold.
-            DrawCentredText(image, head, font, Color.Black, x: 36f, baseline: 45f);
-            DrawCentredText(image, head, font, ink, x: 36f, baseline: 44f);
+            DrawCentredText(image, head, font, Color.Black, x: 36f, baseline: heroBaseline + 1);
+            DrawCentredText(image, head, font, ink, x: 36f, baseline: heroBaseline);
         }
 
         if (!string.IsNullOrEmpty(tail) && UnitFont is not null)
-            DrawCentredText(image, tail, UnitFont, WithAlpha(ink, 0.75f), x: 36f, baseline: 60f);
+            DrawCentredText(image, tail, UnitFont, WithAlpha(ink, 0.75f), x: 36f, baseline: heroBaseline + 15);
     }
 
-    // --- Layout B: toggle (icon hero + caption) -----------------------------
-    private void RenderToggle(Image<Rgba32> image, ButtonRenderState state, string serial, Color ink)
+    // Small caption along the bottom, e.g. a room name.
+    private static void DrawBottomCaption(Image<Rgba32> image, string text, Color ink)
     {
-        DrawIcon(image, state.IconReference, serial, ink, size: 40, x: 16, y: 8, centred: true);
-
-        var text = Truncate(state.LabelText!, 9);
-        if (ToggleLabelFont is not null)
-            DrawCentredText(image, text, ToggleLabelFont, ink, x: 36f, baseline: 64f);
-    }
-
-    // --- Layout C: icon-only ------------------------------------------------
-    private void RenderIconOnly(Image<Rgba32> image, ButtonRenderState state, string serial, Color ink)
-    {
-        DrawIcon(image, state.IconReference, serial, ink, size: 56, x: 8, y: 8, centred: true);
+        if (CaptionFont is null) return;
+        DrawCentredText(image, Truncate(text, 10), CaptionFont, WithAlpha(ink, 0.85f), x: 36f, baseline: 69f);
     }
 
     private void DrawIcon(Image<Rgba32> image, string? reference, string serial, Color ink,

@@ -25,8 +25,11 @@ builder.Host.UseSerilog((ctx, cfg) =>
 
 // Storage & persistence
 builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection("Storage"));
-// MigrationRunner with empty list at v1 — add IMigration implementations here when schema changes
-builder.Services.AddSingleton<MigrationRunner>(_ => new MigrationRunner([]));
+// MigrationRunner — register IMigration implementations here as the schema evolves.
+// (Catalogue is still v1 so these only ever apply to config documents.)
+builder.Services.AddSingleton<MigrationRunner>(_ => new MigrationRunner([
+    new ConfigV1ToV2Migration(),
+]));
 builder.Services.AddSingleton<CatalogueStore>(sp =>
     new CatalogueStore(sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<StorageOptions>>(),
         sp.GetRequiredService<MigrationRunner>()));

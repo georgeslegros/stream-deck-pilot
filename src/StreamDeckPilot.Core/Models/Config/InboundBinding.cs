@@ -5,4 +5,5 @@ public record InboundBinding(
     string? ValueField,
     string? UnitField,
     bool ExpectsRetained,
-    TimeSpan? StalenessTimeout);
+    TimeSpan? StalenessTimeout,
+    string? LabelField = null);   // MQTT field for a live caption/label (e.g. "22.5/18.0")

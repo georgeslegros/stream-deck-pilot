@@ -12,7 +12,7 @@ public class ConfigValidatorTests
     private static ButtonDefinition Btn(string id, int key, string pageId,
         IReadOnlyList<ButtonAction>? tapActions = null) =>
         new(id, key, pageId,
-            new DisplaySpec(null, null, null),
+            new DisplaySpec(),
             null, [],
             tapActions is null
                 ? new Dictionary<string, IReadOnlyList<ButtonAction>>()

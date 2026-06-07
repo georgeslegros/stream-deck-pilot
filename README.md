@@ -176,7 +176,7 @@ on one `ButtonGrid` page: a temperature sensor, a light toggle, and a navigation
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "serial": "A7FZA5191LB60S",
   "pages": [
     {
@@ -189,13 +189,15 @@ on one `ButtonGrid` page: a temperature sensor, a light toggle, and a navigation
           "pageId": "main",
           "display": {
             "baseIcon": "builtin:thermometer",
-            "staticLabel": "Living",
-            "formatTemplate": "{value}{unit}"
+            "iconPlacement": "corner",
+            "center": { "label": null, "template": "{value}{unit}" },
+            "bottom": { "label": "Living", "template": null }
           },
           "inbound": {
             "topic": "home/living/temperature",
             "valueField": "value",
             "unitField": "unit",
+            "labelField": null,
             "expectsRetained": true,
             "stalenessTimeout": "00:05:00"
           },
@@ -211,13 +213,15 @@ on one `ButtonGrid` page: a temperature sensor, a light toggle, and a navigation
           "pageId": "main",
           "display": {
             "baseIcon": "builtin:lightbulb-outline",
-            "staticLabel": "Desk",
-            "formatTemplate": null
+            "iconPlacement": "center",
+            "center": null,
+            "bottom": { "label": "Desk", "template": null }
           },
           "inbound": {
             "topic": "home/office/desk-light/state",
             "valueField": "on",
             "unitField": null,
+            "labelField": null,
             "expectsRetained": true,
             "stalenessTimeout": null
           },
@@ -237,8 +241,9 @@ on one `ButtonGrid` page: a temperature sensor, a light toggle, and a navigation
           "pageId": "main",
           "display": {
             "baseIcon": "builtin:chevron-right",
-            "staticLabel": null,
-            "formatTemplate": null
+            "iconPlacement": "center",
+            "center": null,
+            "bottom": null
           },
           "inbound": null,
           "rules": [],
@@ -263,12 +268,13 @@ Field reference (from the domain model in `src/StreamDeckPilot.Core/Models/Confi
 - **`buttonId`** — stable, human-readable button identifier.
 - **`keyIndex`** — 0-based key position, left-to-right, top-to-bottom. Range depends on the device grid (e.g. 0–14 for a 5×3, 0–31 for a 4×8 XL).
 - **`display.baseIcon`** — `builtin:<mdi-name>`, `custom:<filename>`, or `null`.
-- **`display.staticLabel`** — fixed label text, or `null`.
-- **`display.formatTemplate`** — label template; tokens `{value}`, `{unit}`, `{label}`. `null` = no dynamic text.
+- **`display.iconPlacement`** — `"corner"` (small icon, top-left) or `"center"` (large centred icon, the hero). Centre text takes precedence over a centre-placed icon. Layout is what you declare here and in the zones — it is **not** inferred from the kind of data the tile carries.
+- **`display.center`** / **`display.bottom`** — text zones, each `{ "label": ..., "template": ... }` (or `null`). `center` renders large (the hero; its value/unit split on the first space), `bottom` renders as a small caption. `template` is resolved against live data (tokens `{value}`, `{unit}`, `{label}`); `label` is static and is the fallback shown when there's no live data yet. Either field may be `null`.
 - **`inbound`** — MQTT binding, or `null` for press-only buttons.
   - **`topic`** — exact topic matched against incoming messages.
   - **`valueField`** — JSON path-lite to the numeric value (e.g. `value` or `sensor.value`); `null` to use a bare payload.
   - **`unitField`** — JSON path-lite to a unit string; `null` if none.
+  - **`labelField`** — JSON path-lite to a live string for the `{label}` token (e.g. a `"22/18"` cur/target string); `null` if none.
   - **`expectsRetained`** — `true` renders a placeholder until the first value arrives (set the retain flag on the publisher).
   - **`stalenessTimeout`** — `TimeSpan` (`hh:mm:ss`); after this silence the button is dimmed. `null` = never stale.
 - **`rules`** — ordered conditional rules over the extracted numeric value; **first match wins**. Each rule may override `backgroundColour` (`#RRGGBB`) and/or `icon`.
@@ -354,6 +360,8 @@ key returns `401`. See `docs/api-guide.md` for full request/response shapes and 
 | GET | `/devices` | Yes | List catalogued devices (serial, model, key geometry, connection state). |
 | GET | `/devices/{serial}/status` | Yes | Connection state for one device. |
 | POST | `/devices/{serial}/force-render` | Yes | Re-render all keys for a connected device (debug helper). |
+| GET | `/devices/{serial}/active-page` | Yes | Current page + available navigation targets. |
+| POST | `/devices/{serial}/navigate` | Yes | Force navigation to a page (re-renders, clears stale keys). `400` unknown/empty page, `404` no config. |
 | GET | `/devices/{serial}/config` | Yes | Read the stored config for a device. |
 | PUT | `/devices/{serial}/config` | Yes | Replace the full config (validated before save). `204` on success, `400` with `errors` on failure. |
 | POST | `/config/upgrade` | Yes | Migrate a config JSON to the current schema version. Does not persist. `422` if unsupported. |

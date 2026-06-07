@@ -94,7 +94,8 @@ public sealed class MqttIntegrationTests : IAsyncLifetime
         var config = new DeviceConfig(1, "SN_MQTT_TEST", [
             new ButtonGridPage("main", [
                 new ButtonDefinition("co2", 0, "main",
-                    new DisplaySpec(null, "CO2", "{value} {unit}"),
+                    new DisplaySpec(null, IconPlacement.Corner,
+                        Center: new TextZone(null, "{value} {unit}"), Bottom: new TextZone("CO2", null)),
                     new InboundBinding("home/co2", "value", "unit", true, null),
                     [new ConditionalRule(">800", "#FF0000", null)],
                     new Dictionary<string, IReadOnlyList<ButtonAction>>())
@@ -127,7 +128,7 @@ public sealed class MqttIntegrationTests : IAsyncLifetime
         var state = store.Get("SN_MQTT_TEST", "main", 0);
         Assert.NotNull(state);
         Assert.Equal("#FF0000", state.BackgroundColour);
-        Assert.Contains("1200", state.LabelText ?? "");
+        Assert.Contains("1200", state.CenterText ?? "");
 
         await svc.StopAsync(CancellationToken.None);
         await publisher.DisconnectAsync();

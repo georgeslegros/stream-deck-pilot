@@ -6,19 +6,21 @@ namespace StreamDeckPilot.Infrastructure.Mqtt.Pipeline;
 
 public static class InboundPipeline
 {
-    // Step 2 — extract value and unit from JSON payload (path-lite) or bare string
-    public static (string? Value, string? Unit) Extract(string payload, string? valueField, string? unitField)
+    // Step 2 — extract value, unit and live label from JSON payload (path-lite) or bare string
+    public static (string? Value, string? Unit, string? Label) Extract(
+        string payload, string? valueField, string? unitField, string? labelField)
     {
         try
         {
             using var doc = JsonDocument.Parse(payload);
             var value = valueField is not null ? WalkPath(doc.RootElement, valueField) : null;
             var unit = unitField is not null ? WalkPath(doc.RootElement, unitField) : null;
-            return (value ?? payload.Trim(), unit);
+            var label = labelField is not null ? WalkPath(doc.RootElement, labelField) : null;
+            return (value ?? payload.Trim(), unit, label);
         }
         catch (JsonException)
         {
-            return (payload.Trim(), null);
+            return (payload.Trim(), null, null);
         }
     }
 
@@ -40,19 +42,28 @@ public static class InboundPipeline
     public static string FormatValue(string? valueStr, int precision = 1)
     {
         if (valueStr is null) return string.Empty;
-        return double.TryParse(valueStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var d)
-            ? d.ToString($"F{precision}", CultureInfo.InvariantCulture)
-            : valueStr;
+        if (!double.TryParse(valueStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var d))
+            return valueStr;
+        // Whole numbers render without a decimal (e.g. "612" ppm, "45" %); fractional
+        // values keep `precision` decimals (e.g. "21.4" °C).
+        return d == Math.Truncate(d)
+            ? d.ToString("F0", CultureInfo.InvariantCulture)
+            : d.ToString($"F{precision}", CultureInfo.InvariantCulture);
     }
 
-    // Step 5 — fill format template with {value}, {unit}, {label} tokens
-    public static string ComposeLabel(string? template, string? value, string? unit, string? staticLabel)
+    // Step 5 — resolve a text zone to the string it should display.
+    // A Template is filled from {value}/{unit}/{label} when live data exists; with no live
+    // data (nothing to resolve against) the static Label is the fallback. A zone with only
+    // a Label always shows it. {label} is the live MQTT label field, not the static name.
+    public static string? ResolveZone(TextZone? zone, bool hasData, string? value, string? unit, string? mqttLabel)
     {
-        if (template is null) return staticLabel ?? value ?? string.Empty;
-        return template
-            .Replace("{value}", value ?? string.Empty)
-            .Replace("{unit}", unit ?? string.Empty)
-            .Replace("{label}", staticLabel ?? string.Empty);
+        if (zone is null) return null;
+        if (zone.Template is not null && hasData)
+            return zone.Template
+                .Replace("{value}", value ?? string.Empty)
+                .Replace("{unit}", unit ?? string.Empty)
+                .Replace("{label}", mqttLabel ?? string.Empty);
+        return zone.Label;
     }
 
     private static bool MatchesCondition(string condition, double value)

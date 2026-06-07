@@ -1,5 +1,31 @@
 # Stream Deck Pilot — Icon Vocabulary Recommendation
 
+> **Status (what actually shipped — read this first).** This document is the
+> *pre-implementation design exploration*. The renderer took a different (simpler)
+> path than its primary recommendation, so treat §1 and the §6 "proposed builtin:
+> names" table as historical rationale, **not** as the current contract:
+>
+> - Icons are resolved from the **full Material Design Icons webfont** embedded in the
+>   app (`materialdesignicons-webfont.ttf` + `mdi-meta.json`). `MdiIconSource` renders
+>   **any** MDI glyph by its real name at runtime — there is **no** build-time PNG step
+>   and **no** custom rename layer.
+> - Reference icons as **`builtin:<mdi-name>`** using the actual MDI name, e.g.
+>   `builtin:thermometer`, `builtin:molecule-co2`, `builtin:water-percent`,
+>   `builtin:lightbulb`, `builtin:lightbulb-outline`, `builtin:robot-vacuum`,
+>   `builtin:shield-check`, `builtin:chevron-right`. Browse names at
+>   <https://pictogrammers.com/library/mdi/>. (Do **not** use the invented
+>   `builtin:co2`/`builtin:light-on` names from §6 — those were never implemented.)
+> - Glyphs are drawn transparent and **tinted to an auto-chosen ink colour** for
+>   contrast (the adaptive-luminance idea in §3 — that part did ship).
+> - State-driven icon swaps (§4) shipped: a conditional rule can carry an `icon`.
+> - A handful of legacy generated tokens (`co2`, `thermometer`, `placeholder`,
+>   `fallback`, …) remain only as a fallback when an MDI name isn't found.
+>
+> The symbol *choices* in §2/§4/§5 and the icon-set survey in §6 remain useful as a
+> vocabulary guide. For the authoritative config/icon contract, see `api-guide.md`.
+
+---
+
 Target hardware: Elgato Stream Deck MK.2, 72×72 px LCD keys, ~20×20 mm, ~50 cm
 viewing distance. Effective glyph budget after the composer's 6 px margin and
 16 px reserved label strip: **icon draws into ~44–60 px**. At 50 cm a 20 mm key

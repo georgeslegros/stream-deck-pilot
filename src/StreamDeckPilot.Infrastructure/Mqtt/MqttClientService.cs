@@ -398,7 +398,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         var binding = button.Inbound;
 
         // Step 2 — extract
-        var (value, unit) = InboundPipeline.Extract(payload, binding?.ValueField, binding?.UnitField);
+        var (value, unit, mqttLabel) = InboundPipeline.Extract(payload, binding?.ValueField, binding?.UnitField, binding?.LabelField);
 
         // Step 3 — evaluate rules
         var (colour, icon) = InboundPipeline.EvaluateRules(value, button.Rules);
@@ -406,16 +406,17 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         // Step 4 — format
         var formatted = InboundPipeline.FormatValue(value);
 
-        // Step 5 — compose label
-        var label = InboundPipeline.ComposeLabel(button.Display.FormatTemplate, formatted, unit, button.Display.StaticLabel);
+        // Step 5 — resolve text zones (a message arrived ⇒ there is live data to resolve against)
+        var center = InboundPipeline.ResolveZone(button.Display.Center, hasData: true, formatted, unit, mqttLabel);
+        var bottom = InboundPipeline.ResolveZone(button.Display.Bottom, hasData: true, formatted, unit, mqttLabel);
 
         // Step 6 — update desired state
         var renderState = new ButtonRenderState(button.ButtonId,
             colour,
             icon ?? button.Display.BaseIcon,
-            label,
-            IsDimmed: false,
-            IsSensor: button.Display.FormatTemplate is not null);
+            button.Display.IconPlacement,
+            center,
+            bottom);
 
         _desiredState.Set(serial, pageId, button.KeyIndex, renderState);
         _lastUpdated.RecordUpdate(serial, pageId, button.KeyIndex);
@@ -433,9 +434,20 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
             _logger.LogWarning("Board '{Serial}' reports IsConnected=false — render skipped", serial);
             return;
         }
+        // Only project to hardware when this button's page is the active one. Desired state is
+        // stored above regardless, so an inactive-page button renders correctly on navigation.
+        // Without this guard, a live MQTT update paints an off-page tile over the visible page
+        // (e.g. climate/setpoint tiles from page 2 bleeding onto page 1).
+        var activePage = _supervisor.GetActivePage(serial);
+        if (activePage is not null && activePage != pageId)
+        {
+            _logger.LogDebug("Render skipped for {ButtonId}: page '{PageId}' not active ('{Active}')",
+                button.ButtonId, pageId, activePage);
+            return;
+        }
         _renderer.RenderButton(board, serial, button.KeyIndex, renderState);
-        _logger.LogInformation("Rendered key {KeyIndex} on {Serial} — colour={Colour} label={Label}",
-            button.KeyIndex, serial, renderState.BackgroundColour, renderState.LabelText);
+        _logger.LogInformation("Rendered key {KeyIndex} on {Serial} — colour={Colour} center={Center}",
+            button.KeyIndex, serial, renderState.BackgroundColour, renderState.CenterText);
     }
 
     // ── Button press handling ─────────────────────────────────────────────────

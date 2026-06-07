@@ -10,7 +10,7 @@ public class InboundPipelineTests
     [Fact]
     public void Extract_JsonPayload_ReturnsFieldValue()
     {
-        var (value, unit) = InboundPipeline.Extract("""{"value":1023,"unit":"ppm"}""", "value", "unit");
+        var (value, unit, _) = InboundPipeline.Extract("""{"value":1023,"unit":"ppm"}""", "value", "unit", null);
         Assert.Equal("1023", value);
         Assert.Equal("ppm", unit);
     }
@@ -18,14 +18,14 @@ public class InboundPipelineTests
     [Fact]
     public void Extract_NestedJsonPath_ReturnsDeepValue()
     {
-        var (value, _) = InboundPipeline.Extract("""{"sensor":{"value":21.5}}""", "sensor.value", null);
+        var (value, _, _) = InboundPipeline.Extract("""{"sensor":{"value":21.5}}""", "sensor.value", null, null);
         Assert.Equal("21.5", value);
     }
 
     [Fact]
     public void Extract_BareString_ReturnsPayloadAsValue()
     {
-        var (value, unit) = InboundPipeline.Extract("42.7", null, null);
+        var (value, unit, _) = InboundPipeline.Extract("42.7", null, null, null);
         Assert.Equal("42.7", value);
         Assert.Null(unit);
     }
@@ -33,8 +33,17 @@ public class InboundPipelineTests
     [Fact]
     public void Extract_InvalidJson_FallsBackToRawPayload()
     {
-        var (value, _) = InboundPipeline.Extract("not-json", "value", null);
+        var (value, _, _) = InboundPipeline.Extract("not-json", "value", null, null);
         Assert.Equal("not-json", value);
+    }
+
+    [Fact]
+    public void Extract_ReadsLabelField()
+    {
+        var (value, _, label) = InboundPipeline.Extract(
+            """{"value":22.5,"label":"22.5/18.0"}""", "value", null, "label");
+        Assert.Equal("22.5", value);
+        Assert.Equal("22.5/18.0", label);
     }
 
     // ── EvaluateRules ─────────────────────────────────────────────────────────
@@ -100,26 +109,39 @@ public class InboundPipelineTests
         Assert.Equal(expected, InboundPipeline.FormatValue(input, precision));
     }
 
-    // ── ComposeLabel ──────────────────────────────────────────────────────────
+    // ── ResolveZone ───────────────────────────────────────────────────────────
 
     [Fact]
-    public void ComposeLabel_TemplateWithTokens()
+    public void ResolveZone_NullZone_ReturnsNull()
     {
-        var result = InboundPipeline.ComposeLabel("{value} {unit}", "21.6", "°C", null);
-        Assert.Equal("21.6 °C", result);
+        Assert.Null(InboundPipeline.ResolveZone(null, hasData: true, "21.6", "°C", null));
     }
 
     [Fact]
-    public void ComposeLabel_NullTemplate_FallsBackToStaticLabel()
+    public void ResolveZone_TemplateWithData_Resolves()
     {
-        var result = InboundPipeline.ComposeLabel(null, "21.6", "°C", "Temperature");
-        Assert.Equal("Temperature", result);
+        var zone = new TextZone(Label: "Bureau", Template: "{value} {unit}");
+        Assert.Equal("21.6 °C", InboundPipeline.ResolveZone(zone, hasData: true, "21.6", "°C", null));
     }
 
     [Fact]
-    public void ComposeLabel_NullTemplate_NullStaticLabel_UsesValue()
+    public void ResolveZone_TemplateButNoData_FallsBackToLabel()
     {
-        var result = InboundPipeline.ComposeLabel(null, "21.6", null, null);
-        Assert.Equal("21.6", result);
+        var zone = new TextZone(Label: "Bureau", Template: "{value}");
+        Assert.Equal("Bureau", InboundPipeline.ResolveZone(zone, hasData: false, null, null, null));
+    }
+
+    [Fact]
+    public void ResolveZone_LabelOnly_AlwaysShowsLabel()
+    {
+        var zone = new TextZone(Label: "Salon", Template: null);
+        Assert.Equal("Salon", InboundPipeline.ResolveZone(zone, hasData: true, "21.6", "°C", null));
+    }
+
+    [Fact]
+    public void ResolveZone_LabelToken_ResolvesToLiveMqttLabel()
+    {
+        var zone = new TextZone(Label: null, Template: "{label}");
+        Assert.Equal("22.5/18.0", InboundPipeline.ResolveZone(zone, hasData: true, "22.5", "°C", "22.5/18.0"));
     }
 }

@@ -70,9 +70,9 @@ public class DeviceSupervisorTests : IDisposable
         // Pre-seed a config with 3 buttons on main page
         var config = new DeviceConfig(1, "SN003", [
             new ButtonGridPage("main", [
-                new("b0", 0, "main", new("#FF0000", null, null), null, [], new Dictionary<string, IReadOnlyList<ButtonAction>>()),
-                new("b1", 1, "main", new("#00FF00", null, null), null, [], new Dictionary<string, IReadOnlyList<ButtonAction>>()),
-                new("b2", 2, "main", new("#0000FF", null, null), null, [], new Dictionary<string, IReadOnlyList<ButtonAction>>()),
+                new("b0", 0, "main", new(), null, [], new Dictionary<string, IReadOnlyList<ButtonAction>>()),
+                new("b1", 1, "main", new(), null, [], new Dictionary<string, IReadOnlyList<ButtonAction>>()),
+                new("b2", 2, "main", new(), null, [], new Dictionary<string, IReadOnlyList<ButtonAction>>()),
             ])
         ]);
         await configStore.SaveAsync(config);
@@ -114,12 +114,12 @@ public class DeviceSupervisorTests : IDisposable
         // "main" uses keys 0,1,2; "second" uses only key 0.
         var config = new DeviceConfig(1, "SN200", [
             new ButtonGridPage("main", [
-                new("m0", 0, "main", new(null, null, null), null, [], empty),
-                new("m1", 1, "main", new(null, null, null), null, [], empty),
-                new("m2", 2, "main", new(null, null, null), null, [], empty),
+                new("m0", 0, "main", new(), null, [], empty),
+                new("m1", 1, "main", new(), null, [], empty),
+                new("m2", 2, "main", new(), null, [], empty),
             ]),
             new ButtonGridPage("second", [
-                new("s0", 0, "second", new(null, null, null), null, [], empty),
+                new("s0", 0, "second", new(), null, [], empty),
             ]),
         ]);
         await configStore.SaveAsync(config);

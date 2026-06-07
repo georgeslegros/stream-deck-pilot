@@ -31,7 +31,7 @@ public sealed class StalenessMonitorTests : IDisposable
         // Config with a 1-second staleness timeout
         var config = new DeviceConfig(1, "SN1", [
             new ButtonGridPage("main", [
-                new("btn1", 0, "main", new DisplaySpec(null, "Test", null),
+                new("btn1", 0, "main", new DisplaySpec(null, IconPlacement.Center, Bottom: new TextZone("Test", null)),
                     new InboundBinding("home/test", "value", null, false, TimeSpan.FromSeconds(1)),
                     [], new Dictionary<string, IReadOnlyList<ButtonAction>>())
             ])
@@ -39,7 +39,7 @@ public sealed class StalenessMonitorTests : IDisposable
         await configStore.SaveAsync(config);
 
         // Set initial non-dimmed state with an old timestamp
-        desiredState.Set("SN1", "main", 0, new ButtonRenderState("btn1", "#00FF00", null, "42", false));
+        desiredState.Set("SN1", "main", 0, new ButtonRenderState("btn1", "#00FF00", null, IconPlacement.Corner, "42", null));
         lastUpdated.RecordUpdate("SN1", "main", 0);
 
         // Build supervisor (no real device needed)

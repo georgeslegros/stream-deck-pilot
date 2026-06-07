@@ -60,8 +60,8 @@ public sealed class StoreMigrationTests : IDisposable
         await store.SaveAsync(config);
         var loaded = await store.LoadAsync("SN1");
 
-        // Version normalised to current (1), not the 99 passed in
-        Assert.Equal(1, loaded!.SchemaVersion);
+        // Version normalised to current (2), not the 99 passed in
+        Assert.Equal(2, loaded!.SchemaVersion);
     }
 
     [Fact]

@@ -19,7 +19,7 @@ public sealed class ConfigUpgradeEndpointTests : IAsyncDisposable
         new(JsonSerializer.Serialize(value, JsonOptions.Default), Encoding.UTF8, "application/json");
 
     [Fact]
-    public async Task UpgradeEndpoint_V1Config_Returns200Unchanged()
+    public async Task UpgradeEndpoint_V1Config_MigratesToCurrentVersion()
     {
         var config = new DeviceConfig(1, "SN1", [new ButtonGridPage("main", [])]);
         var client = _factory.CreateAuthenticatedClient();
@@ -29,7 +29,7 @@ public sealed class ConfigUpgradeEndpointTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var result = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal("SN1", result.GetProperty("serial").GetString());
-        Assert.Equal(1, result.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(2, result.GetProperty("schemaVersion").GetInt32());
     }
 
     [Fact]

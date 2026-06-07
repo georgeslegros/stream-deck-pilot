@@ -57,7 +57,8 @@ public class SerialisationTests
                 ButtonId: "co2-sensor",
                 KeyIndex: 0,
                 PageId: "main",
-                Display: new DisplaySpec("builtin:co2", "CO2", "{value} {unit}"),
+                Display: new DisplaySpec("builtin:co2", IconPlacement.Corner,
+                    Center: new TextZone(null, "{value} {unit}"), Bottom: new TextZone("CO2", null)),
                 Inbound: new InboundBinding("home/sensor/co2", "value", "unit", true, TimeSpan.FromSeconds(30)),
                 Rules: [new ConditionalRule(">1000", "#FF0000", null)],
                 Gestures: new Dictionary<string, IReadOnlyList<ButtonAction>>
@@ -91,7 +92,7 @@ public class SerialisationTests
             ButtonId: "nav-button",
             KeyIndex: 4,
             PageId: "main",
-            Display: new DisplaySpec(null, "Menu", null),
+            Display: new DisplaySpec(null, IconPlacement.Center, Bottom: new TextZone("Menu", null)),
             Inbound: null,
             Rules: [],
             Gestures: new Dictionary<string, IReadOnlyList<ButtonAction>>

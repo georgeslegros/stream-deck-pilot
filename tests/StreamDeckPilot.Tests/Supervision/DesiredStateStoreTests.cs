@@ -1,3 +1,4 @@
+using StreamDeckPilot.Core.Models.Config;
 using StreamDeckPilot.Core.Rendering;
 using StreamDeckPilot.Infrastructure.Rendering;
 
@@ -6,7 +7,7 @@ namespace StreamDeckPilot.Tests.Supervision;
 public class DesiredStateStoreTests
 {
     private static ButtonRenderState MakeState(string id) =>
-        new(id, "#FF0000", null, "Test", false);
+        new(id, "#FF0000", null, IconPlacement.Corner, "Test", null);
 
     [Fact]
     public void Set_ThenGet_ReturnsSameState()

@@ -191,11 +191,16 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
                 if (existing is { IsDimmed: false }) continue;
 
                 var placeholder = button.Inbound?.ExpectsRetained == true;
+
+                // No live data yet → text zones fall back to their static labels (templates
+                // have nothing to resolve against, so only a zone's Label can show).
                 _desiredState.Set(serial, page.PageId, button.KeyIndex, new ButtonRenderState(
                     button.ButtonId,
                     null,
                     placeholder ? "builtin:placeholder" : button.Display.BaseIcon,
-                    placeholder ? "…" : button.Display.StaticLabel,
+                    button.Display.IconPlacement,
+                    button.Display.Center?.Label,
+                    button.Display.Bottom?.Label,
                     IsDimmed: placeholder));
             }
         }

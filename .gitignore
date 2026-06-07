@@ -41,3 +41,5 @@ Thumbs.db
 
 # Claude Code session data (plans and memory are kept, session transcripts are not)
 .claude/projects/
+
+.env

@@ -8,7 +8,7 @@ public sealed class ButtonTopicIndexTests
     private static DeviceConfig Config(string serial, string topic) => new(1, serial, [
         new ButtonGridPage("main", [
             new ButtonDefinition("b0", 0, "main",
-                new DisplaySpec(null, "L", "{value}"),
+                new DisplaySpec(null, IconPlacement.Corner, new TextZone(null, "{value}"), new TextZone("L", null)),
                 new InboundBinding(topic, "value", "unit", true, null),
                 [],
                 new Dictionary<string, IReadOnlyList<ButtonAction>>())

@@ -122,7 +122,7 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
         var client = _factory.CreateAuthenticatedClient();
         var config = new DeviceConfig(1, "SN004", [
             new ButtonGridPage("main", [
-                new("b1", 99, "main", new(null, null, null), null, [], new Dictionary<string, IReadOnlyList<ButtonAction>>())
+                new("b1", 99, "main", new(), null, [], new Dictionary<string, IReadOnlyList<ButtonAction>>())
             ])
         ]);
         var body = new StringContent(JsonSerializer.Serialize(config, JsonOptions.Default),
@@ -140,8 +140,8 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
         var client = _factory.CreateAuthenticatedClient();
         var config = new DeviceConfig(1, "SN005", [
             new ButtonGridPage("main", [
-                new("b1", 0, "main", new(null, null, null), null, [], new Dictionary<string, IReadOnlyList<ButtonAction>>()),
-                new("b2", 0, "main", new(null, null, null), null, [], new Dictionary<string, IReadOnlyList<ButtonAction>>())
+                new("b1", 0, "main", new(), null, [], new Dictionary<string, IReadOnlyList<ButtonAction>>()),
+                new("b2", 0, "main", new(), null, [], new Dictionary<string, IReadOnlyList<ButtonAction>>())
             ])
         ]);
         var body = new StringContent(JsonSerializer.Serialize(config, JsonOptions.Default),
@@ -158,7 +158,7 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
         var client = _factory.CreateAuthenticatedClient();
         var config = new DeviceConfig(1, "SN006", [
             new ButtonGridPage("main", [
-                new("b1", 0, "main", new(null, null, null), null, [],
+                new("b1", 0, "main", new(), null, [],
                     new Dictionary<string, IReadOnlyList<ButtonAction>>
                     {
                         ["Tap"] = [new NavigateAction("ghost-page")]
@@ -178,10 +178,10 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
         new(JsonSerializer.Serialize(
             new DeviceConfig(1, serial, [
                 new ButtonGridPage("main", [
-                    new("m0", 0, "main", new(null, null, null), null, [], new Dictionary<string, IReadOnlyList<ButtonAction>>())
+                    new("m0", 0, "main", new(), null, [], new Dictionary<string, IReadOnlyList<ButtonAction>>())
                 ]),
                 new ButtonGridPage("second", [
-                    new("s0", 0, "second", new(null, null, null), null, [], new Dictionary<string, IReadOnlyList<ButtonAction>>())
+                    new("s0", 0, "second", new(), null, [], new Dictionary<string, IReadOnlyList<ButtonAction>>())
                 ]),
             ]),
             JsonOptions.Default),
