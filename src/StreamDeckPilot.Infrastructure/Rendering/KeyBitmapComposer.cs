@@ -19,10 +19,10 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
     private static readonly Color InkDark = new(new Rgba32(26, 26, 26));
 
     // Type ramp (px).
-    private static readonly Font? ValueFont = GeneratedIconSource.TryLoadFont(30f, FontStyle.Bold);
-    private static readonly Font? ValueFontSmall = GeneratedIconSource.TryLoadFont(26f, FontStyle.Bold);
-    private static readonly Font? UnitFont = GeneratedIconSource.TryLoadFont(14f);
-    private static readonly Font? CaptionFont = GeneratedIconSource.TryLoadFont(11f);
+    private static readonly Font? ValueFont = GeneratedIconSource.TryLoadFont(25.5f, FontStyle.Bold);
+    private static readonly Font? ValueFontSmall = GeneratedIconSource.TryLoadFont(22f, FontStyle.Bold);
+    private static readonly Font? UnitFont = GeneratedIconSource.TryLoadFont(12f);
+    private static readonly Font? CaptionFont = GeneratedIconSource.TryLoadFont(9.5f);
 
     public KeyBitmap Compose(ButtonRenderState state, string serial)
     {
@@ -47,9 +47,15 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
         if (state.IconReference is not null)
         {
             if (state.IconPlacement == IconPlacement.Corner)
-                DrawIcon(image, state.IconReference, serial, ink, size: 18, x: 6, y: 6, centred: false);
+                DrawIcon(image, state.IconReference, serial, ink, size: 27, x: 6, y: 6, centred: false);
             else if (state.IconPlacement == IconPlacement.Center && !hasCenter)
-                DrawIcon(image, state.IconReference, serial, ink, size: hasBottom ? 40 : 56, x: 8, y: 8, centred: true);
+            {
+                // ~1.5x larger, clamped to the 72px tile: a full 1.5x (84/60) would overflow the
+                // tile / collide with the caption band. Vertically centred in the space available.
+                var iconSize = hasBottom ? 50 : 66;
+                var iconY = hasBottom ? 6 : (Size - iconSize) / 2;
+                DrawIcon(image, state.IconReference, serial, ink, size: iconSize, x: 8, y: iconY, centred: true);
+            }
         }
 
         if (hasCenter)

@@ -94,7 +94,9 @@ Each button (within a page) carries:
 
 - **Identity:** a stable, human-friendly ID used to reference it via the API (e.g. `office-co2`). This is an identifier, NOT a binding mechanism.
 - **Position:** page + key index. Must be valid for *that device's* geometry.
-- **Display spec:** static parts (base icon, static label) plus how to render an incoming value.
+- **Display spec:** how the tile looks, expressed as **user-chosen** elements — the layout is never inferred from the *kind* of data the tile carries:
+  - **Icon** (built-in or custom) with an explicit **placement**: a small corner accent, or a large centred hero. (When a hero text zone is also present, the text owns the centre.)
+  - **Text zones** — a large centred **hero** zone and a small **bottom caption** zone. Each zone has a static **label** *and* an optional **template** resolved from the incoming value / unit / live-label. When no value has arrived yet there is nothing to resolve against, so the static label is shown as the fallback (this also serves as the "before first value" placeholder). The renderer composes whatever zones are filled plus the icon placement — it does not pick a layout from the data type.
 - **Inbound binding (optional):** present only for data-driven buttons. Contains:
   - **Topic** — the MQTT topic this button listens to. (The app never knows or cares that HA may be the source. Binding is by topic only.)
   - **Field extraction** — if the payload is JSON, which field is the value and which (optionally) is the unit/metadata. Support a simple field-name / JSON-path-lite selector.
@@ -114,7 +116,7 @@ Each button (within a page) carries:
 
 ### 4.7 Icons / images
 
-- The app ships a **built-in icon library**.
+- The app ships a **built-in icon library** — the full Material Design Icons set, referenced by MDI name (`builtin:<mdi-name>`).
 - Users may also supply **custom images**.
 - A button's icon reference must distinguish built-in vs. custom (namespacing convention).
 - Custom images are **persisted state**: stored on the mounted volume alongside config, so they survive restarts and are removed with the rest of the state when the container/volume is deleted.
