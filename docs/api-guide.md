@@ -83,6 +83,20 @@ Positional styling:
 
 ---
 
+## What the tiles look like
+
+Rendered by the actual `KeyBitmapComposer` (pixel-accurate to the hardware) — the live homelab
+layout, `main` dashboard and `climate` page:
+
+![main page](images/board-main.png)
+
+![climate page](images/board-climate.png)
+
+Generated headlessly by `tools/StreamDeckPreview` from a device config; see that tool's README
+to regenerate or to preview your own config without a physical deck.
+
+---
+
 ## Endpoints
 
 ### `GET /devices`

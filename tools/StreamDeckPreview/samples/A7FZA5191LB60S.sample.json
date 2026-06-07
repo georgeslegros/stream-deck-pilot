@@ -1,0 +1,24 @@
+{
+  "co2":          { "value": "772", "unit": "ppm" },
+  "temp-office":  { "value": "23.8", "unit": "C" },
+  "humid":        { "value": "46", "unit": "%" },
+  "bureau-light": { "value": "1" },
+  "vacuum-start": { "value": "1" },
+  "heat-office":  { "value": "22.5", "unit": "C" },
+  "temp-salon":   { "value": "21.4", "unit": "C" },
+  "temp-playrm":  { "value": "19.6", "unit": "C" },
+  "terasse":      { "value": "0" },
+  "entree":       { "value": "1" },
+  "parking":      { "value": "0" },
+  "pihole":       { "value": "1" },
+
+  "office-up":    { "value": "22" },
+  "living-up":    { "value": "21" },
+  "playroom-up":  { "value": "16" },
+  "office-climate":   { "value": "22", "label": "22/18" },
+  "living-climate":   { "value": "22", "label": "22/21" },
+  "playroom-climate": { "value": "21", "label": "21/16" },
+  "office-down":  { "value": "22" },
+  "living-down":  { "value": "21" },
+  "playroom-down":{ "value": "16" }
+}

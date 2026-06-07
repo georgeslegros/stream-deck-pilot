@@ -26,7 +26,15 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
 
     public KeyBitmap Compose(ButtonRenderState state, string serial)
     {
-        using var image = new Image<Rgba32>(Size, Size);
+        using var image = ComposeImage(state, serial);
+        return KeyBitmap.Create.FromImageSharpImage(image);
+    }
+
+    // Composes the 72x72 key image. Caller owns (and must dispose) the returned image.
+    // Used by Compose (wrapped into a KeyBitmap) and by preview/golden-image tooling.
+    public Image<Rgba32> ComposeImage(ButtonRenderState state, string serial)
+    {
+        var image = new Image<Rgba32>(Size, Size);
 
         var bg = ParseColour(state.BackgroundColour) ?? DefaultBg;
         image.Mutate(ctx => ctx.Fill(bg));
@@ -68,7 +76,7 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
         if (state.IsDimmed)
             DrawClockMarker(image, ink);
 
-        return KeyBitmap.Create.FromImageSharpImage(image);
+        return image;
     }
 
     // Large hero value, centred. The value is split from its unit (first space) so the

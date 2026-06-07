@@ -7,4 +7,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/StreamDeckPilot.Tests/StreamDeckPilot.Tests.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/StreamDeckPreview/StreamDeckPreview.csproj" />
+  </Folder>
 </Solution>

@@ -167,6 +167,10 @@ Everything the service persists lives under `Storage__BaseDirectory` (`/data` in
 
 ## 5. Button config — worked example
 
+The live homelab dashboard, rendered by the actual tile composer (`tools/StreamDeckPreview`):
+
+![Stream Deck board — main page](docs/images/board-main.png)
+
 Configuration is normally written with `PUT /devices/{serial}/config` (see the API section), but the
 file on disk has the same shape. Below is a complete, valid `config/<serial>.json` with three tiles
 on one `ButtonGrid` page: a temperature sensor, a light toggle, and a navigation button.
