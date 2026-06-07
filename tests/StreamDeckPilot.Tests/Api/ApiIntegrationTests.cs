@@ -171,4 +171,65 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Contains("ghost-page", await response.Content.ReadAsStringAsync());
     }
+
+    // --- Navigation troubleshooting endpoints ---
+
+    private static StringContent TwoPageConfigBody(string serial) =>
+        new(JsonSerializer.Serialize(
+            new DeviceConfig(1, serial, [
+                new ButtonGridPage("main", [
+                    new("m0", 0, "main", new(null, null, null), null, [], new Dictionary<string, IReadOnlyList<ButtonAction>>())
+                ]),
+                new ButtonGridPage("second", [
+                    new("s0", 0, "second", new(null, null, null), null, [], new Dictionary<string, IReadOnlyList<ButtonAction>>())
+                ]),
+            ]),
+            JsonOptions.Default),
+            Encoding.UTF8, "application/json");
+
+    [Fact]
+    public async Task Navigate_ValidPage_SetsActivePage()
+    {
+        await _factory.SeedDeviceAsync("SN010");
+        var client = _factory.CreateAuthenticatedClient();
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await client.PutAsync("/devices/SN010/config", TwoPageConfigBody("SN010"))).StatusCode);
+
+        var nav = await client.PostAsJsonAsync("/devices/SN010/navigate", new { pageId = "second" });
+        Assert.Equal(HttpStatusCode.OK, nav.StatusCode);
+        var navBody = await nav.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("second", navBody.GetProperty("activePageId").GetString());
+        Assert.False(navBody.GetProperty("rendered").GetBoolean()); // no device connected in tests
+
+        // The active page now reflects the navigation.
+        var active = await client.GetFromJsonAsync<JsonElement>("/devices/SN010/active-page");
+        Assert.Equal("second", active.GetProperty("activePageId").GetString());
+        var pages = active.GetProperty("availablePages").EnumerateArray().Select(e => e.GetString()).ToArray();
+        Assert.Contains("main", pages);
+        Assert.Contains("second", pages);
+    }
+
+    [Fact]
+    public async Task Navigate_UnknownPage_Returns400WithAvailablePages()
+    {
+        await _factory.SeedDeviceAsync("SN011");
+        var client = _factory.CreateAuthenticatedClient();
+        await client.PutAsync("/devices/SN011/config", TwoPageConfigBody("SN011"));
+
+        var nav = await client.PostAsJsonAsync("/devices/SN011/navigate", new { pageId = "does-not-exist" });
+        Assert.Equal(HttpStatusCode.BadRequest, nav.StatusCode);
+        var json = await nav.Content.ReadAsStringAsync();
+        Assert.Contains("does-not-exist", json);
+        Assert.Contains("main", json); // available pages echoed back
+    }
+
+    [Fact]
+    public async Task Navigate_NoConfig_Returns404()
+    {
+        await _factory.SeedDeviceAsync("SN012"); // catalogue only, no config
+        var client = _factory.CreateAuthenticatedClient();
+
+        var nav = await client.PostAsJsonAsync("/devices/SN012/navigate", new { pageId = "main" });
+        Assert.Equal(HttpStatusCode.NotFound, nav.StatusCode);
+    }
 }

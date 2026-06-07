@@ -104,6 +104,55 @@ public class DeviceSupervisorTests : IDisposable
     }
 
     [Fact]
+    public async Task Navigation_BlanksKeysNotBoundOnTargetPage()
+    {
+        var board = new FakeMacroBoard { Serial = "SN200" };
+        var opts = Options.Create(new StorageOptions { BaseDirectory = _storageDir });
+        var configStore = new ConfigStore(opts);
+
+        var empty = new Dictionary<string, IReadOnlyList<ButtonAction>>();
+        // "main" uses keys 0,1,2; "second" uses only key 0.
+        var config = new DeviceConfig(1, "SN200", [
+            new ButtonGridPage("main", [
+                new("m0", 0, "main", new(null, null, null), null, [], empty),
+                new("m1", 1, "main", new(null, null, null), null, [], empty),
+                new("m2", 2, "main", new(null, null, null), null, [], empty),
+            ]),
+            new ButtonGridPage("second", [
+                new("s0", 0, "second", new(null, null, null), null, [], empty),
+            ]),
+        ]);
+        await configStore.SaveAsync(config);
+
+        var svc = new DeviceSupervisorService(
+            new FakeStreamDeckLibrary(board),
+            new CatalogueStore(opts),
+            configStore,
+            new DesiredStateStore(),
+            new ActivePageStore(),
+            new DeviceRenderer(),
+            NullLogger<DeviceSupervisorService>.Instance,
+            pollInterval: TimeSpan.FromMinutes(60));
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        await svc.StartAsync(cts.Token);
+        await Task.Delay(200, CancellationToken.None); // initial render of "main"
+
+        // Navigate to a page that does not use keys 1 and 2.
+        board.RenderCalls.Clear();
+        svc.SetActivePage("SN200", "second");
+
+        var keysWritten = board.RenderCalls.Select(c => c.KeyIndex).ToHashSet();
+        // Every physical key is rewritten so nothing stale survives the page change…
+        Assert.Equal(board.Keys.Count, keysWritten.Count);
+        // …including the keys that were bound on "main" but are absent on "second".
+        Assert.Contains(1, keysWritten);
+        Assert.Contains(2, keysWritten);
+
+        await svc.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task TwoDevices_FaultOneDoesNotAffectOther()
     {
         var board1 = new FakeMacroBoard { Serial = "SN101", Path = "/fake/0" };
