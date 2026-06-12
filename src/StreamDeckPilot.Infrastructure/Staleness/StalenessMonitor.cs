@@ -27,7 +27,7 @@ public sealed class StalenessMonitor(
         catch (OperationCanceledException) { }
     }
 
-    private async Task TickAsync()
+    internal async Task TickAsync()
     {
         var serials = await configStore.ListSerialsAsync();
         var now = DateTime.UtcNow;
@@ -57,7 +57,11 @@ public sealed class StalenessMonitor(
                         var dimmed = current with { IsDimmed = true };
                         desiredState.Set(serial, page.PageId, button.KeyIndex, dimmed);
                         var board = supervisor.GetBoard(serial);
-                        if (board?.IsConnected == true)
+                        // Only paint the hardware if this button's page is the one on screen.
+                        // Desired state is updated above regardless, so it renders correctly on
+                        // navigation — without this guard a stale button on an off-screen page
+                        // would repaint its key over whatever page is currently displayed.
+                        if (board?.IsConnected == true && supervisor.GetActivePage(serial) == page.PageId)
                             renderer.RenderButton(board, serial, button.KeyIndex, dimmed);
 
                         logger.LogInformation(
@@ -71,7 +75,11 @@ public sealed class StalenessMonitor(
                         var undimmed = current with { IsDimmed = false };
                         desiredState.Set(serial, page.PageId, button.KeyIndex, undimmed);
                         var board = supervisor.GetBoard(serial);
-                        if (board?.IsConnected == true)
+                        // Only paint the hardware if this button's page is the one on screen.
+                        // Desired state is updated above regardless, so it renders correctly on
+                        // navigation — without this guard a stale button on an off-screen page
+                        // would repaint its key over whatever page is currently displayed.
+                        if (board?.IsConnected == true && supervisor.GetActivePage(serial) == page.PageId)
                             renderer.RenderButton(board, serial, button.KeyIndex, undimmed);
                     }
                 }

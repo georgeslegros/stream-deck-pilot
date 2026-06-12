@@ -386,7 +386,9 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         await Task.CompletedTask;
     }
 
-    private void RunPipeline(string serial, string pageId, ButtonDefinition button, string payload)
+    // internal (not private) so the cross-page render-guard regression test can drive a single
+    // message through the full extract→rules→format→desired-state→render path without a broker.
+    internal void RunPipeline(string serial, string pageId, ButtonDefinition button, string payload)
     {
         using var activity = StreamDeckActivitySource.Pipeline.StartActivity("inbound_pipeline");
         activity?.SetTag("mqtt.topic", button.Inbound?.Topic);
@@ -438,8 +440,10 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         // stored above regardless, so an inactive-page button renders correctly on navigation.
         // Without this guard, a live MQTT update paints an off-page tile over the visible page
         // (e.g. climate/setpoint tiles from page 2 bleeding onto page 1).
+        // Strict equality: if the active page is unknown (null) we also skip the paint rather than
+        // fall through — desired state is already stored, and the page renders in full on connect.
         var activePage = _supervisor.GetActivePage(serial);
-        if (activePage is not null && activePage != pageId)
+        if (activePage != pageId)
         {
             _logger.LogDebug("Render skipped for {ButtonId}: page '{PageId}' not active ('{Active}')",
                 button.ButtonId, pageId, activePage);

@@ -96,4 +96,85 @@ public sealed class StalenessMonitorTests : IDisposable
         var store = new LastUpdatedStore();
         Assert.Null(store.GetLastUpdated("SN1", "main", 99));
     }
+
+    // ── Cross-page leak guard (regression) ──────────────────────────────────────
+    // A button that goes stale on a page that is NOT currently displayed must update its
+    // desired state but must NOT paint the hardware (its key belongs to the active page).
+
+    private static DeviceConfig TwoPageStaleConfig() =>
+        new(1, "SN1", [
+            // main: a button with no staleness binding (active page on connect)
+            new ButtonGridPage("main", [
+                new("m0", 0, "main", new DisplaySpec(), null, [], new Dictionary<string, IReadOnlyList<ButtonAction>>())
+            ]),
+            // two: a value button at the same key index, with a short staleness timeout
+            new ButtonGridPage("two", [
+                new("t0", 0, "two", new DisplaySpec(),
+                    new InboundBinding("home/x", "value", null, false, TimeSpan.FromMilliseconds(50)),
+                    [], new Dictionary<string, IReadOnlyList<ButtonAction>>())
+            ]),
+        ]);
+
+    private async Task<(DeviceSupervisorService Supervisor, FakeMacroBoard Board, StalenessMonitor Monitor,
+        DesiredStateStore Desired, LastUpdatedStore LastUpdated)> StartScenarioAsync()
+    {
+        var opts = Options.Create(Opts);
+        var configStore = new ConfigStore(opts);
+        await configStore.SaveAsync(TwoPageStaleConfig());
+
+        var desired = new DesiredStateStore();
+        var lastUpdated = new LastUpdatedStore();
+        var board = new FakeMacroBoard { Serial = "SN1" };
+        var supervisor = new DeviceSupervisorService(
+            new FakeStreamDeckLibrary(board), new CatalogueStore(opts), configStore, desired,
+            new ActivePageStore(), new DeviceRenderer(), NullLogger<DeviceSupervisorService>.Instance,
+            pollInterval: TimeSpan.FromMinutes(60));
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await supervisor.StartAsync(cts.Token);
+        await Task.Delay(200); // discover the board → active page becomes "main"
+
+        var monitor = new StalenessMonitor(configStore, lastUpdated, desired,
+            new DeviceRenderer(), supervisor, NullLogger<StalenessMonitor>.Instance);
+        return (supervisor, board, monitor, desired, lastUpdated);
+    }
+
+    [Fact]
+    public async Task StaleButton_OnInactivePage_UpdatesStateButDoesNotPaint()
+    {
+        var (supervisor, board, monitor, desired, lastUpdated) = await StartScenarioAsync();
+        Assert.Equal("main", supervisor.GetActivePage("SN1"));
+
+        // A live value on the (inactive) "two" page that is about to go stale.
+        desired.Set("SN1", "two", 0, new ButtonRenderState("t0", "#00FF00", null, IconPlacement.Corner, "42", null));
+        lastUpdated.RecordUpdate("SN1", "two", 0);
+        await Task.Delay(200); // exceed the 50ms staleness timeout
+
+        board.RenderCalls.Clear(); // isolate the tick's hardware writes
+        await monitor.TickAsync();
+
+        Assert.True(desired.Get("SN1", "two", 0)?.IsDimmed);   // desired state updated…
+        Assert.Empty(board.RenderCalls);                        // …but nothing painted (page not active)
+
+        await supervisor.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task StaleButton_OnActivePage_Paints()
+    {
+        var (supervisor, board, monitor, desired, lastUpdated) = await StartScenarioAsync();
+        supervisor.SetActivePage("SN1", "two"); // now the "two" page is on screen
+
+        desired.Set("SN1", "two", 0, new ButtonRenderState("t0", "#00FF00", null, IconPlacement.Corner, "42", null));
+        lastUpdated.RecordUpdate("SN1", "two", 0);
+        await Task.Delay(200);
+
+        board.RenderCalls.Clear();
+        await monitor.TickAsync();
+
+        Assert.True(desired.Get("SN1", "two", 0)?.IsDimmed);
+        Assert.Contains(board.RenderCalls, c => c.KeyIndex == 0); // painted, because the page is active
+
+        await supervisor.StopAsync(CancellationToken.None);
+    }
 }
