@@ -30,6 +30,7 @@ var outDir = args.Length > 1 ? args[1] : ".";
 var sampleDataPath = args.Length > 2 ? args[2] : null;
 var cols = args.Length > 3 ? int.Parse(args[3]) : 5;
 var rows = args.Length > 4 ? int.Parse(args[4]) : 3;
+var scale = args.Length > 5 ? int.Parse(args[5]) : 3;   // px-per-tile-px; bump for a zoomed close-up
 Directory.CreateDirectory(outDir);
 
 // Load the config and migrate it to the current schema (handles v1 files).
@@ -52,13 +53,14 @@ var composer = new KeyBitmapComposer(new IconResolver(
     new CustomImageSource(Options.Create(new StorageOptions { BaseDirectory = baseDir })),
     NullLogger<IconResolver>.Instance));
 
-const int Key = 72, Scale = 3, Gap = 18;
-const int Cell = Key * Scale;
-int boardW = cols * Cell + (cols + 1) * Gap;
-int boardH = rows * Cell + (rows + 1) * Gap;
+const int Key = 72;
+int gap = 6 * scale;
+int cell = Key * scale;
+int boardW = cols * cell + (cols + 1) * gap;
+int boardH = rows * cell + (rows + 1) * gap;
 
 (int X, int Y) CellXy(int idx) =>
-    (Gap + idx % cols * (Cell + Gap), Gap + idx / cols * (Cell + Gap));
+    (gap + idx % cols * (cell + gap), gap + idx / cols * (cell + gap));
 
 ButtonRenderState BuildState(ButtonDefinition b, SampleDatum? s)
 {
@@ -79,7 +81,7 @@ foreach (var page in config.Pages.OfType<ButtonGridPage>())
     for (var i = 0; i < cols * rows; i++)
     {
         var (x, y) = CellXy(i);
-        using var black = new Image<Rgba32>(Cell, Cell, new Rgba32(0, 0, 0));
+        using var black = new Image<Rgba32>(cell, cell, new Rgba32(0, 0, 0));
         board.Mutate(c => c.DrawImage(black, new Point(x, y), 1f));
     }
 
@@ -87,7 +89,7 @@ foreach (var page in config.Pages.OfType<ButtonGridPage>())
     {
         if (b.KeyIndex < 0 || b.KeyIndex >= cols * rows) continue;
         using var key = composer.ComposeImage(BuildState(b, sample.GetValueOrDefault(b.ButtonId)), config.Serial);
-        key.Mutate(c => c.Resize(Cell, Cell, KnownResamplers.Bicubic));
+        key.Mutate(c => c.Resize(cell, cell, KnownResamplers.Bicubic));
         var (x, y) = CellXy(b.KeyIndex);
         board.Mutate(c => c.DrawImage(key, new Point(x, y), 1f));
     }

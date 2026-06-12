@@ -15,6 +15,21 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
 {
     private const int Size = 72;
 
+    // ── Corner-icon watermark (experimental, tunable) ────────────────────────────
+    // IconPlacement.Corner no longer draws a tiny top-left glyph; it draws a large, faint
+    // watermark anchored to the tile's RIGHT edge, sitting UNDER the hero value and caption.
+    // These consts are the only knobs — adjust freely.
+
+    // Glyph diameter in px. ~15% larger than the 66px centre hero icon.
+    private const int WatermarkSize = 76;
+    // Compositing opacity (0..1). Low so the background colour reads through it.
+    private const float WatermarkOpacity = 0.22f;
+    // Centred on the tile (behind the text). Slightly larger than the tile, so a few px clip on
+    // each edge — intentional. (For a right-edge half-icon instead, use `Size - WatermarkSize / 2`.)
+    private const int WatermarkLeft = (Size - WatermarkSize) / 2;
+    // Vertically centred; may be slightly negative (clips top/bottom) — intentional.
+    private const int WatermarkTop = (Size - WatermarkSize) / 2;
+
     private static readonly Color DefaultBg = new(new Rgba32(55, 55, 55));
     private static readonly Color InkDark = new(new Rgba32(26, 26, 26));
 
@@ -55,7 +70,8 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
         if (state.IconReference is not null)
         {
             if (state.IconPlacement == IconPlacement.Corner)
-                DrawIcon(image, state.IconReference, serial, ink, size: 27, x: 6, y: 6, centred: false);
+                // Faint right-anchored watermark, drawn UNDER the hero text/caption below.
+                DrawWatermark(image, state.IconReference, serial, ink);
             else if (state.IconPlacement == IconPlacement.Center && !hasCenter)
             {
                 // ~1.5x larger, clamped to the 72px tile: a full 1.5x (84/60) would overflow the
@@ -123,6 +139,46 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
                 Tint(icon, ink);
                 var px = centred ? (Size - size) / 2 : x;
                 image.Mutate(ctx => ctx.DrawImage(icon, new Point(px, y), 1f));
+            }
+        }
+        catch { /* non-fatal: leave background visible */ }
+    }
+
+    // Large, faint, right-anchored watermark for IconPlacement.Corner. The glyph is resized and
+    // tinted like a normal icon, then composited at WatermarkOpacity with its centre on the tile's
+    // right edge so only the left half shows. Because the placement is partly outside the tile,
+    // ImageSharp's DrawImage (which requires the overlay rectangle to lie within bounds) would
+    // throw — so we crop the resized glyph to the visible region and composite that crop at the
+    // clamped on-tile origin. Drawn before the hero text, so the text always sits on top.
+    private void DrawWatermark(Image<Rgba32> image, string? reference, string serial, Color ink)
+    {
+        if (reference is null) return;
+        var icon = iconResolver.ResolveImage(reference, serial, WatermarkSize);
+        if (icon is null) return;
+        try
+        {
+            using (icon)
+            {
+                icon.Mutate(i => i.Resize(new ResizeOptions
+                {
+                    Size = new Size(WatermarkSize, WatermarkSize),
+                    Sampler = KnownResamplers.Lanczos3,
+                }));
+                Tint(icon, ink);
+
+                // Intersect the glyph's target rectangle (WatermarkLeft, WatermarkTop, WxW) with the
+                // tile (0,0,Size,Size). cropX/cropY are the source offset into the glyph; destX/destY
+                // the on-tile origin; cropW/cropH the overlap size. All guaranteed in-bounds.
+                var destX = Math.Max(0, WatermarkLeft);
+                var destY = Math.Max(0, WatermarkTop);
+                var cropX = destX - WatermarkLeft;
+                var cropY = destY - WatermarkTop;
+                var cropW = Math.Min(WatermarkSize - cropX, Size - destX);
+                var cropH = Math.Min(WatermarkSize - cropY, Size - destY);
+                if (cropW <= 0 || cropH <= 0) return;
+
+                icon.Mutate(i => i.Crop(new Rectangle(cropX, cropY, cropW, cropH)));
+                image.Mutate(ctx => ctx.DrawImage(icon, new Point(destX, destY), WatermarkOpacity));
             }
         }
         catch { /* non-fatal: leave background visible */ }
