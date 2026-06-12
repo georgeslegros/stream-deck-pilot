@@ -143,6 +143,15 @@ Write (replace) the full config for a device. Validated before save. The body mu
 // Response 400 { "errors": ["..."] } on validation failure
 ```
 
+On success the device's live projection is rebuilt immediately (no restart/reconnect): desired
+state is rebuilt from the new config, **every key is cleared and redrawn** (removed/moved buttons
+leave no ghost image), and the device **resets to the first page**.
+
+- **`?resetPage=false`** — keep the device on its current page instead of snapping to the first
+  page. The full key redraw still happens; only the page reset is suppressed. Use this for frequent
+  partial updates while a user may be on another page. (If the current page no longer exists in the
+  new config, it falls back to the first page regardless.)
+
 ### `POST /config/upgrade`
 Migrate a config JSON from any supported schema version to the current version. Does **not** persist. Use this to bring a stored v1 config up to v2 before re-writing it.
 
@@ -178,7 +187,10 @@ Force navigation to a page without publishing an MQTT `Navigate` action — hand
 ```
 
 ### `POST /devices/{serial}/force-render`
-Re-renders all keys from desired state (current page). Useful after manually editing config on disk.
+Rebuilds desired state from the persisted config and does a full clear-and-redraw of the **current**
+page (no page reset) — the same projection rebuild a config `PUT` performs. Useful after editing the
+config file on disk, or to recover the on-screen layout. `202 Accepted`, or `200` with a message if
+the device isn't connected.
 
 ### `POST /devices/{serial}/images`
 Upload a custom icon (PNG or JPEG, max 512 KB). `multipart/form-data`.

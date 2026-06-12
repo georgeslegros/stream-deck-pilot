@@ -363,11 +363,11 @@ key returns `401`. See `docs/api-guide.md` for full request/response shapes and 
 | GET | `/openapi.json` | No | Full OpenAPI 3 schema. |
 | GET | `/devices` | Yes | List catalogued devices (serial, model, key geometry, connection state). |
 | GET | `/devices/{serial}/status` | Yes | Connection state for one device. |
-| POST | `/devices/{serial}/force-render` | Yes | Re-render all keys for a connected device (debug helper). |
+| POST | `/devices/{serial}/force-render` | Yes | Rebuild desired state from config and full clear-and-redraw the current page. |
 | GET | `/devices/{serial}/active-page` | Yes | Current page + available navigation targets. |
 | POST | `/devices/{serial}/navigate` | Yes | Force navigation to a page (re-renders, clears stale keys). `400` unknown/empty page, `404` no config. |
 | GET | `/devices/{serial}/config` | Yes | Read the stored config for a device. |
-| PUT | `/devices/{serial}/config` | Yes | Replace the full config (validated before save). `204` on success, `400` with `errors` on failure. |
+| PUT | `/devices/{serial}/config` | Yes | Replace the full config (validated). On success rebuilds the projection, clears+redraws all keys, resets to the first page (`?resetPage=false` to keep the current page). `204` / `400`. |
 | POST | `/config/upgrade` | Yes | Migrate a config JSON to the current schema version. Does not persist. `422` if unsupported. |
 | GET | `/devices/{serial}/images` | Yes | List custom icons for a device. |
 | POST | `/devices/{serial}/images` | Yes | Upload a custom icon (PNG/JPEG, max 512 KB). Returns `{"ref":"custom:..."}`. |

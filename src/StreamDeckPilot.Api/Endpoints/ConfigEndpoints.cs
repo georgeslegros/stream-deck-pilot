@@ -4,6 +4,7 @@ using StreamDeckPilot.Core.Models.Config;
 using StreamDeckPilot.Core.Validation;
 using StreamDeckPilot.Infrastructure.Mqtt;
 using StreamDeckPilot.Infrastructure.Persistence;
+using StreamDeckPilot.Infrastructure.Supervision;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using static StreamDeckPilot.Core.SchemaVersions;
@@ -22,7 +23,7 @@ public static class ConfigEndpoints
 
         app.MapPut("/devices/{serial}/config", async (string serial,
             HttpRequest request, CatalogueStore catalogue, ConfigStore configStore,
-            IConfigChangeNotifier notifier) =>
+            IConfigChangeNotifier notifier, DeviceSupervisorService supervisor) =>
         {
             var cat = await catalogue.LoadAsync();
             var device = cat.Devices.FirstOrDefault(d => d.Serial == serial);
@@ -50,6 +51,15 @@ public static class ConfigEndpoints
 
             await configStore.SaveAsync(config);
             await notifier.NotifyConfigChangedAsync(serial);
+
+            // Rebuild the live projection: a full clear-and-redraw always happens (removed/moved
+            // buttons leave no ghost); the page reset is opt-out via ?resetPage=false so frequent
+            // partial updates can keep the user on their current page.
+            var resetPage = true;
+            if (request.Query.TryGetValue("resetPage", out var rp) && bool.TryParse(rp, out var parsed))
+                resetPage = parsed;
+            await supervisor.ApplyConfigChangeAsync(serial, resetActivePage: resetPage);
+
             return Results.NoContent();
         });
 

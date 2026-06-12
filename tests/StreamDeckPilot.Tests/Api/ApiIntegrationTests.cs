@@ -224,6 +224,38 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task PutConfig_ResetsToFirstPage_ByDefault()
+    {
+        await _factory.SeedDeviceAsync("SN020");
+        var client = _factory.CreateAuthenticatedClient();
+
+        await client.PutAsync("/devices/SN020/config", TwoPageConfigBody("SN020"));
+        await client.PostAsJsonAsync("/devices/SN020/navigate", new { pageId = "second" });
+
+        // A fresh PUT (default resetPage=true) snaps the active page back to the first page.
+        await client.PutAsync("/devices/SN020/config", TwoPageConfigBody("SN020"));
+
+        var active = await client.GetFromJsonAsync<JsonElement>("/devices/SN020/active-page");
+        Assert.Equal("main", active.GetProperty("activePageId").GetString());
+    }
+
+    [Fact]
+    public async Task PutConfig_ResetPageFalse_PreservesCurrentPage()
+    {
+        await _factory.SeedDeviceAsync("SN021");
+        var client = _factory.CreateAuthenticatedClient();
+
+        await client.PutAsync("/devices/SN021/config", TwoPageConfigBody("SN021"));
+        await client.PostAsJsonAsync("/devices/SN021/navigate", new { pageId = "second" });
+
+        // ?resetPage=false keeps the user on their current page (for partial updates).
+        await client.PutAsync("/devices/SN021/config?resetPage=false", TwoPageConfigBody("SN021"));
+
+        var active = await client.GetFromJsonAsync<JsonElement>("/devices/SN021/active-page");
+        Assert.Equal("second", active.GetProperty("activePageId").GetString());
+    }
+
+    [Fact]
     public async Task Navigate_NoConfig_Returns404()
     {
         await _factory.SeedDeviceAsync("SN012"); // catalogue only, no config

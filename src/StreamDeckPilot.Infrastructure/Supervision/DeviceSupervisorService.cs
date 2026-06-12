@@ -179,21 +179,24 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
             _activePages.SetActivePage(serial, pageId);
         }
 
-        // Seed placeholder state for every button that has no real value yet.
-        // Run on every connect/reconnect so buttons added after first connect are not skipped.
+        SeedDesiredState(serial, config);
+        _renderer.RenderAll(board, serial, pageId, _desiredState);
+    }
+
+    // Seed placeholder state for every button that has no real value yet. On connect this preserves
+    // any live MQTT value already present (the dimmed/empty check); after a Clear (config change) it
+    // seeds every button. Text zones fall back to their static labels until live data resolves them.
+    private void SeedDesiredState(string serial, DeviceConfig config)
+    {
         foreach (var page in config.Pages)
         {
             if (page is not ButtonGridPage grid) continue;
             foreach (var button in grid.Buttons)
             {
-                // Only initialise to placeholder if MQTT has not already provided a real value.
                 var existing = _desiredState.Get(serial, page.PageId, button.KeyIndex);
                 if (existing is { IsDimmed: false }) continue;
 
                 var placeholder = button.Inbound?.ExpectsRetained == true;
-
-                // No live data yet → text zones fall back to their static labels (templates
-                // have nothing to resolve against, so only a zone's Label can show).
                 _desiredState.Set(serial, page.PageId, button.KeyIndex, new ButtonRenderState(
                     button.ButtonId,
                     null,
@@ -204,7 +207,43 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
                     IsDimmed: placeholder));
             }
         }
+    }
 
-        _renderer.RenderAll(board, serial, pageId, _desiredState);
+    /// <summary>
+    /// Re-applies the persisted config to the live projection without a restart or reconnect:
+    /// rebuilds desired state from the new config (so removed/moved buttons leave no ghost),
+    /// optionally resets to the first page, and fully repaints the board — the same full
+    /// clear-and-redraw that happens on connect. A full key repaint always happens; only the
+    /// page reset is gated by <paramref name="resetActivePage"/>. Safe when the device is offline
+    /// (state is updated and paints on next connect).
+    /// </summary>
+    public async Task ApplyConfigChangeAsync(string serial, bool resetActivePage)
+    {
+        var board = _boards.TryGetValue(serial, out var b) ? b : null;
+        var config = await _configStore.LoadAsync(serial);
+
+        // Rebuild from scratch so a key removed/moved in the new layout leaves no stale image.
+        _desiredState.Clear(serial);
+
+        if (config is null || config.Pages.Count == 0)
+        {
+            _activePages.Clear(serial);
+            if (board?.IsConnected == true)
+                _renderer.RenderAll(board, serial, string.Empty, _desiredState); // blanks every key
+            return;
+        }
+
+        // Reset to the first page on request; otherwise keep the current page — but fall back to
+        // the first page if the current one no longer exists in the new config.
+        var pageIds = config.Pages.Select(p => p.PageId).ToHashSet();
+        var pageId = _activePages.GetActivePage(serial);
+        if (resetActivePage || pageId is null || !pageIds.Contains(pageId))
+            pageId = config.Pages[0].PageId;
+        _activePages.SetActivePage(serial, pageId);
+
+        SeedDesiredState(serial, config);
+
+        if (board?.IsConnected == true)
+            _renderer.RenderAll(board, serial, pageId, _desiredState);
     }
 }

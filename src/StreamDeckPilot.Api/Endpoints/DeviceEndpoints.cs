@@ -39,16 +39,16 @@ public static class DeviceEndpoints
             });
         });
 
-        app.MapPost("/devices/{serial}/force-render", (string serial,
-            DeviceSupervisorService supervisor, IDeviceRenderer renderer, DesiredStateStore desiredState) =>
+        app.MapPost("/devices/{serial}/force-render", async (string serial,
+            DeviceSupervisorService supervisor) =>
         {
             var board = supervisor.GetBoard(serial);
             if (board is null || !board.IsConnected) return Results.Ok(new { message = "Device not connected" });
 
-            var pageId = supervisor.GetActivePage(serial);
-            if (pageId is null) return Results.Ok(new { message = "No active page" });
-
-            renderer.RenderAll(board, serial, pageId, desiredState);
+            // Rebuild desired state from the persisted config and fully clear-and-redraw the current
+            // page (no page reset). This is the same projection rebuild a config PUT performs, so a
+            // force-render reflects the latest config rather than just repainting stale state.
+            await supervisor.ApplyConfigChangeAsync(serial, resetActivePage: false);
             return Results.Accepted();
         });
 

@@ -192,4 +192,98 @@ public class DeviceSupervisorTests : IDisposable
         Assert.Equal(DeviceConnectionState.Connected, svc.GetState("SN102"));
         await svc.StopAsync(CancellationToken.None);
     }
+
+    // ── Config-change rebuild (PUT / force-render) ──────────────────────────────
+
+    private static readonly Dictionary<string, IReadOnlyList<ButtonAction>> NoGestures = new();
+
+    private static ButtonDefinition Btn(string id, int key, string page) =>
+        new(id, key, page, new DisplaySpec(), null, [], NoGestures);
+
+    [Fact]
+    public async Task ApplyConfigChange_RemovedButton_BlanksKeyWithFullRepaint()
+    {
+        var configStore = new ConfigStore(Options.Create(new StorageOptions { BaseDirectory = _storageDir }));
+        // Initial layout uses keys 0,1,2.
+        await configStore.SaveAsync(new DeviceConfig(1, "SN300", [
+            new ButtonGridPage("main", [Btn("b0", 0, "main"), Btn("b1", 1, "main"), Btn("b2", 2, "main")])
+        ]));
+
+        var board = new FakeMacroBoard { Serial = "SN300" };
+        var svc = BuildSupervisor(new FakeStreamDeckLibrary(board));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        await svc.StartAsync(cts.Token);
+        await WaitUntilAsync(() => svc.GetState("SN300") == DeviceConnectionState.Connected);
+
+        // New layout removes keys 1 and 2.
+        await configStore.SaveAsync(new DeviceConfig(1, "SN300", [
+            new ButtonGridPage("main", [Btn("b0", 0, "main")])
+        ]));
+
+        board.RenderCalls.Clear();
+        await svc.ApplyConfigChangeAsync("SN300", resetActivePage: true);
+
+        var keysWritten = board.RenderCalls.Select(c => c.KeyIndex).ToHashSet();
+        Assert.Equal(board.Keys.Count, keysWritten.Count);   // every key repainted
+        Assert.Contains(1, keysWritten);                     // removed buttons' keys blanked
+        Assert.Contains(2, keysWritten);
+        Assert.Equal("main", svc.GetActivePage("SN300"));
+
+        await svc.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ApplyConfigChange_PreserveActivePage_KeepsCurrentButResetsOnRequest()
+    {
+        var configStore = new ConfigStore(Options.Create(new StorageOptions { BaseDirectory = _storageDir }));
+        await configStore.SaveAsync(new DeviceConfig(1, "SN301", [
+            new ButtonGridPage("main", [Btn("m0", 0, "main")]),
+            new ButtonGridPage("second", [Btn("s0", 0, "second")]),
+        ]));
+
+        var board = new FakeMacroBoard { Serial = "SN301" };
+        var svc = BuildSupervisor(new FakeStreamDeckLibrary(board));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        await svc.StartAsync(cts.Token);
+        await WaitUntilAsync(() => svc.GetState("SN301") == DeviceConnectionState.Connected);
+
+        svc.SetActivePage("SN301", "second");
+        Assert.Equal("second", svc.GetActivePage("SN301"));
+
+        await svc.ApplyConfigChangeAsync("SN301", resetActivePage: false);
+        Assert.Equal("second", svc.GetActivePage("SN301"));   // preserved
+
+        await svc.ApplyConfigChangeAsync("SN301", resetActivePage: true);
+        Assert.Equal("main", svc.GetActivePage("SN301"));      // reset to first
+
+        await svc.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ApplyConfigChange_PreserveActivePage_FallsBackWhenPageRemoved()
+    {
+        var configStore = new ConfigStore(Options.Create(new StorageOptions { BaseDirectory = _storageDir }));
+        await configStore.SaveAsync(new DeviceConfig(1, "SN302", [
+            new ButtonGridPage("main", [Btn("m0", 0, "main")]),
+            new ButtonGridPage("second", [Btn("s0", 0, "second")]),
+        ]));
+
+        var board = new FakeMacroBoard { Serial = "SN302" };
+        var svc = BuildSupervisor(new FakeStreamDeckLibrary(board));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        await svc.StartAsync(cts.Token);
+        await WaitUntilAsync(() => svc.GetState("SN302") == DeviceConnectionState.Connected);
+
+        svc.SetActivePage("SN302", "second");
+
+        // New config no longer has "second" — even with preserve, must fall back to the first page.
+        await configStore.SaveAsync(new DeviceConfig(1, "SN302", [
+            new ButtonGridPage("main", [Btn("m0", 0, "main")])
+        ]));
+        await svc.ApplyConfigChangeAsync("SN302", resetActivePage: false);
+
+        Assert.Equal("main", svc.GetActivePage("SN302"));
+
+        await svc.StopAsync(CancellationToken.None);
+    }
 }
