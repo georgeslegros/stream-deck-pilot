@@ -13,7 +13,28 @@ public class DeviceSupervisorTests : IDisposable
     private readonly string _storageDir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
 
     public DeviceSupervisorTests() => Directory.CreateDirectory(_storageDir);
-    public void Dispose() => Directory.Delete(_storageDir, recursive: true);
+
+    public void Dispose()
+    {
+        // Teardown can race with the supervisor's background work (catalogue writes, and the
+        // fire-and-forget connection handlers that StopAsync does not await). A transient file
+        // lock under parallel test load must not fail the test, so retry briefly then give up.
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            try { Directory.Delete(_storageDir, recursive: true); return; }
+            catch (DirectoryNotFoundException) { return; }
+            catch (IOException) { Thread.Sleep(50); }
+            catch (UnauthorizedAccessException) { Thread.Sleep(50); }
+        }
+    }
+
+    // Polls a condition instead of guessing with a fixed delay — fast on an idle machine,
+    // tolerant when the CPU is saturated running the whole suite in parallel.
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        for (var i = 0; i < 200 && !condition(); i++)
+            await Task.Delay(20, CancellationToken.None);
+    }
 
     private DeviceSupervisorService BuildSupervisor(FakeStreamDeckLibrary library)
     {
@@ -37,7 +58,7 @@ public class DeviceSupervisorTests : IDisposable
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
         await svc.StartAsync(cts.Token);
-        await Task.Delay(200, CancellationToken.None); // let the scan complete
+        await WaitUntilAsync(() => svc.GetState("SN001") == DeviceConnectionState.Connected);
 
         Assert.Equal(DeviceConnectionState.Connected, svc.GetState("SN001"));
         await svc.StopAsync(CancellationToken.None);
@@ -51,10 +72,10 @@ public class DeviceSupervisorTests : IDisposable
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
         await svc.StartAsync(cts.Token);
-        await Task.Delay(200, CancellationToken.None);
+        await WaitUntilAsync(() => svc.GetState("SN002") == DeviceConnectionState.Connected);
 
         board.SimulateDisconnect();
-        await Task.Delay(100, CancellationToken.None);
+        await WaitUntilAsync(() => svc.GetState("SN002") == DeviceConnectionState.Disconnected);
 
         Assert.Equal(DeviceConnectionState.Disconnected, svc.GetState("SN002"));
         await svc.StopAsync(CancellationToken.None);
@@ -161,10 +182,11 @@ public class DeviceSupervisorTests : IDisposable
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
         await svc.StartAsync(cts.Token);
-        await Task.Delay(200, CancellationToken.None);
+        await WaitUntilAsync(() => svc.GetState("SN101") == DeviceConnectionState.Connected
+                                && svc.GetState("SN102") == DeviceConnectionState.Connected);
 
         board1.SimulateDisconnect();
-        await Task.Delay(100, CancellationToken.None);
+        await WaitUntilAsync(() => svc.GetState("SN101") == DeviceConnectionState.Disconnected);
 
         Assert.Equal(DeviceConnectionState.Disconnected, svc.GetState("SN101"));
         Assert.Equal(DeviceConnectionState.Connected, svc.GetState("SN102"));
