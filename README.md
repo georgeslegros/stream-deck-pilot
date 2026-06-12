@@ -116,6 +116,32 @@ curl http://localhost:8080/health
 # {"status":"healthy"}
 ```
 
+### Pulling the published image (GHCR)
+
+Releases publish a multi-arch image (`linux/amd64` + `linux/arm64`) to the GitHub Container
+Registry, so the homelab doesn't have to build it:
+
+```bash
+docker pull ghcr.io/georgeslegros/stream-deck-pilot:latest   # or a pinned version, e.g. :1.0.0
+```
+
+Swap `stream-deck-pilot` for `ghcr.io/georgeslegros/stream-deck-pilot:latest` in the `docker run`
+command (or as `image:` in compose) to run the published build instead of a local one.
+
+### Cutting a release
+
+A GitHub Actions workflow (`.github/workflows/release.yml`) builds and pushes the image on every
+**published GitHub Release**:
+
+1. Create a release with a semver tag, e.g. `v1.0.0` (`gh release create v1.0.0 --generate-notes`).
+2. The workflow builds both architectures and pushes `ghcr.io/georgeslegros/stream-deck-pilot`
+   tagged `1.0.0`, `1.0`, `1`, and `latest`.
+
+It uses the built-in `GITHUB_TOKEN` — no secrets to configure. **One-time:** after the first
+release, set the package's visibility to **Public** (repo → Packages → the package → Package
+settings) so it can be pulled without authentication. (CI pushes don't run; the image is built only
+on a release.)
+
 ---
 
 ## 4. Configuration reference
