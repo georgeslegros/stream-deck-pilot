@@ -303,7 +303,7 @@ Conditions are validated when the config is written. A malformed or unknown cond
 | `"heat"` / `true` | JSON string unquoted / `true` |
 | `{"temperature": 21.5}` | `valueField` path, e.g. `temperature` or a dotted `state.mode` |
 
-If a JSON object yields no usable value, the update is skipped and the tile keeps its last value. That happens when `valueField` is missing, or when `valueField` is `null` and there's no `value` key, and also for `null`, an array, an object at the path, or an empty payload. A warning is logged and the message counts as dropped (`no_value`). Generic publishers such as Home Assistant `mqtt_statestream` (bare state text per entity topic) work directly, combined with text rules (`eq:`/`in:`).
+If a JSON object yields no usable value, the update is skipped and the tile keeps its last value. That happens when `valueField` is missing, or when `valueField` is `null` and there's no `value` key, and also for a `null` field, an object at the path, or a payload that is empty or literally `null` or `[]`. A warning is logged and the message counts as dropped (`no_value`). Generic publishers such as Home Assistant `mqtt_statestream` (bare state text per entity topic) work directly, combined with text rules (`eq:`/`in:`).
 Add a `label` field (and point `inbound.labelField` at it) when you want a live string in the `{label}` token, e.g. `{"value": 22.0, "label": "22/18"}`.
 Publishers should set the **retain** flag so the app populates immediately on start.
 

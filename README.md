@@ -394,8 +394,8 @@ resolver tries built-in, then custom, then a fallback — it never throws.
 **Fallback:** a JSON object is read through `valueField`, or its `value` key when `valueField` is `null`.
 When that finds nothing usable, the update is **skipped**: the tile keeps its last value, a warning
 is logged, and the message is counted as dropped with reason `no_value`. This covers a missing key, a
-path pointing at an object or array, `null`, an empty payload, or a top-level array. If no usable
-value follows, `stalenessTimeout` dims the tile as usual.
+path pointing at an object or array, a `null` field, and payloads that are empty or literally `null`
+or `[]`. If no usable value follows, `stalenessTimeout` dims the tile as usual.
 
 Example: Home Assistant `mqtt_statestream` publishes each entity's state as bare text, e.g.
 `on`, `21.5` or `unavailable`, on its own topic. A button can bind to that state topic with
