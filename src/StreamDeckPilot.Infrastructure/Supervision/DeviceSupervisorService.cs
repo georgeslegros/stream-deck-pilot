@@ -161,13 +161,13 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
             board.KeyStateChanged += (_, e) =>
             {
                 if (!e.IsDown || !IsCurrentBoard(serial, board)) return;
-                _metrics?.ButtonPresses.Add(1, [new("serial", serial), new("key", e.Key)]);
-                // A press on a dark deck only wakes it; its gesture must not run.
+                // A press on a dark deck only wakes it; its gesture must not run, nor is it counted.
                 if (_brightness.OnKeyPressed())
                 {
                     _logger.LogInformation("Key {Key} on {Serial} pressed while dark — woke deck, press swallowed", e.Key, serial);
                     return;
                 }
+                _metrics?.ButtonPresses.Add(1, [new("serial", serial), new("key", e.Key)]);
                 ButtonPressed?.Invoke(serial, e.Key);
             };
 

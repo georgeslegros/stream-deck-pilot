@@ -289,22 +289,16 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
     // Subscriptions never change after connect; config edits only mutate the in-memory index.
     private async Task SubscribeWildcardAsync(CancellationToken ct)
     {
-        var filter = new MqttTopicFilterBuilder()
-            .WithTopic(_opts.TopicPrefix)
-            // QoS 1 (AtLeastOnce) is the RabbitMQ-correct choice here. QoS 0 against RabbitMQ's MQTT
-            // plugin gets the specialized rabbit_mqtt_qos0_queue whose "Overload protection" will
-            // SILENTLY DROP messages (never redelivered) when the connection mailbox exceeds
-            // mqtt.mailbox_soft_limit (default 200) AND the socket is under TCP backpressure — exactly
-            // the slow-consumer/large-burst condition this service hits while rendering. The QoS1
-            // "prefetch=10 stall" only wedges if the client never PUBACKs; MQTTnet auto-acks QoS1 on
-            // handler return, and OnMessageReceivedAsync returns immediately after a non-blocking
-            // channel write, so PUBACKs flow and the prefetch window never sticks. QoS1 + the existing
-            // unbounded-channel offload gives at-least-once delivery without the silent-drop hazard.
-            .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
-            .Build();
+        var options = new MqttClientSubscribeOptionsBuilder().WithTopicFilter(BuildFilter(_opts.TopicPrefix));
 
-        var result = await _client.SubscribeAsync(
-            new MqttClientSubscribeOptionsBuilder().WithTopicFilter(filter).Build(), ct);
+        // The brightness set topic normally sits under the wildcard; subscribe to it explicitly
+        // only when it was configured outside it (a duplicate overlapping subscription could make
+        // the broker deliver each message twice).
+        var setTopic = _brightness.Options.SetTopic;
+        if (!IsCoveredBy(setTopic, _opts.TopicPrefix))
+            options.WithTopicFilter(BuildFilter(setTopic));
+
+        var result = await _client.SubscribeAsync(options.Build(), ct);
 
         foreach (var item in result.Items)
         {
@@ -317,11 +311,11 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
                 or MqttClientSubscribeResultCode.GrantedQoS2;
             if (granted)
             {
-                _logger.LogInformation("Subscribed wildcard {Topic} → {ResultCode}", item.TopicFilter.Topic, item.ResultCode);
+                _logger.LogInformation("Subscribed {Topic} → {ResultCode}", item.TopicFilter.Topic, item.ResultCode);
             }
             else
             {
-                _logger.LogError("Wildcard subscription REJECTED for {Topic} — ResultCode={ResultCode}. Check RabbitMQ topic permissions for user '{User}'",
+                _logger.LogError("Subscription REJECTED for {Topic} — ResultCode={ResultCode}. Check broker topic permissions for user '{User}'",
                     item.TopicFilter.Topic, item.ResultCode, _opts.Username);
                 throw new InvalidOperationException(
                     $"MQTT subscription to '{item.TopicFilter.Topic}' rejected with {item.ResultCode}; cannot serve inbound state.");
@@ -329,7 +323,23 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         }
     }
 
-    // ── Inbound pipeline ─────────────────────────────────────────────────────
+    internal static bool IsCoveredBy(string topic, string filter) =>
+        MqttTopicFilterComparer.Compare(topic, filter) == MqttTopicFilterCompareResult.IsMatch;
+
+    private static MQTTnet.Packets.MqttTopicFilter BuildFilter(string topic) =>
+        new MqttTopicFilterBuilder()
+            .WithTopic(topic)
+            // QoS 1 (AtLeastOnce) is the RabbitMQ-correct choice here. QoS 0 against RabbitMQ's MQTT
+            // plugin gets the specialized rabbit_mqtt_qos0_queue whose "Overload protection" will
+            // SILENTLY DROP messages (never redelivered) when the connection mailbox exceeds
+            // mqtt.mailbox_soft_limit (default 200) AND the socket is under TCP backpressure — exactly
+            // the slow-consumer/large-burst condition this service hits while rendering. The QoS1
+            // "prefetch=10 stall" only wedges if the client never PUBACKs; MQTTnet auto-acks QoS1 on
+            // handler return, and OnMessageReceivedAsync returns immediately after a non-blocking
+            // channel write, so PUBACKs flow and the prefetch window never sticks. QoS1 + the existing
+            // unbounded-channel offload gives at-least-once delivery without the silent-drop hazard.
+            .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
+            .Build();
 
     private Task OnMessageReceivedAsync(MqttApplicationMessageReceivedEventArgs e)
     {
@@ -384,6 +394,8 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
             HandleBrightnessSet(payload);
             return;
         }
+        if (topic == _brightness.Options.StateTopic)
+            return; // our own retained state echoed back through the wildcard — not a dropped message
 
         var matches = _topicIndex.Lookup(topic);
         if (matches.Count == 0)

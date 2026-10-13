@@ -62,4 +62,11 @@ public sealed class MqttBrightnessTests : IDisposable
         _svc.HandleBrightnessSet(payload);
         Assert.Equal(40, _brightness.Effective);
     }
+
+    [Theory]
+    [InlineData("home/streamdeck/brightness/set", "home/#", true)]
+    [InlineData("office/streamdeck/brightness", "home/#", false)]
+    [InlineData("home/streamdeck/brightness/set", "home/+/brightness/set", true)]
+    public void SetTopic_ExplicitSubscriptionOnlyWhenOutsideWildcard(string topic, string filter, bool covered) =>
+        Assert.Equal(covered, MqttClientService.IsCoveredBy(topic, filter));
 }
