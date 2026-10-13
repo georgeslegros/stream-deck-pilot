@@ -13,8 +13,11 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4317
     volumes:
       - stream_deck_data:/data
+    # Fixed node: only works if it exists at container start and the deck never moves to another
+    # hidrawN. For hot-plug / reboot races use a live /dev instead (README "Hot-plug"):
+    #   volumes: [ "/dev:/dev" ]  +  device_cgroup_rules: [ 'c <hidraw-major>:* rmw' ]
     devices:
-      - /dev/hidraw0   # adjust to the correct hidraw node; see Plan 01 Step B
+      - /dev/hidraw0
     restart: unless-stopped
     logging:
       driver: json-file

@@ -6,12 +6,25 @@ namespace StreamDeckPilot.Tests.Supervision;
 public sealed class FakeStreamDeckLibrary : IStreamDeckLibrary
 {
     private readonly List<FakeMacroBoard> _boards;
+    private readonly Lock _lock = new();
 
     public FakeStreamDeckLibrary(params FakeMacroBoard[] boards) =>
         _boards = [..boards];
 
-    public IReadOnlyList<IStreamDeckDeviceRef> Enumerate() =>
-        _boards.Select(b => (IStreamDeckDeviceRef)new FakeDeviceRef(b)).ToList();
+    public int EnumerateCalls { get; private set; }
+
+    // Simulates the kernel creating / removing the hidraw node.
+    public void Plug(FakeMacroBoard board) { lock (_lock) _boards.Add(board); }
+    public void Unplug(FakeMacroBoard board) { lock (_lock) _boards.Remove(board); }
+
+    public IReadOnlyList<IStreamDeckDeviceRef> Enumerate()
+    {
+        lock (_lock)
+        {
+            EnumerateCalls++;
+            return _boards.Select(b => (IStreamDeckDeviceRef)new FakeDeviceRef(b)).ToList();
+        }
+    }
 
     private sealed class FakeDeviceRef(FakeMacroBoard board) : IStreamDeckDeviceRef
     {
