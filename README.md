@@ -92,15 +92,45 @@ docker run -d --name stream-deck-pilot \
   stream-deck-pilot
 ```
 
-If a single `--device /dev/hidrawN` does not work (some hosts re-enumerate the node), fall back to
-`--privileged -v /dev:/dev` and narrow it down once you know the stable node. Prefer the explicit
-`--device` form for production.
+`--device /dev/hidraw0` only works if the node already exists when the container starts, and it
+follows only that one node. For anything unattended, use a live `/dev` (see below).
+
+### Hot-plug: give the container a live `/dev`
+
+Docker gives a container a **copy of `/dev` taken when it starts**. This is true even with
+`--privileged`. Device nodes the kernel creates later never appear inside it. This matters in two
+cases:
+
+- After a host reboot, the container can start before the kernel creates `/dev/hidrawN` for the deck.
+- After an unplug/replug, the deck can come back on a different `hidrawN`.
+
+In both cases the supervisor still sees the deck through `/sys`, but it can't open it, so it never
+connects. It retries every 2 s, so it recovers as soon as the node becomes visible. To make new nodes
+visible, bind-mount the host's `/dev`:
+
+- **Privileged:** `privileged: true` plus `volumes: ["/dev:/dev"]` (`--privileged -v /dev:/dev`).
+- **Non-privileged (preferred):** `volumes: ["/dev:/dev"]` plus
+  `device_cgroup_rules: ['c <hidraw-major>:* rmw']` (`--device-cgroup-rule='c <major>:* rmw'`).
+  The bind mount makes new nodes visible, and the cgroup rule allows opening any hidraw node.
+  The hidraw major number is assigned dynamically, so check it on each host:
+  `grep hidraw /proc/devices` (e.g. `234 hidraw`), or `ls -l /dev/hidraw*` (the first number).
+
+```yaml
+services:
+  stream-deck-pilot:
+    volumes:
+      - stream_deck_data:/data
+      - /dev:/dev
+    device_cgroup_rules:
+      - 'c 234:* rmw'   # hidraw major on this host — check /proc/devices
+```
 
 ### docker-compose
 
 A `docker-compose.yml` is provided. It reads `API_KEY`, `MQTT_HOST`, `MQTT_PORT`, `MQTT_USERNAME`,
 and `MQTT_PASSWORD` from the environment (or an `.env` file), mounts a named `stream_deck_data`
-volume at `/data`, and passes through `/dev/hidraw0`:
+volume at `/data`, and passes through `/dev/hidraw0`. For unattended hosts, switch it to a live `/dev`
+(see [Hot-plug](#hot-plug-give-the-container-a-live-dev)):
 
 ```bash
 API_KEY="$(openssl rand -hex 32)" MQTT_HOST=rabbitmq.local docker compose up -d
