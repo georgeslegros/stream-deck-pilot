@@ -27,6 +27,7 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
     private readonly ConcurrentDictionary<string, DeviceConnectionState> _states = new();
     private readonly ConcurrentDictionary<string, IMacroBoard> _boards = new();
     private readonly ConcurrentDictionary<string, byte> _openedPaths = new();
+    private readonly ConcurrentDictionary<string, string> _boardPaths = new(); // serial → hid path
 
     // Fired when a key is pressed (IsDown=true); subscribers handle the action
     public event Action<string, int>? ButtonPressed;
@@ -49,7 +50,7 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
         _activePages = activePages;
         _renderer = renderer;
         _logger = logger;
-        _pollInterval = pollInterval ?? TimeSpan.FromSeconds(10);
+        _pollInterval = pollInterval ?? TimeSpan.FromSeconds(2);
         _metrics = metrics;
     }
 
@@ -75,19 +76,29 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         StreamDeckHardwareRegistration.Register();
-        await ScanAsync(stoppingToken);
 
+        // Scan forever, not just at startup: after a host boot the container can start before the
+        // kernel creates the hidraw node, and an unplugged deck is only re-opened by a fresh scan.
         using var timer = new PeriodicTimer(_pollInterval);
         try
         {
-            while (await timer.WaitForNextTickAsync(stoppingToken))
-                await ScanAsync(stoppingToken);
+            do
+            {
+                try { await ScanAsync(stoppingToken); }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogError(ex, "Stream Deck scan failed — retrying in {Interval}", _pollInterval);
+                }
+            }
+            while (await timer.WaitForNextTickAsync(stoppingToken));
         }
         catch (OperationCanceledException) { }
     }
 
     private async Task ScanAsync(CancellationToken ct)
     {
+        ReleaseDisconnectedBoards();
+
         IReadOnlyList<IStreamDeckDeviceRef> refs;
         try { refs = _library.Enumerate(); }
         catch (Exception ex)
@@ -102,41 +113,48 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
 
             IMacroBoard board;
             try { board = deviceRef.Open(); }
-            catch { continue; }
-
-            string serial;
-            try
-            {
-                var raw = board.GetSerialNumber();
-                serial = new string(raw.Where(c => !char.IsControl(c)).ToArray());
-            }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to get serial number from device");
-                board.Dispose();
+                _logger.LogDebug(ex, "Stream Deck at {Path} not openable yet — will retry", deviceRef.Path);
+                continue;
+            }
+
+            // StreamDeckSharp returns a disconnected board instead of throwing when the hidraw node
+            // is not usable yet, and a freshly enumerated deck can report an empty serial. Neither
+            // may be registered: drop it and let the next scan try again.
+            var serial = board.IsConnected ? TryReadSerial(board) : null;
+            if (string.IsNullOrEmpty(serial))
+            {
+                _logger.LogWarning("Stream Deck at {Path} not ready (no connection or serial) — will retry", deviceRef.Path);
+                DisposeQuietly(board);
                 continue;
             }
 
             if (!_boards.TryAdd(serial, board))
             {
-                board.Dispose();
+                DisposeQuietly(board);
                 continue;
             }
 
             _openedPaths.TryAdd(deviceRef.Path, 0);
-            _logger.LogInformation("Device {Serial} discovered", serial);
+            _boardPaths[serial] = deviceRef.Path;
+            _logger.LogInformation("Device {Serial} discovered at {Path}", serial, deviceRef.Path);
 
             await _catalogue.AppendDeviceAsync(new(
                 serial, deviceRef.DeviceName,
                 board.Keys.CountY, board.Keys.CountX,
                 DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
 
+            // Events from a board that has since been released (replaced after a replug) are ignored.
             board.ConnectionStateChanged += (_, e) =>
+            {
+                if (!IsCurrentBoard(serial, board)) return;
                 _ = Task.Run(() => HandleConnectionChangeAsync(serial, board, e.NewConnectionState));
+            };
 
             board.KeyStateChanged += (_, e) =>
             {
-                if (!e.IsDown) return;
+                if (!e.IsDown || !IsCurrentBoard(serial, board)) return;
                 ButtonPressed?.Invoke(serial, e.Key);
                 _metrics?.ButtonPresses.Add(1, [new("serial", serial), new("key", e.Key)]);
             };
@@ -145,13 +163,59 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
         }
     }
 
+    // A disconnected board is never reopened by StreamDeckSharp inside a container: it relies on udev
+    // monitor events, which do not reach the container. Release it so the next enumeration opens the
+    // device afresh — whether it comes back on the same hidraw node or a new one.
+    private void ReleaseDisconnectedBoards()
+    {
+        foreach (var (serial, board) in _boards)
+        {
+            if (board.IsConnected) continue;
+            if (!_boards.TryRemove(new KeyValuePair<string, IMacroBoard>(serial, board))) continue;
+
+            if (_boardPaths.TryRemove(serial, out var path))
+                _openedPaths.TryRemove(path, out _);
+
+            _states[serial] = DeviceConnectionState.Disconnected;
+            _logger.LogInformation("Device {Serial} released — waiting for it to reappear", serial);
+            DisposeQuietly(board);
+        }
+    }
+
+    private bool IsCurrentBoard(string serial, IMacroBoard board) =>
+        _boards.TryGetValue(serial, out var current) && ReferenceEquals(current, board);
+
+    private string? TryReadSerial(IMacroBoard board)
+    {
+        try
+        {
+            var raw = board.GetSerialNumber();
+            return raw is null ? null : new string(raw.Where(c => !char.IsControl(c)).ToArray()).Trim();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get serial number from device");
+            return null;
+        }
+    }
+
+    private void DisposeQuietly(IMacroBoard board)
+    {
+        try { board.Dispose(); }
+        catch (Exception ex) { _logger.LogDebug(ex, "Ignoring error while disposing a Stream Deck handle"); }
+    }
+
     private async Task HandleConnectionChangeAsync(string serial, IMacroBoard board, bool connected)
     {
+        // Re-checked here as the handler runs on the thread pool: a released board's late event
+        // must not overwrite the state of the board that replaced it.
+        if (!IsCurrentBoard(serial, board)) return;
+
         if (connected)
         {
-            var wasConnected = _states.TryGetValue(serial, out var prev) && prev == DeviceConnectionState.Connected;
+            var isReconnect = _states.TryGetValue(serial, out var prev) && prev == DeviceConnectionState.Disconnected;
             _states[serial] = DeviceConnectionState.Connected;
-            if (wasConnected) _metrics?.DeviceReconnects.Add(1, [new("serial", serial)]);
+            if (isReconnect) _metrics?.DeviceReconnects.Add(1, [new("serial", serial)]);
             _logger.LogInformation("Device {Serial} connected — rendering from desired state", serial);
             try
             {

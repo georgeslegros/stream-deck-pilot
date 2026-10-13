@@ -36,7 +36,7 @@ public class DeviceSupervisorTests : IDisposable
             await Task.Delay(20, CancellationToken.None);
     }
 
-    private DeviceSupervisorService BuildSupervisor(FakeStreamDeckLibrary library)
+    private DeviceSupervisorService BuildSupervisor(FakeStreamDeckLibrary library, TimeSpan? pollInterval = null)
     {
         var opts = Options.Create(new StorageOptions { BaseDirectory = _storageDir });
         return new DeviceSupervisorService(
@@ -47,7 +47,7 @@ public class DeviceSupervisorTests : IDisposable
             new ActivePageStore(),
             new DeviceRenderer(),
             NullLogger<DeviceSupervisorService>.Instance,
-            pollInterval: TimeSpan.FromMinutes(60)); // disable polling in tests
+            pollInterval: pollInterval ?? TimeSpan.FromMinutes(60)); // disable polling unless asked
     }
 
     [Fact]
@@ -190,6 +190,133 @@ public class DeviceSupervisorTests : IDisposable
 
         Assert.Equal(DeviceConnectionState.Disconnected, svc.GetState("SN101"));
         Assert.Equal(DeviceConnectionState.Connected, svc.GetState("SN102"));
+        await svc.StopAsync(CancellationToken.None);
+    }
+
+    // ── Discovery retries (boot race, not-ready devices, unplug/replug) ────────────
+
+    private static readonly TimeSpan FastPoll = TimeSpan.FromMilliseconds(30);
+
+    [Fact]
+    public async Task DeviceAppearingAfterStartup_IsDiscoveredByLaterScan()
+    {
+        // Container started before the kernel created the hidraw node.
+        var library = new FakeStreamDeckLibrary();
+        var svc = BuildSupervisor(library, FastPoll);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await svc.StartAsync(cts.Token);
+        await WaitUntilAsync(() => library.EnumerateCalls >= 2);
+        Assert.Null(svc.GetBoard("SN400"));
+
+        var board = new FakeMacroBoard { Serial = "SN400" };
+        library.Plug(board);
+        await WaitUntilAsync(() => svc.GetState("SN400") == DeviceConnectionState.Connected);
+
+        Assert.Equal(DeviceConnectionState.Connected, svc.GetState("SN400"));
+        Assert.Same(board, svc.GetBoard("SN400"));
+        await svc.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task DeviceReportingEmptySerial_IsNotRegistered_AndRetried()
+    {
+        var board = new FakeMacroBoard { Serial = "\0\0" };
+        var library = new FakeStreamDeckLibrary(board);
+        var svc = BuildSupervisor(library, FastPoll);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await svc.StartAsync(cts.Token);
+        await WaitUntilAsync(() => library.EnumerateCalls >= 2);
+
+        Assert.Empty(svc.GetAllStates());
+        Assert.True(board.IsDisposed);
+
+        board.Serial = "SN401";
+        await WaitUntilAsync(() => svc.GetState("SN401") == DeviceConnectionState.Connected);
+
+        Assert.Equal(DeviceConnectionState.Connected, svc.GetState("SN401"));
+        Assert.Equal(["SN401"], svc.GetAllStates().Keys);
+        await svc.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task DeviceOpeningDisconnected_IsNotRegistered_AndRetried()
+    {
+        // StreamDeckSharp hands back a disconnected board when the hidraw node can't be opened yet.
+        var board = new FakeMacroBoard { Serial = "SN402", IsConnected = false };
+        var library = new FakeStreamDeckLibrary(board);
+        var svc = BuildSupervisor(library, FastPoll);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await svc.StartAsync(cts.Token);
+        await WaitUntilAsync(() => library.EnumerateCalls >= 2);
+        Assert.Null(svc.GetBoard("SN402"));
+
+        board.IsConnected = true;
+        await WaitUntilAsync(() => svc.GetState("SN402") == DeviceConnectionState.Connected);
+
+        Assert.Equal(DeviceConnectionState.Connected, svc.GetState("SN402"));
+        await svc.StopAsync(CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData("/fake/0")]   // replugged onto the same hidraw node
+    [InlineData("/fake/1")]   // re-enumerated onto a different node
+    public async Task UnplugThenReplug_ReopensDevice_AndRendersDesiredState(string replugPath)
+    {
+        var configStore = new ConfigStore(Options.Create(new StorageOptions { BaseDirectory = _storageDir }));
+        await configStore.SaveAsync(new DeviceConfig(1, "SN403", [
+            new ButtonGridPage("main", [Btn("b0", 0, "main"), Btn("b1", 1, "main")])
+        ]));
+
+        var original = new FakeMacroBoard { Serial = "SN403", Path = "/fake/0" };
+        var library = new FakeStreamDeckLibrary(original);
+        var svc = BuildSupervisor(library, FastPoll);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await svc.StartAsync(cts.Token);
+        await WaitUntilAsync(() => svc.GetState("SN403") == DeviceConnectionState.Connected);
+
+        library.Unplug(original);
+        original.SimulateDisconnect();
+        await WaitUntilAsync(() => original.IsDisposed);
+        Assert.True(original.IsDisposed);
+        Assert.Equal(DeviceConnectionState.Disconnected, svc.GetState("SN403"));
+        Assert.Null(svc.GetBoard("SN403"));
+
+        var replugged = new FakeMacroBoard { Serial = "SN403", Path = replugPath };
+        library.Plug(replugged);
+        await WaitUntilAsync(() => svc.GetState("SN403") == DeviceConnectionState.Connected);
+
+        Assert.Equal(DeviceConnectionState.Connected, svc.GetState("SN403"));
+        Assert.Same(replugged, svc.GetBoard("SN403"));
+        Assert.Equal(replugged.Keys.Count, replugged.RenderCalls.Select(c => c.KeyIndex).Distinct().Count());
+        await svc.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ReleasedBoard_EventsAreIgnored()
+    {
+        var original = new FakeMacroBoard { Serial = "SN404", Path = "/fake/0" };
+        var library = new FakeStreamDeckLibrary(original);
+        var svc = BuildSupervisor(library, FastPoll);
+        var presses = 0;
+        svc.ButtonPressed += (_, _) => Interlocked.Increment(ref presses);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await svc.StartAsync(cts.Token);
+        await WaitUntilAsync(() => svc.GetState("SN404") == DeviceConnectionState.Connected);
+
+        library.Unplug(original);
+        original.SimulateDisconnect();
+        var replugged = new FakeMacroBoard { Serial = "SN404", Path = "/fake/1" };
+        library.Plug(replugged);
+        await WaitUntilAsync(() => ReferenceEquals(svc.GetBoard("SN404"), replugged)
+                                && svc.GetState("SN404") == DeviceConnectionState.Connected);
+
+        // A late disconnect or key press from the stale handle must not leak into the live device.
+        original.SimulateDisconnect();
+        original.SimulateKeyPress(0);
+        await Task.Delay(100, CancellationToken.None);
+
+        Assert.Equal(DeviceConnectionState.Connected, svc.GetState("SN404"));
+        Assert.Equal(0, presses);
         await svc.StopAsync(CancellationToken.None);
     }
 
