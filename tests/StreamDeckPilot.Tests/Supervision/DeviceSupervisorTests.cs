@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using StreamDeckPilot.Core.DeviceState;
 using StreamDeckPilot.Core.Models.Config;
+using StreamDeckPilot.Infrastructure.Brightness;
 using StreamDeckPilot.Infrastructure.Persistence;
 using StreamDeckPilot.Infrastructure.Rendering;
 using StreamDeckPilot.Infrastructure.Supervision;
@@ -36,7 +37,8 @@ public class DeviceSupervisorTests : IDisposable
             await Task.Delay(20, CancellationToken.None);
     }
 
-    private DeviceSupervisorService BuildSupervisor(FakeStreamDeckLibrary library, TimeSpan? pollInterval = null)
+    private DeviceSupervisorService BuildSupervisor(
+        FakeStreamDeckLibrary library, TimeSpan? pollInterval = null, BrightnessController? brightness = null)
     {
         var opts = Options.Create(new StorageOptions { BaseDirectory = _storageDir });
         return new DeviceSupervisorService(
@@ -47,7 +49,8 @@ public class DeviceSupervisorTests : IDisposable
             new ActivePageStore(),
             new DeviceRenderer(),
             NullLogger<DeviceSupervisorService>.Instance,
-            pollInterval: pollInterval ?? TimeSpan.FromMinutes(60)); // disable polling unless asked
+            pollInterval: pollInterval ?? TimeSpan.FromMinutes(60), // disable polling unless asked
+            brightness: brightness);
     }
 
     [Fact]
@@ -317,6 +320,80 @@ public class DeviceSupervisorTests : IDisposable
 
         Assert.Equal(DeviceConnectionState.Connected, svc.GetState("SN404"));
         Assert.Equal(0, presses);
+        await svc.StopAsync(CancellationToken.None);
+    }
+
+    // ── Brightness ───────────────────────────────────────────────────────────────
+
+    private static BrightnessController Brightness(Tests.Brightness.ManualTimeProvider? time = null) =>
+        new(Options.Create(new BrightnessOptions()), timeProvider: time);
+
+    [Fact]
+    public async Task OnConnect_AppliesCurrentBrightness()
+    {
+        using var brightness = Brightness();
+        brightness.SetDesired(20);
+        var board = new FakeMacroBoard { Serial = "SN500" };
+        var svc = BuildSupervisor(new FakeStreamDeckLibrary(board), brightness: brightness);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        await svc.StartAsync(cts.Token);
+        await WaitUntilAsync(() => svc.GetState("SN500") == DeviceConnectionState.Connected);
+
+        Assert.Equal((byte)20, board.Brightness);
+        await svc.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task BrightnessChange_AppliedToConnectedBoard_AndReappliedOnReconnect()
+    {
+        using var brightness = Brightness();
+        var board = new FakeMacroBoard { Serial = "SN501" };
+        var svc = BuildSupervisor(new FakeStreamDeckLibrary(board), brightness: brightness);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        await svc.StartAsync(cts.Token);
+        await WaitUntilAsync(() => svc.GetState("SN501") == DeviceConnectionState.Connected);
+        Assert.Equal((byte)80, board.Brightness);
+
+        brightness.SetDesired(35);
+        Assert.Equal((byte)35, board.Brightness);
+
+        board.SimulateDisconnect();
+        await WaitUntilAsync(() => svc.GetState("SN501") == DeviceConnectionState.Disconnected);
+        board.SetBrightness(100); // the deck's own power-on level after a reconnect
+        board.SimulateReconnect();
+        await WaitUntilAsync(() => board.Brightness == 35);
+
+        Assert.Equal((byte)35, board.Brightness);
+        await svc.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task KeyPress_WhileDark_WakesDeck_AndIsSwallowed()
+    {
+        var time = new Tests.Brightness.ManualTimeProvider();
+        using var brightness = Brightness(time);
+        brightness.SetDesired(0);
+        var board = new FakeMacroBoard { Serial = "SN502" };
+        var svc = BuildSupervisor(new FakeStreamDeckLibrary(board), brightness: brightness);
+        var presses = new List<int>();
+        svc.ButtonPressed += (_, key) => { lock (presses) presses.Add(key); };
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        await svc.StartAsync(cts.Token);
+        await WaitUntilAsync(() => svc.GetState("SN502") == DeviceConnectionState.Connected);
+        Assert.Equal((byte)0, board.Brightness);
+
+        board.SimulateKeyPress(3);   // wakes only
+        Assert.Equal((byte)80, board.Brightness);
+        Assert.Empty(presses);
+
+        board.SimulateKeyPress(4);   // deck is lit: runs normally
+        Assert.Equal([4], presses);
+
+        time.FireAll();              // wake timeout elapses
+        Assert.Equal((byte)0, board.Brightness);
         await svc.StopAsync(CancellationToken.None);
     }
 

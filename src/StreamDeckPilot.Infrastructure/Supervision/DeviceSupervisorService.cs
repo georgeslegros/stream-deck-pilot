@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using OpenMacroBoard.SDK;
+using StreamDeckPilot.Infrastructure.Brightness;
 using StreamDeckPilot.Core.DeviceState;
 using StreamDeckPilot.Core.Models.Config;
 using StreamDeckPilot.Core.Rendering;
@@ -22,6 +24,7 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
     private readonly IDeviceRenderer _renderer;
     private readonly ILogger<DeviceSupervisorService> _logger;
     private readonly TimeSpan _pollInterval;
+    private readonly BrightnessController _brightness;
     private StreamDeckMetrics? _metrics;
 
     private readonly ConcurrentDictionary<string, DeviceConnectionState> _states = new();
@@ -41,7 +44,8 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
         IDeviceRenderer renderer,
         ILogger<DeviceSupervisorService> logger,
         TimeSpan? pollInterval = null,
-        StreamDeckMetrics? metrics = null)
+        StreamDeckMetrics? metrics = null,
+        BrightnessController? brightness = null)
     {
         _library = library;
         _catalogue = catalogue;
@@ -52,6 +56,8 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
         _logger = logger;
         _pollInterval = pollInterval ?? TimeSpan.FromSeconds(2);
         _metrics = metrics;
+        _brightness = brightness ?? new BrightnessController(Options.Create(new BrightnessOptions()));
+        _brightness.EffectiveChanged += ApplyBrightnessToAll;
     }
 
     public DeviceConnectionState GetState(string serial) =>
@@ -155,8 +161,14 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
             board.KeyStateChanged += (_, e) =>
             {
                 if (!e.IsDown || !IsCurrentBoard(serial, board)) return;
-                ButtonPressed?.Invoke(serial, e.Key);
                 _metrics?.ButtonPresses.Add(1, [new("serial", serial), new("key", e.Key)]);
+                // A press on a dark deck only wakes it; its gesture must not run.
+                if (_brightness.OnKeyPressed())
+                {
+                    _logger.LogInformation("Key {Key} on {Serial} pressed while dark — woke deck, press swallowed", e.Key, serial);
+                    return;
+                }
+                ButtonPressed?.Invoke(serial, e.Key);
             };
 
             await HandleConnectionChangeAsync(serial, board, connected: true);
@@ -179,6 +191,19 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
             _states[serial] = DeviceConnectionState.Disconnected;
             _logger.LogInformation("Device {Serial} released — waiting for it to reappear", serial);
             DisposeQuietly(board);
+        }
+    }
+
+    // Reads the current level rather than trusting the event argument, so racing changes (MQTT set
+    // vs. wake timeout) always converge on the latest value.
+    private void ApplyBrightnessToAll(int _)
+    {
+        var level = _brightness.Effective;
+        foreach (var (serial, board) in _boards)
+        {
+            if (!board.IsConnected) continue;
+            try { board.SetBrightness((byte)level); }
+            catch (Exception ex) { _logger.LogWarning(ex, "Failed to set brightness on {Serial}", serial); }
         }
     }
 
@@ -219,7 +244,7 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
             _logger.LogInformation("Device {Serial} connected — rendering from desired state", serial);
             try
             {
-                board.SetBrightness(80);
+                board.SetBrightness((byte)_brightness.Effective);
                 await RenderFromDesiredStateAsync(serial, board);
             }
             catch (Exception ex) { _logger.LogError(ex, "Re-render failed for {Serial}", serial); }

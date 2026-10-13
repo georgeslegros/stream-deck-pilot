@@ -8,6 +8,7 @@ using MQTTnet;
 using MQTTnet.Protocol;
 using StreamDeckPilot.Core.Models.Config;
 using StreamDeckPilot.Core.Rendering;
+using StreamDeckPilot.Infrastructure.Brightness;
 using StreamDeckPilot.Infrastructure.Mqtt.Pipeline;
 using StreamDeckPilot.Infrastructure.Observability;
 using StreamDeckPilot.Infrastructure.Persistence;
@@ -28,6 +29,11 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
     private readonly Staleness.LastUpdatedStore _lastUpdated;
     private readonly StreamDeckMetrics? _metrics;
     private readonly IMqttClient _client;
+    private readonly BrightnessController _brightness;
+
+    // Serialises brightness state publishes; each one reads the CURRENT level, so the last publish
+    // always carries the latest value even when changes race.
+    private readonly SemaphoreSlim _brightnessPublishLock = new(1, 1);
 
     // Single-consumer channel serialises all inbound message processing so ImageSharp never races
     // on its shared MemoryAllocator across concurrent Task.Run threads.
@@ -60,7 +66,8 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         DeviceSupervisorService supervisor,
         Staleness.LastUpdatedStore lastUpdated,
         ILogger<MqttClientService> logger,
-        StreamDeckMetrics? metrics = null)
+        StreamDeckMetrics? metrics = null,
+        BrightnessController? brightness = null)
     {
         _opts = opts.Value;
         _configStore = configStore;
@@ -72,6 +79,8 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         _metrics = metrics;
         _logger = logger;
         _client = new MqttClientFactory().CreateMqttClient();
+        _brightness = brightness ?? new BrightnessController(Options.Create(new BrightnessOptions()));
+        _brightness.EffectiveChanged += level => _ = Task.Run(PublishBrightnessStateAsync);
 
         _client.ApplicationMessageReceivedAsync += OnMessageReceivedAsync;
         // DisconnectedAsync is used for OBSERVABILITY ONLY. The reconnect loop no longer keys off
@@ -203,6 +212,10 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         await _topicIndex.RebuildAsync(_configStore);
         await SubscribeWildcardAsync(ct);
         MarkInbound(); // fresh subscription → reset the silence watchdog baseline
+
+        // Re-assert the applied level so HA's view is correct after a broker restart, or after a
+        // change made while we were disconnected.
+        await PublishBrightnessStateAsync();
 
         _logger.LogInformation("MQTT session established and subscribed; entering keep-alive poll");
     }
@@ -366,6 +379,12 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
 
     private async Task ProcessMessageAsync(string topic, string payload)
     {
+        if (topic == _brightness.Options.SetTopic)
+        {
+            HandleBrightnessSet(payload);
+            return;
+        }
+
         var matches = _topicIndex.Lookup(topic);
         if (matches.Count == 0)
         {
@@ -452,6 +471,56 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         _renderer.RenderButton(board, serial, button.KeyIndex, renderState);
         _logger.LogInformation("Rendered key {KeyIndex} on {Serial} — colour={Colour} center={Center}",
             button.KeyIndex, serial, renderState.BackgroundColour, renderState.CenterText);
+    }
+
+    // ── Brightness ────────────────────────────────────────────────────────────
+
+    internal void HandleBrightnessSet(string payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            // An empty retained payload is how a retained message is cleared — not an error.
+            _logger.LogDebug("Empty payload on {Topic} — ignored", _brightness.Options.SetTopic);
+            return;
+        }
+        if (!BrightnessController.TryParse(payload, out var level))
+        {
+            _logger.LogWarning("Ignoring brightness payload {Payload} on {Topic} — expected 0–100 or {{\"value\": n}}",
+                payload, _brightness.Options.SetTopic);
+            return;
+        }
+        if (level is < 0 or > 100)
+            _logger.LogWarning("Brightness {Level} out of range — clamped to {Clamped}", level, Math.Clamp(level, 0, 100));
+
+        _brightness.SetDesired(level);
+    }
+
+    internal async Task PublishBrightnessStateAsync()
+    {
+        await _brightnessPublishLock.WaitAsync(_stoppingToken);
+        try
+        {
+            if (!_client.IsConnected) return; // re-published on the next connect
+
+            var level = _brightness.Effective;
+            var msg = new MqttApplicationMessageBuilder()
+                .WithTopic(_brightness.Options.StateTopic)
+                .WithPayload(level.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
+                .WithRetainFlag()
+                .Build();
+
+            // Same bounded wait as button publishes: never hang on a half-open socket.
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(_stoppingToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(10));
+            await _client.PublishAsync(msg, cts.Token);
+            _logger.LogInformation("Published brightness {Level} to {Topic}", level, _brightness.Options.StateTopic);
+        }
+        catch (Exception ex) when (!_stoppingToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Failed to publish brightness state to {Topic}", _brightness.Options.StateTopic);
+        }
+        finally { _brightnessPublishLock.Release(); }
     }
 
     // ── Button press handling ─────────────────────────────────────────────────
