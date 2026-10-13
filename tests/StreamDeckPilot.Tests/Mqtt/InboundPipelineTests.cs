@@ -97,6 +97,34 @@ public class InboundPipelineTests
         Assert.Null(colour);
     }
 
+    private static IReadOnlyList<ConditionalRule> ModeRules =>
+    [
+        new("eq:unavailable", "#555555", "builtin:alert"),
+        new("in:heat,cool",   "#FF8800", null),
+        new(">=25",           "#FF0000", null),
+        new("any",            "#222222", null),
+    ];
+
+    [Theory]
+    [InlineData("Unavailable", "#555555")]
+    [InlineData("cool",        "#FF8800")]
+    [InlineData("30",          "#FF0000")]   // numeric and text rules mix in one list
+    [InlineData("20",          "#222222")]
+    [InlineData("off",         "#222222")]   // "any" is the fallback
+    public void EvaluateRules_TextAndNumericRules_FirstMatchWins(string value, string expectedColour)
+    {
+        var (colour, _) = InboundPipeline.EvaluateRules(value, ModeRules);
+        Assert.Equal(expectedColour, colour);
+    }
+
+    [Fact]
+    public void EvaluateRules_InvalidCondition_IsSkipped()
+    {
+        IReadOnlyList<ConditionalRule> rules = [new(">abc", "#FF0000", null), new(">=0", "#00AA00", null)];
+        var (colour, _) = InboundPipeline.EvaluateRules("5", rules);
+        Assert.Equal("#00AA00", colour);
+    }
+
     // ── FormatValue ───────────────────────────────────────────────────────────
 
     [Theory]

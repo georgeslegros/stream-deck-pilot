@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using StreamDeckPilot.Core.Models.Config;
+using StreamDeckPilot.Core.Rules;
 
 namespace StreamDeckPilot.Infrastructure.Mqtt.Pipeline;
 
@@ -24,15 +25,15 @@ public static class InboundPipeline
         }
     }
 
-    // Step 3 — evaluate ordered conditional rules, first-match-wins
+    // Step 3 — evaluate ordered conditional rules, first-match-wins. Numeric conditions only
+    // match numeric values; text conditions (eq:/ne:/in:) and "any" match on the text. A rule
+    // whose condition does not parse never matches (the validator rejects those on PUT).
     public static (string? Colour, string? Icon) EvaluateRules(string? valueStr, IReadOnlyList<ConditionalRule> rules)
     {
-        if (valueStr is null
-            || !double.TryParse(valueStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var numeric))
-            return (null, null);
+        if (valueStr is null) return (null, null);
 
         foreach (var rule in rules)
-            if (MatchesCondition(rule.Condition, numeric))
+            if (RuleCondition.TryParse(rule.Condition, out var condition, out _) && condition!.Matches(valueStr))
                 return (rule.BackgroundColour, rule.Icon);
 
         return (null, null);
@@ -65,26 +66,6 @@ public static class InboundPipeline
                 .Replace("{label}", mqttLabel ?? string.Empty);
         return zone.Label;
     }
-
-    private static bool MatchesCondition(string condition, double value)
-    {
-        if (condition.StartsWith(">=", StringComparison.Ordinal)) return value >= ParseNum(condition[2..]);
-        if (condition.StartsWith(">", StringComparison.Ordinal)) return value > ParseNum(condition[1..]);
-        if (condition.StartsWith("<=", StringComparison.Ordinal)) return value <= ParseNum(condition[2..]);
-        if (condition.StartsWith("<", StringComparison.Ordinal)) return value < ParseNum(condition[1..]);
-        if (condition.StartsWith("==", StringComparison.Ordinal)) return value == ParseNum(condition[2..]);
-        if (condition.StartsWith("between:", StringComparison.Ordinal))
-        {
-            var parts = condition.Split(':');
-            return parts.Length == 3
-                   && value >= ParseNum(parts[1])
-                   && value <= ParseNum(parts[2]);
-        }
-        return false;
-    }
-
-    private static double ParseNum(string s) =>
-        double.Parse(s.Trim(), CultureInfo.InvariantCulture);
 
     private static string? WalkPath(JsonElement root, string path)
     {

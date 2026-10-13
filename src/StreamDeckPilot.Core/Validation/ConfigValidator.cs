@@ -1,5 +1,6 @@
 using StreamDeckPilot.Core.Models.Catalogue;
 using StreamDeckPilot.Core.Models.Config;
+using StreamDeckPilot.Core.Rules;
 
 namespace StreamDeckPilot.Core.Validation;
 
@@ -26,6 +27,10 @@ public static class ConfigValidator
                 var pos = (button.PageId, button.KeyIndex);
                 if (!seenPositions.Add(pos))
                     errors.Add($"Button '{button.ButtonId}': duplicate position (page '{button.PageId}', key {button.KeyIndex}).");
+
+                for (var i = 0; i < button.Rules.Count; i++)
+                    if (!RuleCondition.TryParse(button.Rules[i].Condition, out _, out var conditionError))
+                        errors.Add($"Button '{button.ButtonId}' rule {i + 1}: {conditionError}.");
 
                 foreach (var (gesture, actions) in button.Gestures)
                     foreach (var action in actions)
