@@ -277,6 +277,24 @@ Publishers should set the **retain** flag so the app populates immediately on st
 **Outbound (button press → broker):**
 `PublishAction.payload` is emitted verbatim. Choose a stable payload per button (e.g. `"true"`, `"toggle"`, or a JSON string).
 
+**Brightness (all decks):**
+Brightness is controlled over MQTT only. There is no REST endpoint for it.
+
+| Topic | Direction | Payload |
+|---|---|---|
+| `home/streamdeck/brightness/set` | → app, **retained** | `0`–`100` or `{"value": n}`. Rounded and clamped. Garbage is ignored with a warning. |
+| `home/streamdeck/brightness/state` | app →, retained | Level currently applied (plain integer). |
+
+The default is 80 until a value arrives. The level is re-applied on every (re)connect. While it is 0,
+a key press only wakes the deck to the last non-zero level (or 80) for `Brightness__WakeTimeoutSeconds`
+(default 60). That press's gesture is not run. Topics are configurable via `Brightness__SetTopic` /
+`Brightness__StateTopic`.
+
+```bash
+mosquitto_pub -h broker.local -u $MQTT_USER -P $MQTT_PASS -r \
+  -t home/streamdeck/brightness/set -m 30
+```
+
 ---
 
 ## Worked example: configure a CO₂ monitor button

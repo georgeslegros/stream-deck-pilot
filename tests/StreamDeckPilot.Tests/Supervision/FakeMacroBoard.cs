@@ -35,7 +35,8 @@ public sealed class FakeMacroBoard : IMacroBoard
     public void SetKeyBitmap(int keyIndex, KeyBitmap bitmap) =>
         RenderCalls.Add((keyIndex, bitmap));
 
-    public void SetBrightness(byte percent) { }
+    public byte? Brightness { get; private set; }
+    public void SetBrightness(byte percent) => Brightness = percent;
     public void ShowLogo() { }
     public string GetFirmwareVersion() => "fake-fw-1.0";
     public string GetSerialNumber() => Serial;

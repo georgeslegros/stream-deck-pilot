@@ -7,6 +7,7 @@ using StreamDeckPilot.Api.Middleware;
 using StreamDeckPilot.Core.DeviceState;
 using StreamDeckPilot.Core.Json;
 using StreamDeckPilot.Core.Migration;
+using StreamDeckPilot.Infrastructure.Brightness;
 using StreamDeckPilot.Infrastructure.Icons;
 using StreamDeckPilot.Infrastructure.Mqtt;
 using StreamDeckPilot.Infrastructure.Observability;
@@ -52,6 +53,13 @@ builder.Services.AddSingleton<IDeviceRenderer>(sp =>
         sp.GetRequiredService<KeyBitmapComposer>(),
         sp.GetRequiredService<StreamDeckMetrics>()));
 
+// Brightness — desired level set over MQTT, applied by the supervisor, state published by MQTT
+builder.Services.Configure<BrightnessOptions>(builder.Configuration.GetSection("Brightness"));
+builder.Services.AddSingleton<BrightnessController>(sp =>
+    new BrightnessController(
+        sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<BrightnessOptions>>(),
+        sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<BrightnessController>>()));
+
 // Device supervision
 builder.Services.AddSingleton<IStreamDeckLibrary, StreamDeckLibrary>();
 builder.Services.AddSingleton<DeviceSupervisorService>(sp =>
@@ -63,7 +71,8 @@ builder.Services.AddSingleton<DeviceSupervisorService>(sp =>
         sp.GetRequiredService<ActivePageStore>(),
         sp.GetRequiredService<IDeviceRenderer>(),
         sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<DeviceSupervisorService>>(),
-        metrics: sp.GetRequiredService<StreamDeckMetrics>()));
+        metrics: sp.GetRequiredService<StreamDeckMetrics>(),
+        brightness: sp.GetRequiredService<BrightnessController>()));
 builder.Services.AddSingleton<IDeviceStateProvider>(sp => sp.GetRequiredService<DeviceSupervisorService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<DeviceSupervisorService>());
 
@@ -80,7 +89,8 @@ builder.Services.AddSingleton<MqttClientService>(sp =>
         sp.GetRequiredService<DeviceSupervisorService>(),
         sp.GetRequiredService<LastUpdatedStore>(),
         sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<MqttClientService>>(),
-        sp.GetRequiredService<StreamDeckMetrics>()));
+        sp.GetRequiredService<StreamDeckMetrics>(),
+        sp.GetRequiredService<BrightnessController>()));
 builder.Services.AddSingleton<IConfigChangeNotifier>(sp => sp.GetRequiredService<MqttClientService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<MqttClientService>());
 builder.Services.AddHostedService<StalenessMonitor>();

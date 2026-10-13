@@ -179,7 +179,7 @@ on a release.)
 ### Environment variables
 
 ASP.NET configuration keys use `__` (double underscore) to express nesting. The values below are
-read by `Program.cs` and `MqttOptions.cs`.
+read by `Program.cs`, `MqttOptions.cs` and `BrightnessOptions.cs`.
 
 | Variable | Purpose | Default / Required |
 |---|---|---|
@@ -193,6 +193,9 @@ read by `Program.cs` and `MqttOptions.cs`.
 | `Mqtt__TopicPrefix` | Single wildcard topic the service subscribes to. Per-button topics are matched in-process against this subscription. | `home/#` |
 | `Mqtt__MaxReconnectDelaySeconds` | Upper bound for reconnect backoff. The loop never gives up. | `30` |
 | `Mqtt__InboundSilenceReconnectSeconds` | Subscription-liveness watchdog: if no inbound message arrives within this window, force a reconnect + resubscribe. `0` disables it. | `0` (disabled) |
+| `Brightness__SetTopic` | Topic the deck brightness is set from (see [Brightness](#brightness)). Subscribed explicitly if it falls outside `Mqtt__TopicPrefix`. | `home/streamdeck/brightness/set` |
+| `Brightness__StateTopic` | Topic the applied brightness is published to (retained). | `home/streamdeck/brightness/state` |
+| `Brightness__WakeTimeoutSeconds` | How long a key press lights up a deck whose brightness is 0. | `60` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP gRPC endpoint for metrics and traces (standard OpenTelemetry variable). | `http://localhost:4317` |
 
 All secrets (API key, MQTT credentials, OTLP endpoint) come from environment variables / Docker
@@ -382,6 +385,25 @@ resolver tries built-in, then custom, then a fallback — it never throws.
   payload per button (`"true"`, `"toggle"`, or a JSON string).
 - **`Navigate`** action — changes the active page on that device to `targetPageId`.
 
+### Brightness
+
+The app does not schedule brightness. It applies whatever level it is told, and the schedule lives in
+Home Assistant (or any other publisher). The level applies to every connected deck.
+
+| Topic | Direction | Payload |
+|---|---|---|
+| `home/streamdeck/brightness/set` | → app (publish **retained**) | Integer `0`–`100`, or `{"value": n}`. Decimals are rounded, out-of-range values are clamped, anything else is ignored with a warning. |
+| `home/streamdeck/brightness/state` | app → (retained) | The level actually applied right now, as a plain integer. |
+
+- The default is `80` until a value has been received. Because the set topic is retained, the last
+  level is restored as soon as the app reconnects to the broker after a restart.
+- The level is re-applied whenever a deck connects, reconnects or is rediscovered.
+- **Wake on press:** while brightness is `0`, the first key press only wakes the deck. That press's
+  gesture does not run. The deck lights to the last non-zero level (or `80`) for
+  `Brightness__WakeTimeoutSeconds` (default 60 s), and every further press restarts that window.
+  Then it goes back to `0`. A new, different level on the set topic ends the wake period immediately.
+  While awake, the state topic reports the wake level.
+
 ### Home Assistant example
 
 The service speaks plain MQTT — Home Assistant is just one possible publisher/subscriber. To feed a
@@ -405,6 +427,32 @@ automation:
 
 To act on a button press, add an HA automation triggered by the topic the button's `Publish` action
 targets (e.g. `home/office/desk-light/set`).
+
+Night-time dimming, in Home Assistant:
+
+```yaml
+automation:
+  - alias: "Stream Deck dark at night"
+    trigger:
+      - platform: time
+        at: "23:00:00"
+    action:
+      - service: mqtt.publish
+        data: { topic: "home/streamdeck/brightness/set", payload: "0", retain: true }
+  - alias: "Stream Deck lit in the morning"
+    trigger:
+      - platform: time
+        at: "07:00:00"
+    action:
+      - service: mqtt.publish
+        data: { topic: "home/streamdeck/brightness/set", payload: "80", retain: true }
+
+mqtt:
+  sensor:
+    - name: "Stream Deck brightness"
+      state_topic: "home/streamdeck/brightness/state"
+      unit_of_measurement: "%"
+```
 
 ---
 
