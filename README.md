@@ -340,8 +340,11 @@ Field reference (from the domain model in `src/StreamDeckPilot.Core/Models/Confi
   - **`labelField`** — JSON path-lite to a live string for the `{label}` token (e.g. a `"22/18"` cur/target string); `null` if none.
   - **`expectsRetained`** — `true` renders a placeholder until the first value arrives (set the retain flag on the publisher).
   - **`stalenessTimeout`** — `TimeSpan` (`hh:mm:ss`); after this silence the button is dimmed. `null` = never stale.
-- **`rules`** — ordered conditional rules over the extracted numeric value; **first match wins**. Each rule may override `backgroundColour` (`#RRGGBB`) and/or `icon`.
-  - Condition grammar: `">N"`, `">=N"`, `"<N"`, `"<=N"`, `"==N"`, `"between:A:B"`.
+- **`rules`** — ordered conditional rules over the extracted value; **first match wins**. Each rule may override `backgroundColour` (`#RRGGBB`) and/or `icon`. Numeric and text conditions can be mixed in one list.
+  - **Numeric:** `">N"`, `">=N"`, `"<N"`, `"<=N"`, `"==N"`, `"between:A:B"` (inclusive). These only match when the value is a number. Text such as `unavailable` skips them.
+  - **Text:** `"eq:on"`, `"ne:unavailable"`, `"in:heat,cool,auto"`. Values are trimmed and compared **case-insensitively** (`eq:on` matches `ON`). Numbers are compared as the text they arrived as, so `eq:1` does not match `1.0`; use `==1` for numbers. Everything after `eq:`/`ne:` is the value. `in:` values are comma-separated, so they can't contain a comma.
+  - **`"any"`:** matches every value. Put it last as an "otherwise" rule.
+  - Conditions are checked when the config is written. An unknown or malformed one (e.g. `">abc"`, or `"==on"` instead of `"eq:on"`) returns `400`.
 - **`gestures`** — map of gesture name to an ordered action list. `Tap` is the only gesture at launch; actions fire in order.
   - `{ "type": "Publish", "topic": "...", "payload": "..." }` — emit an MQTT message (payload sent verbatim).
   - `{ "type": "Navigate", "targetPageId": "..." }` — switch the active page on the device.
@@ -377,7 +380,8 @@ resolver tries built-in, then custom, then a fallback — it never throws.
 - Preferred payload shape: `{"value": 1023, "unit": "ppm", "ts": "2026-06-05T12:00:00Z"}`. Bare numeric
   payloads (e.g. `"1023"`) also work when `valueField` is `null`.
 - Publishers should set the **retain** flag so a button populates immediately on service start.
-- The matched numeric value is run through the ordered `rules` (first match wins) to pick colour/icon.
+- The extracted value is run through the ordered `rules` (first match wins) to pick colour/icon. Text
+  states such as `on`/`off` or `heat` can be matched with `eq:`/`in:` conditions.
 
 ### Outbound (button press)
 

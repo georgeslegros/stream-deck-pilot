@@ -233,15 +233,13 @@ Full OpenAPI 3 schema (no auth required).
     "stalenessTimeout": "00:00:30"   // TimeSpan; null = never goes stale
   },
 
-  "rules": [                         // ordered, first-match-wins, over the extracted NUMERIC value
+  "rules": [                         // ordered, first-match-wins, over the extracted value
+    { "condition": "eq:unavailable", "backgroundColour": "#555555", "icon": null },
     { "condition": ">1000", "backgroundColour": "#FF0000", "icon": null },
     { "condition": ">800",  "backgroundColour": "#FF8800", "icon": null },
     { "condition": ">=0",   "backgroundColour": "#00AA00", "icon": null }
   ],
-  // condition grammar: ">N" ">=N" "<N" "<=N" "==N" "between:A:B"
-  // Conditions are NUMERIC ONLY. A non-numeric payload (e.g. "on"/"cleaning") matches no rule,
-  // so state-driven colour/icon needs a numeric payload (e.g. 1/0). A matched rule's "icon"
-  // overrides display.baseIcon for that render.
+  // A matched rule's "icon" overrides display.baseIcon for that render.
 
   "gestures": {
     "Tap": [
@@ -252,6 +250,33 @@ Full OpenAPI 3 schema (no auth required).
   }
 }
 ```
+
+### Rule conditions
+
+Rules are evaluated in order; the first matching condition wins. If none matches, the tile keeps its default background and `baseIcon`. Numeric and text conditions can be mixed in one list.
+
+| Condition | Matches when the value… |
+|---|---|
+| `>N` `>=N` `<N` `<=N` `==N` | is a number and compares true with `N` |
+| `between:A:B` | is a number with `A ≤ value ≤ B` |
+| `eq:TEXT` | equals `TEXT` |
+| `ne:TEXT` | does not equal `TEXT` |
+| `in:A,B,C` | equals one of the comma-separated values |
+| `any` | is anything (use it last as "otherwise") |
+
+**Text matching:** both sides are trimmed and compared **case-insensitively** (`eq:on` matches `On`). Numbers are compared as the text they arrived as, so `eq:1` does not match `1.0`; use `==1` for numbers. Numeric conditions never match text, so `>=0` skips `unavailable`. Everything after `eq:`/`ne:` is the value. `in:` values can't contain a comma.
+
+On/off state with a fallback:
+
+```jsonc
+"rules": [
+  { "condition": "eq:on",                 "backgroundColour": "#F1C40F", "icon": "builtin:lightbulb" },
+  { "condition": "in:unavailable,unknown", "backgroundColour": "#555555", "icon": null },
+  { "condition": "any",                   "backgroundColour": "#222222", "icon": "builtin:lightbulb-outline" }
+]
+```
+
+Conditions are validated when the config is written. A malformed or unknown condition returns `400`, naming the button and the rule number (e.g. `Button 'b1' rule 2: '==on' is not numeric — use 'eq:on' to match text.`).
 
 ### Tile recipes
 

@@ -87,4 +87,29 @@ public class ConfigValidatorTests
         var result = ConfigValidator.ValidateConfig(config, Mk2);
         Assert.True(result.IsValid);
     }
+
+    private static DeviceConfig WithRules(params string[] conditions) =>
+        new(1, "SN001", [
+            new ButtonGridPage("main", [
+                Btn("b1", 0, "main") with { Rules = conditions.Select(c => new ConditionalRule(c, "#FF0000", null)).ToList() },
+            ])
+        ]);
+
+    [Fact]
+    public void Rules_NumericTextAndAny_AreValid()
+    {
+        var result = ConfigValidator.ValidateConfig(
+            WithRules(">1000", "between:18:24", "==0", "eq:on", "ne:unavailable", "in:heat,cool", "any"), Mk2);
+        Assert.True(result.IsValid, string.Join("; ", result.Errors));
+    }
+
+    [Fact]
+    public void Rules_InvalidCondition_ReportsButtonAndRuleNumber()
+    {
+        var result = ConfigValidator.ValidateConfig(WithRules(">=0", "==on"), Mk2);
+        Assert.False(result.IsValid);
+        var error = Assert.Single(result.Errors);
+        Assert.Contains("'b1' rule 2", error);
+        Assert.Contains("eq:on", error);
+    }
 }
