@@ -7,21 +7,32 @@ namespace StreamDeckPilot.Infrastructure.Mqtt.Pipeline;
 
 public static class InboundPipeline
 {
-    // Step 2 — extract value, unit and live label from JSON payload (path-lite) or bare string
+    // Step 2 — extract value, unit and live label. The payload format is auto-detected:
+    //   plain text  (on, heat, unavailable)  → the trimmed text
+    //   JSON scalar (23.5, "heat", true)     → the number / unquoted string / "true"|"false"
+    //   JSON object                          → valueField (dot path) if set, else the "value" key
+    // unitField/labelField are only read from objects. Value is null when nothing usable is found
+    // (empty payload, JSON null/array, object without the field): the caller skips the update.
     public static (string? Value, string? Unit, string? Label) Extract(
         string payload, string? valueField, string? unitField, string? labelField)
     {
-        try
+        var text = payload.Trim();
+        if (text.Length == 0) return (null, null, null);
+
+        JsonDocument doc;
+        try { doc = JsonDocument.Parse(text); }
+        catch (JsonException) { return (text, null, null); } // plain text
+
+        using (doc)
         {
-            using var doc = JsonDocument.Parse(payload);
-            var value = valueField is not null ? WalkPath(doc.RootElement, valueField) : null;
-            var unit = unitField is not null ? WalkPath(doc.RootElement, unitField) : null;
-            var label = labelField is not null ? WalkPath(doc.RootElement, labelField) : null;
-            return (value ?? payload.Trim(), unit, label);
-        }
-        catch (JsonException)
-        {
-            return (payload.Trim(), null, null);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                return (Scalar(root), null, null);
+
+            var value = WalkPath(root, string.IsNullOrWhiteSpace(valueField) ? "value" : valueField);
+            var unit = unitField is not null ? WalkPath(root, unitField) : null;
+            var label = labelField is not null ? WalkPath(root, labelField) : null;
+            return (value, unit, label);
         }
     }
 
@@ -75,13 +86,15 @@ public static class InboundPipeline
             if (current.ValueKind != JsonValueKind.Object) return null;
             if (!current.TryGetProperty(segment, out current)) return null;
         }
-        return current.ValueKind switch
-        {
-            JsonValueKind.String => current.GetString(),
-            JsonValueKind.Number => current.GetRawText(),
-            JsonValueKind.True => "true",
-            JsonValueKind.False => "false",
-            _ => null,
-        };
+        return Scalar(current);
     }
+
+    private static string? Scalar(JsonElement element) => element.ValueKind switch
+    {
+        JsonValueKind.String => element.GetString()?.Trim(),
+        JsonValueKind.Number => element.GetRawText(),
+        JsonValueKind.True => "true",
+        JsonValueKind.False => "false",
+        _ => null, // null, array, object: no single value to show
+    };
 }

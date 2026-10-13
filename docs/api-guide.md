@@ -226,7 +226,7 @@ Full OpenAPI 3 schema (no auth required).
 
   "inbound": {                       // null for press-only buttons
     "topic": "home/office/co2",
-    "valueField": "value",           // JSON path-lite: "value" or "sensor.value"
+    "valueField": "value",           // dot path into a JSON object ("temperature", "state.mode"); null = the "value" key
     "unitField": "unit",
     "labelField": null,              // optional: extracts a live string for the {label} token
     "expectsRetained": true,         // shows a dimmed placeholder until first value arrives
@@ -293,10 +293,18 @@ Conditions are validated when the config is written. A malformed or unknown cond
 
 ## MQTT conventions
 
-**Inbound (sensor → button):**
-Preferred payload shape: `{"value": 1023, "unit": "ppm", "ts": "2026-06-05T12:00:00Z"}`.
+**Inbound (sensor → button):** the payload format is auto-detected.
+
+| Payload | Value used |
+|---|---|
+| `{"value": 1023, "unit": "ppm"}` | `value` (or `valueField`); `unitField`/`labelField` read from the same object |
+| `23.5` | the number |
+| `on` / `heat` / `unavailable` | the text, trimmed |
+| `"heat"` / `true` | JSON string unquoted / `true` |
+| `{"temperature": 21.5}` | `valueField` path, e.g. `temperature` or a dotted `state.mode` |
+
+If a JSON object yields no usable value, the update is skipped and the tile keeps its last value. That happens when `valueField` is missing, or when `valueField` is `null` and there's no `value` key, and also for `null`, an array, an object at the path, or an empty payload. A warning is logged and the message counts as dropped (`no_value`). Generic publishers such as Home Assistant `mqtt_statestream` (bare state text per entity topic) work directly, combined with text rules (`eq:`/`in:`).
 Add a `label` field (and point `inbound.labelField` at it) when you want a live string in the `{label}` token, e.g. `{"value": 22.0, "label": "22/18"}`.
-Bare numeric strings also work (`"1023"`), but self-describing JSON is preferred.
 Publishers should set the **retain** flag so the app populates immediately on start.
 
 **Outbound (button press → broker):**

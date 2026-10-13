@@ -46,6 +46,45 @@ public class InboundPipelineTests
         Assert.Equal("22.5/18.0", label);
     }
 
+    // ── Extract: payload auto-detection ──────────────────────────────────────
+
+    [Theory]
+    // legacy shape, explicit and implicit "value" key
+    [InlineData("""{"value":1023,"unit":"ppm"}""", "value", "1023")]
+    [InlineData("""{"value":1023,"unit":"ppm"}""", null, "1023")]
+    [InlineData("""{"value":"heat"}""", null, "heat")]
+    // plain number / plain text (e.g. Home Assistant mqtt_statestream state topics)
+    [InlineData("23.5", null, "23.5")]
+    [InlineData("-4", "value", "-4")]          // a path is ignored for scalars
+    [InlineData("on", null, "on")]
+    [InlineData("  unavailable \n", null, "unavailable")]
+    // JSON scalars (statestream attribute topics are JSON-encoded)
+    [InlineData("\"heat\"", null, "heat")]
+    [InlineData("true", null, "true")]
+    // other JSON with a path, including dotted
+    [InlineData("""{"temperature":21.5,"humidity":40}""", "temperature", "21.5")]
+    [InlineData("""{"state":{"mode":"cool"}}""", "state.mode", "cool")]
+    [InlineData("""{"state":"ON","brightness":120}""", "state", "ON")]
+    public void Extract_AutoDetectsPayloadFormat(string payload, string? valueField, string expected)
+    {
+        var (value, _, _) = InboundPipeline.Extract(payload, valueField, null, null);
+        Assert.Equal(expected, value);
+    }
+
+    [Theory]
+    [InlineData("", null)]                                         // cleared retained message
+    [InlineData("null", null)]
+    [InlineData("[1,2,3]", null)]
+    [InlineData("""{"temperature":21.5}""", null)]                 // object, no path, no "value"
+    [InlineData("""{"temperature":21.5}""", "humidity")]          // path not present
+    [InlineData("""{"state":{"mode":"cool"}}""", "state")]        // path points at an object
+    [InlineData("""{"value":null}""", null)]
+    public void Extract_NoUsableValue_ReturnsNull(string payload, string? valueField)
+    {
+        var (value, _, _) = InboundPipeline.Extract(payload, valueField, null, null);
+        Assert.Null(value);
+    }
+
     // ── EvaluateRules ─────────────────────────────────────────────────────────
 
     private static IReadOnlyList<ConditionalRule> Co2Rules =>

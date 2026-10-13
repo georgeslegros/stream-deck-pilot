@@ -432,6 +432,14 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
 
         // Step 2 — extract
         var (value, unit, mqttLabel) = InboundPipeline.Extract(payload, binding?.ValueField, binding?.UnitField, binding?.LabelField);
+        if (value is null)
+        {
+            // Keep showing the last good value; staleness dims the tile if nothing usable follows.
+            _logger.LogWarning("No value in payload on {Topic} for {ButtonId} (valueField '{ValueField}') — update skipped",
+                binding?.Topic, button.ButtonId, binding?.ValueField ?? "value");
+            _metrics?.MqttMessagesDropped.Add(1, [new("reason", "no_value"), new("topic", binding?.Topic ?? "")]);
+            return;
+        }
 
         // Step 3 — evaluate rules
         var (colour, icon) = InboundPipeline.EvaluateRules(value, button.Rules);
