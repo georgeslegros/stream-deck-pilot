@@ -114,6 +114,37 @@ public sealed class MqttCrossPageRenderTests : IDisposable
         Assert.Contains(board.RenderCalls, c => c.KeyIndex == 0);
     }
 
+    [Fact]
+    public async Task PayloadWithoutUsableValue_KeepsLastGoodState()
+    {
+        var (svc, _, desired) = await BuildAsync(activePage: "climate");
+        svc.RunPipeline(Serial, "climate", ButtonOn("climate"), """{"value":21.5,"unit":"°C"}""");
+
+        svc.RunPipeline(Serial, "climate", ButtonOn("climate"), """{"temperature":30}""");
+        svc.RunPipeline(Serial, "climate", ButtonOn("climate"), "");
+
+        Assert.Contains("21.5", desired.Get(Serial, "climate", 0)!.CenterText ?? "");
+    }
+
+    [Fact]
+    public async Task RawTextPayload_DrivesTextRule()
+    {
+        // A generic publisher (e.g. HA mqtt_statestream) sends the bare state, no JSON envelope.
+        var (svc, _, desired) = await BuildAsync(activePage: "climate");
+        var button = ButtonOn("climate") with
+        {
+            Inbound = new InboundBinding("home/climate/mode", null, null, true, null),
+            Rules = [new("in:heat,auto", "#FF8800", null), new("any", "#222222", null)],
+        };
+
+        svc.RunPipeline(Serial, "climate", button, "heat");
+        Assert.Equal("#FF8800", desired.Get(Serial, "climate", 0)!.BackgroundColour);
+        Assert.Contains("heat", desired.Get(Serial, "climate", 0)!.CenterText ?? "");
+
+        svc.RunPipeline(Serial, "climate", button, "off");
+        Assert.Equal("#222222", desired.Get(Serial, "climate", 0)!.BackgroundColour);
+    }
+
     private static ButtonDefinition ButtonOn(string pageId) =>
         new("c0", 0, pageId,
             new DisplaySpec(null, IconPlacement.Corner,

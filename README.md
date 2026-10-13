@@ -335,7 +335,7 @@ Field reference (from the domain model in `src/StreamDeckPilot.Core/Models/Confi
 - **`display.center`** / **`display.bottom`** — text zones, each `{ "label": ..., "template": ... }` (or `null`). `center` renders large (the hero; its value/unit split on the first space), `bottom` renders as a small caption. `template` is resolved against live data (tokens `{value}`, `{unit}`, `{label}`); `label` is static and is the fallback shown when there's no live data yet. Either field may be `null`.
 - **`inbound`** — MQTT binding, or `null` for press-only buttons.
   - **`topic`** — exact topic matched against incoming messages.
-  - **`valueField`** — JSON path-lite to the numeric value (e.g. `value` or `sensor.value`); `null` to use a bare payload.
+  - **`valueField`** — dot path to the value inside a JSON object payload (e.g. `temperature` or `state.mode`). `null` means the object's `value` key. It is ignored for plain-text, plain-number and JSON-scalar payloads (see [Payload formats](#payload-formats)).
   - **`unitField`** — JSON path-lite to a unit string; `null` if none.
   - **`labelField`** — JSON path-lite to a live string for the `{label}` token (e.g. a `"22/18"` cur/target string); `null` if none.
   - **`expectsRetained`** — `true` renders a placeholder until the first value arrives (set the retain flag on the publisher).
@@ -375,13 +375,44 @@ resolver tries built-in, then custom, then a fallback — it never throws.
   button config never touches the broker — topic dispatch happens in-process. Anything not matched by
   a button binding is silently dropped.
 - Each button's `inbound.topic` is matched exactly against incoming messages.
-- **JSON field extraction** uses dot-path notation. For a payload `{"state": {"temperature": 21.4}}`,
-  set `"valueField": "state.temperature"`.
-- Preferred payload shape: `{"value": 1023, "unit": "ppm", "ts": "2026-06-05T12:00:00Z"}`. Bare numeric
-  payloads (e.g. `"1023"`) also work when `valueField` is `null`.
+- The payload format is detected automatically (see below), so generic publishers work without a
+  bridge: Home Assistant `mqtt_statestream`, Zigbee2MQTT, Node-RED.
 - Publishers should set the **retain** flag so a button populates immediately on service start.
 - The extracted value is run through the ordered `rules` (first match wins) to pick colour/icon. Text
   states such as `on`/`off` or `heat` can be matched with `eq:`/`in:` conditions.
+
+#### Payload formats
+
+| Payload | Value used |
+|---|---|
+| `{"value": 1023, "unit": "ppm"}` | `value` (or the `valueField` path); `unit`/`label` from `unitField`/`labelField` |
+| `23.5` | the number |
+| `on`, `heat`, `unavailable` | the text, trimmed |
+| `"heat"`, `true` (JSON string/boolean) | `heat` (unquoted), `true` |
+| `{"temperature": 21.5, "humidity": 40}` | the `valueField` path, e.g. `temperature`. Dotted paths reach nested objects: `state.mode`. |
+
+**Fallback:** a JSON object is read through `valueField`, or its `value` key when `valueField` is `null`.
+When that finds nothing usable, the update is **skipped**: the tile keeps its last value, a warning
+is logged, and the message is counted as dropped with reason `no_value`. This covers a missing key, a
+path pointing at an object or array, a `null` field, and payloads that are empty or literally `null`
+or `[]`. If no usable value follows, `stalenessTimeout` dims the tile as usual.
+
+Example: Home Assistant `mqtt_statestream` publishes each entity's state as bare text, e.g.
+`on`, `21.5` or `unavailable`, on its own topic. A button can bind to that state topic with
+`"valueField": null` and use text rules:
+
+```json
+"inbound": { "topic": "home/climate/<entity>/state", "valueField": null, "unitField": null,
+             "labelField": null, "expectsRetained": true, "stalenessTimeout": null },
+"rules": [
+  { "condition": "in:heat,heat_cool", "backgroundColour": "#E67E22", "icon": null },
+  { "condition": "eq:cool",           "backgroundColour": "#3498DB", "icon": null },
+  { "condition": "any",               "backgroundColour": "#222222", "icon": null }
+]
+```
+
+Before this, a JSON payload without a usable value made the tile display the raw payload text.
+Bare numbers and the `{"value": …}` shape behave as before.
 
 ### Outbound (button press)
 
