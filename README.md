@@ -375,11 +375,13 @@ under `/data/images/<serial>/` and can be listed or removed via the image endpoi
 resolver tries built-in, then custom, then a fallback — it never throws.
 
 **Known advisories (ImageSharp 2.1.x).** Rendering uses SixLabors.ImageSharp 2.1.11, the version the
-Stream Deck libraries (StreamDeckSharp / OpenMacroBoard 6.1.0) are built against. Several ImageSharp
+Stream Deck libraries (StreamDeckSharp / OpenMacroBoard 6.1.0) are built against. Five ImageSharp
 advisories published in October 2026 are only fixed in 4.1.2, a major upgrade with API and licence
-changes, so they are not patched yet (tracked in #36). The only untrusted input ImageSharp decodes is a
-custom icon uploaded through `POST /devices/{serial}/images`, which requires the API key. Keep the API
-key secret and the API off untrusted networks until #36 is done.
+changes, so the package is not upgraded yet (tracked in #36). None of them is reachable from the
+service: it never uses histogram equalisation or encodes TIFF, and it decodes custom icons with only
+the PNG and JPEG decoders and with metadata ignored, so TIFF content and embedded ICC profiles are
+never parsed. Custom icons are also the only untrusted images it decodes, and uploading one requires
+the API key.
 
 ---
 
