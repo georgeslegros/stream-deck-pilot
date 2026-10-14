@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Numerics;
+using Microsoft.Extensions.Logging;
 using OpenMacroBoard.SDK;
 using SixLabors.Fonts;
 using SixLabors.ImageSharp;
@@ -12,8 +13,12 @@ using StreamDeckPilot.Infrastructure.Icons;
 
 namespace StreamDeckPilot.Infrastructure.Rendering;
 
-public sealed class KeyBitmapComposer(IconResolver iconResolver)
+public sealed class KeyBitmapComposer(IconResolver iconResolver, ILogger<KeyBitmapComposer>? logger = null)
 {
+    // Icon failures are logged once per (icon, error type) so a broken icon cannot flood the log
+    // on every render; the key is still drawn without the icon.
+    private readonly ConcurrentDictionary<string, byte> _loggedIconFailures = new(StringComparer.Ordinal);
+
     private const int Size = 72;
 
     // ── Corner-icon watermark (experimental, tunable) ────────────────────────────
@@ -160,7 +165,7 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
                 image.Mutate(ctx => ctx.DrawImage(icon, new Point(px, y), 1f));
             }
         }
-        catch { /* non-fatal: leave background visible */ }
+        catch (Exception ex) { IconFailed(reference, ex); }
     }
 
     // Large, faint, right-anchored watermark for IconPlacement.Corner. The glyph is resized and
@@ -200,7 +205,14 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
                 image.Mutate(ctx => ctx.DrawImage(icon, new Point(destX, destY), WatermarkOpacity));
             }
         }
-        catch { /* non-fatal: leave background visible */ }
+        catch (Exception ex) { IconFailed(reference, ex); }
+    }
+
+    // Non-fatal: the key keeps its background and text, only the icon is missing.
+    internal void IconFailed(string reference, Exception ex)
+    {
+        if (_loggedIconFailures.TryAdd($"{reference}|{ex.GetType().FullName}", 0))
+            logger?.LogWarning(ex, "Could not draw icon '{Reference}'; rendering the key without it", reference);
     }
 
     // Replace RGB of every non-transparent pixel with ink, preserving alpha.
@@ -262,7 +274,7 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
                 image.Mutate(ctx => ctx.DrawImage(icon, new Point(Size - ClockMarkerSize - 4, 4), 1f));
             }
         }
-        catch { /* non-fatal */ }
+        catch (Exception ex) { IconFailed("builtin:clock-outline", ex); }
     }
 
     private static void DrawCentredText(Image<Rgba32> image, string text, Font font, Color colour, float x, float baseline)
