@@ -101,7 +101,7 @@ public sealed class StalenessMonitorTests : IDisposable
     // A button that goes stale on a page that is NOT currently displayed must update its
     // desired state but must NOT paint the hardware (its key belongs to the active page).
 
-    private static DeviceConfig TwoPageStaleConfig() =>
+    private static DeviceConfig TwoPageStaleConfig(TimeSpan staleness) =>
         new(1, "SN1", [
             // main: a button with no staleness binding (active page on connect)
             new ButtonGridPage("main", [
@@ -110,17 +110,17 @@ public sealed class StalenessMonitorTests : IDisposable
             // two: a value button at the same key index, with a short staleness timeout
             new ButtonGridPage("two", [
                 new("t0", 0, "two", new DisplaySpec(),
-                    new InboundBinding("home/x", "value", null, false, TimeSpan.FromMilliseconds(50)),
+                    new InboundBinding("home/x", "value", null, false, staleness),
                     [], new Dictionary<string, IReadOnlyList<ButtonAction>>())
             ]),
         ]);
 
     private async Task<(DeviceSupervisorService Supervisor, FakeMacroBoard Board, StalenessMonitor Monitor,
-        DesiredStateStore Desired, LastUpdatedStore LastUpdated)> StartScenarioAsync()
+        DesiredStateStore Desired, LastUpdatedStore LastUpdated)> StartScenarioAsync(TimeSpan? staleness = null)
     {
         var opts = Options.Create(Opts);
         var configStore = new ConfigStore(opts);
-        await configStore.SaveAsync(TwoPageStaleConfig());
+        await configStore.SaveAsync(TwoPageStaleConfig(staleness ?? TimeSpan.FromMilliseconds(50)));
 
         var desired = new DesiredStateStore();
         var lastUpdated = new LastUpdatedStore();
@@ -174,6 +174,74 @@ public sealed class StalenessMonitorTests : IDisposable
 
         Assert.True(desired.Get("SN1", "two", 0)?.IsDimmed);
         Assert.Contains(board.RenderCalls, c => c.KeyIndex == 0); // painted, because the page is active
+
+        await supervisor.StopAsync(CancellationToken.None);
+    }
+
+    // ── Concurrent MQTT write (regression, #62) ─────────────────────────────────
+    // The MQTT pipeline can store a fresh value between the monitor's read and its write.
+    // The monitor must leave that fresh value alone instead of writing the old one back.
+
+    [Fact]
+    public async Task Dim_WhenFreshValueArrivesMidTick_KeepsFreshValue()
+    {
+        var (supervisor, board, monitor, desired, lastUpdated) = await StartScenarioAsync();
+        supervisor.SetActivePage("SN1", "two");
+
+        desired.Set("SN1", "two", 0, new ButtonRenderState("t0", "#00FF00", null, IconPlacement.Corner, "42", null));
+        lastUpdated.RecordUpdate("SN1", "two", 0);
+        await Task.Delay(200); // stale
+
+        var fresh = new ButtonRenderState("t0", "#00FF00", null, IconPlacement.Corner, "43", null);
+        monitor.AfterStateRead = () =>
+        {
+            desired.Set("SN1", "two", 0, fresh);
+            lastUpdated.RecordUpdate("SN1", "two", 0);
+        };
+
+        board.ClearRenderCalls();
+        await monitor.TickAsync();
+
+        Assert.Same(fresh, desired.Get("SN1", "two", 0));                // not "42", not dimmed
+        Assert.DoesNotContain(board.RenderCalls, c => c.KeyIndex == 0); // the old value wasn't painted
+
+        await supervisor.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Undim_WhenFreshValueArrivesMidTick_KeepsFreshValue()
+    {
+        var (supervisor, board, monitor, desired, lastUpdated) = await StartScenarioAsync(TimeSpan.FromMinutes(5));
+        supervisor.SetActivePage("SN1", "two");
+
+        // Dimmed, but a value was recorded just now: the tick takes the un-dim branch.
+        desired.Set("SN1", "two", 0, new ButtonRenderState("t0", "#00FF00", null, IconPlacement.Corner, "42", null, IsDimmed: true));
+        lastUpdated.RecordUpdate("SN1", "two", 0);
+
+        var fresh = new ButtonRenderState("t0", "#FF0000", null, IconPlacement.Corner, "43", null);
+        monitor.AfterStateRead = () => desired.Set("SN1", "two", 0, fresh);
+
+        board.ClearRenderCalls();
+        await monitor.TickAsync();
+
+        Assert.Same(fresh, desired.Get("SN1", "two", 0));
+        Assert.DoesNotContain(board.RenderCalls, c => c.KeyIndex == 0);
+
+        await supervisor.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Undim_WithoutConcurrentWrite_ClearsDim()
+    {
+        var (supervisor, _, monitor, desired, lastUpdated) = await StartScenarioAsync(TimeSpan.FromMinutes(5));
+
+        desired.Set("SN1", "two", 0, new ButtonRenderState("t0", "#00FF00", null, IconPlacement.Corner, "42", null, IsDimmed: true));
+        lastUpdated.RecordUpdate("SN1", "two", 0);
+
+        await monitor.TickAsync();
+
+        Assert.False(desired.Get("SN1", "two", 0)?.IsDimmed);
+        Assert.Equal("42", desired.Get("SN1", "two", 0)?.CenterText);
 
         await supervisor.StopAsync(CancellationToken.None);
     }
