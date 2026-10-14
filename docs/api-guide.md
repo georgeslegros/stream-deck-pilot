@@ -81,7 +81,7 @@ Positional styling:
 
 ### `iconPlacement`
 
-- **`corner`** — small icon, top-left. Use when a value in `center` is the hero (sensor tiles). This is the default if the field is omitted.
+- **`corner`** — the icon is drawn large and faint (22% opacity, slightly bigger than the key) as a watermark *behind* the value and caption, so it identifies the tile without competing with the number. Use when a value in `center` is the hero (sensor tiles). This is the default if the field is omitted.
 - **`center`** — large, centred icon (the hero). Use for toggle / navigation / status tiles. If `center` text is also present, the **text wins** and the icon is not drawn.
 
 ### Icons
@@ -233,7 +233,7 @@ Full OpenAPI 3 schema (no auth required).
 
   "display": {
     "baseIcon": "builtin:molecule-co2",  // "builtin:<mdi-name>" | "custom:<filename>" | null
-    "iconPlacement": "corner",           // "corner" (small, top-left) | "center" (large hero)
+    "iconPlacement": "corner",           // "corner" (faint watermark behind the text) | "center" (large hero)
     "center": { "label": null,  "template": "{value} {unit}" },  // large hero text
     "bottom": { "label": "CO₂",  "template": null },             // small caption
     "precision": 0                       // optional: decimals for numeric {value} (0–3); null = default
