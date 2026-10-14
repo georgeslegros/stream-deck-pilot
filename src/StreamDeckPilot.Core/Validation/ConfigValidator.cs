@@ -32,8 +32,12 @@ public static class ConfigValidator
                     errors.Add($"Button '{button.ButtonId}': display.precision must be between 0 and {DisplaySpec.MaxPrecision} (got {button.Display.Precision}).");
 
                 for (var i = 0; i < button.Rules.Count; i++)
+                {
                     if (!RuleCondition.TryParse(button.Rules[i].Condition, out _, out var conditionError))
                         errors.Add($"Button '{button.ButtonId}' rule {i + 1}: {conditionError}.");
+                    if (button.Rules[i].BackgroundColour is { } colour && !IsHexColour(colour))
+                        errors.Add($"Button '{button.ButtonId}' rule {i + 1}: backgroundColour '{colour}' must be #RRGGBB (e.g. #CC3300).");
+                }
 
                 foreach (var (gesture, actions) in button.Gestures)
                     foreach (var action in actions)
@@ -60,4 +64,8 @@ public static class ConfigValidator
 
         return new ValidationResult(errors, warnings);
     }
+
+    // The renderer understands #RRGGBB only; anything else silently fell back to the default grey.
+    private static bool IsHexColour(string value) =>
+        value.Length == 7 && value[0] == '#' && value.AsSpan(1).IndexOfAnyExcept("0123456789abcdefABCDEF") < 0;
 }
