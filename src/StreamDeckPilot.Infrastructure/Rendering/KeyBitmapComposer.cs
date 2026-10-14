@@ -222,9 +222,13 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
         });
     }
 
+    private const int ClockMarkerSize = 14;
+
     private void DrawClockMarker(Image<Rgba32> image, Color ink)
     {
-        var icon = iconResolver.ResolveImage("builtin:clock-outline", "", 14);
+        // Resolve the glyph at full canvas size: icons come back as a 72x72 canvas that is then
+        // resized to the marker size, so asking for a 14 px glyph shrank it to about 3 px (#47).
+        var icon = iconResolver.ResolveImage("builtin:clock-outline", "", Size);
         if (icon is null) return;
         try
         {
@@ -232,11 +236,11 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
             {
                 icon.Mutate(i => i.Resize(new ResizeOptions
                 {
-                    Size = new Size(14, 14),
+                    Size = new Size(ClockMarkerSize, ClockMarkerSize),
                     Sampler = KnownResamplers.Lanczos3,
                 }));
                 Tint(icon, ink);
-                image.Mutate(ctx => ctx.DrawImage(icon, new Point(Size - 18, 4), 1f));
+                image.Mutate(ctx => ctx.DrawImage(icon, new Point(Size - ClockMarkerSize - 4, 4), 1f));
             }
         }
         catch { /* non-fatal */ }

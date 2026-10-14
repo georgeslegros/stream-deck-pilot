@@ -159,7 +159,7 @@ public sealed class KeyBitmapComposerTests : IDisposable
         Assert.Equal(0, InkPixels(image, bg, 0, Size, threshold: 70));
     }
 
-    [Fact(Skip = "#47: the clock marker renders about 3 px wide")]
+    [Fact]
     public void Dimmed_DesaturatesTheBackground_AndShowsTheClockTopRight()
     {
         using var image = _composer.ComposeImage(State("#0066AA", dimmed: true), "SN1");
