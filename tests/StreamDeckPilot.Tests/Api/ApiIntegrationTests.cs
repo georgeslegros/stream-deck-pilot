@@ -278,4 +278,64 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
         var nav = await client.PostAsJsonAsync("/devices/SN012/navigate", new { pageId = "main" });
         Assert.Equal(HttpStatusCode.NotFound, nav.StatusCode);
     }
+
+    // --- POST /devices/{serial}/images ---
+
+    private static MultipartFormDataContent ImageUpload(byte[] content, string fileName)
+    {
+        var form = new MultipartFormDataContent();
+        form.Add(new ByteArrayContent(content), "file", fileName);
+        return form;
+    }
+
+    [Theory]
+    [InlineData("png", "icon.png")]
+    [InlineData("jpeg", "icon.jpg")]
+    public async Task UploadImage_PngOrJpegContent_IsStored(string format, string fileName)
+    {
+        var client = _factory.CreateAuthenticatedClient();
+        var response = await client.PostAsync("/devices/SN020/images",
+            ImageUpload(Icons.TestImages.Encode(format), fileName));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains($"custom:{fileName}", await response.Content.ReadAsStringAsync());
+    }
+
+    // The extension says PNG but the content is another format: rejected by content, not by name.
+    [Theory]
+    [InlineData("tiff")]
+    [InlineData("bmp")]
+    [InlineData("gif")]
+    [InlineData("webp")]
+    public async Task UploadImage_OtherFormatNamedPng_Returns400(string format)
+    {
+        var client = _factory.CreateAuthenticatedClient();
+        var response = await client.PostAsync("/devices/SN020/images",
+            ImageUpload(Icons.TestImages.Encode(format), "icon.png"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("not a PNG or JPEG", await response.Content.ReadAsStringAsync());
+        var list = await client.GetStringAsync("/devices/SN020/images");
+        Assert.DoesNotContain("icon.png", list);
+    }
+
+    [Fact]
+    public async Task UploadImage_NonImageContent_Returns400()
+    {
+        var client = _factory.CreateAuthenticatedClient();
+        var response = await client.PostAsync("/devices/SN020/images",
+            ImageUpload("definitely not an image"u8.ToArray(), "icon.jpg"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UploadImage_DisallowedExtension_Returns400()
+    {
+        var client = _factory.CreateAuthenticatedClient();
+        var response = await client.PostAsync("/devices/SN020/images",
+            ImageUpload(Icons.TestImages.Encode("png"), "icon.tiff"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
 }

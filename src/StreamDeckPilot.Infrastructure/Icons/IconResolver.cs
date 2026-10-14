@@ -65,15 +65,19 @@ public sealed class IconResolver(CustomImageSource customSource, ILogger<IconRes
                 logger.LogWarning("Custom icon '{Reference}' not found for device {Serial}, using fallback", reference, serial);
                 return LoadPng(Fallback);
             }
-            return LoadPng(bytes);
+            if (LoadPng(bytes) is { } custom)
+                return custom;
+            logger.LogWarning("Custom icon '{Reference}' for device {Serial} is not a valid PNG or JPEG, using fallback", reference, serial);
+            return LoadPng(Fallback);
         }
 
         return LoadPng(Fallback);
     }
 
+    // Decodes PNG or JPEG only; anything else (TIFF, BMP, GIF, WebP...) yields null.
     private static Image<Rgba32>? LoadPng(byte[] bytes)
     {
-        try { return Image.Load<Rgba32>(bytes); }
+        try { return Image.Load<Rgba32>(IconImageFormats.Configuration, bytes); }
         catch { return null; }
     }
 
