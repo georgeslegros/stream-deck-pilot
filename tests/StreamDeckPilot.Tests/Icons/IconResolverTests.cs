@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 using StreamDeckPilot.Infrastructure.Icons;
 using StreamDeckPilot.Infrastructure.Persistence;
 
@@ -112,6 +114,35 @@ public sealed class IconResolverTests : IDisposable
     [InlineData("tga", false)]
     public void IconImageFormats_AcceptsOnlyPngAndJpeg(string format, bool expected) =>
         Assert.Equal(expected, IconImageFormats.IsSupported(TestImages.Encode(format)));
+
+    // Embedded ICC profiles are never parsed (ImageSharp ICC advisory, see #36). The default
+    // configuration reading the profile proves the test file really carries one.
+    [Fact]
+    public void IconImageFormats_IgnoresJpegIccProfile()
+    {
+        var bytes = TestImages.JpegWithIccProfile();
+
+        using (var unrestricted = Image.Load<Rgba32>(bytes))
+            Assert.NotNull(unrestricted.Metadata.IccProfile);
+
+        Assert.True(IconImageFormats.IsSupported(bytes));
+        using var image = Image.Load<Rgba32>(IconImageFormats.Configuration, bytes);
+        Assert.Null(image.Metadata.IccProfile);
+        Assert.Equal(TestImages.Size, image.Width);
+    }
+
+    // ImageSharp 2.1 does not read iCCP chunks at all; this guards that a PNG carrying one still
+    // decodes as an icon without a profile (e.g. after an ImageSharp upgrade).
+    [Fact]
+    public void IconImageFormats_IgnoresPngIccProfile()
+    {
+        var bytes = TestImages.PngWithIccProfile();
+
+        Assert.True(IconImageFormats.IsSupported(bytes));
+        using var image = Image.Load<Rgba32>(IconImageFormats.Configuration, bytes);
+        Assert.Null(image.Metadata.IccProfile);
+        Assert.Equal(TestImages.Size, image.Width);
+    }
 
     [Fact]
     public void IconImageFormats_RejectsNonImageContent() =>
