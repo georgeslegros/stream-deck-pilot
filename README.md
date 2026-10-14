@@ -558,3 +558,4 @@ branches, a release is a `vX.Y.Z` tag). See [CONTRIBUTING.md](CONTRIBUTING.md).
 Stream Deck Pilot is released under the [MIT License](LICENSE). Its dependencies keep their own
 licences. In particular, SixLabors ImageSharp is used under the Apache License 2.0 that the Six
 Labors Split License grants to open-source projects; StreamDeckSharp and OpenMacroBoard are MIT.
+See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for every component shipped in the image.
