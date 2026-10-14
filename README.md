@@ -556,3 +556,9 @@ architecture details see `CLAUDE.md`; for the full design contract see `streamde
 
 Branching, pull requests and releases follow GitHub Flow (`master` + short-lived `feature/*` / `fix/*`
 branches, a release is a `vX.Y.Z` tag). See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## 10. License
+
+Stream Deck Pilot is released under the [MIT License](LICENSE). Its dependencies keep their own
+licences. In particular, SixLabors ImageSharp is used under the Apache License 2.0 that the Six
+Labors Split License grants to open-source projects; StreamDeckSharp and OpenMacroBoard are MIT.
