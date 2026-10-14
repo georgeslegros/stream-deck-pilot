@@ -12,13 +12,18 @@ public sealed class FakeMacroBoard : IMacroBoard
     public bool IsDisposed { get; private set; }
     public IKeyLayout Keys { get; } = new GridKeyLayout(5, 3, 72, 32);
 
-    // Written by the supervisor's background work while tests read it: guard both sides.
+    // Written by the supervisor's background work while tests read it: every access goes through the lock.
     private readonly object _renderLock = new();
-    public List<(int KeyIndex, KeyBitmap Bitmap)> RenderCalls { get; } = [];
+    private readonly List<(int KeyIndex, KeyBitmap Bitmap)> _renderCalls = [];
 
-    public int RenderCallCount() { lock (_renderLock) return RenderCalls.Count; }
+    /// <summary>A snapshot of the render calls so far.</summary>
+    public IReadOnlyList<(int KeyIndex, KeyBitmap Bitmap)> RenderCalls { get { lock (_renderLock) return [.. _renderCalls]; } }
 
-    public int RenderedKeyCount() { lock (_renderLock) return RenderCalls.Select(c => c.KeyIndex).Distinct().Count(); }
+    public void ClearRenderCalls() { lock (_renderLock) _renderCalls.Clear(); }
+
+    public int RenderCallCount() { lock (_renderLock) return _renderCalls.Count; }
+
+    public int RenderedKeyCount() { lock (_renderLock) return _renderCalls.Select(c => c.KeyIndex).Distinct().Count(); }
 
     public event EventHandler<ConnectionEventArgs>? ConnectionStateChanged;
     public event EventHandler<KeyEventArgs>? KeyStateChanged;
@@ -40,7 +45,7 @@ public sealed class FakeMacroBoard : IMacroBoard
 
     public void SetKeyBitmap(int keyIndex, KeyBitmap bitmap)
     {
-        lock (_renderLock) RenderCalls.Add((keyIndex, bitmap));
+        lock (_renderLock) _renderCalls.Add((keyIndex, bitmap));
     }
 
     public byte? Brightness { get; private set; }

@@ -119,7 +119,7 @@ public class DeviceSupervisorTests : IDisposable
         board.SimulateDisconnect();
         await Task.Delay(50, CancellationToken.None);
 
-        board.RenderCalls.Clear();
+        board.ClearRenderCalls();
         board.SimulateReconnect();
         await WaitUntilAsync(() => board.RenderCallCount() >= 3);
 
@@ -163,7 +163,7 @@ public class DeviceSupervisorTests : IDisposable
         await Task.Delay(200, CancellationToken.None); // initial render of "main"
 
         // Navigate to a page that does not use keys 1 and 2.
-        board.RenderCalls.Clear();
+        board.ClearRenderCalls();
         svc.SetActivePage("SN200", "second");
 
         var keysWritten = board.RenderCalls.Select(c => c.KeyIndex).ToHashSet();
@@ -426,7 +426,7 @@ public class DeviceSupervisorTests : IDisposable
             new ButtonGridPage("main", [Btn("b0", 0, "main")])
         ]));
 
-        board.RenderCalls.Clear();
+        board.ClearRenderCalls();
         await svc.ApplyConfigChangeAsync("SN300", resetActivePage: true);
 
         var keysWritten = board.RenderCalls.Select(c => c.KeyIndex).ToHashSet();

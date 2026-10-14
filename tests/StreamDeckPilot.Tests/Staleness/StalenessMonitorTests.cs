@@ -150,7 +150,7 @@ public sealed class StalenessMonitorTests : IDisposable
         lastUpdated.RecordUpdate("SN1", "two", 0);
         await Task.Delay(200); // exceed the 50ms staleness timeout
 
-        board.RenderCalls.Clear(); // isolate the tick's hardware writes
+        board.ClearRenderCalls(); // isolate the tick's hardware writes
         await monitor.TickAsync();
 
         Assert.True(desired.Get("SN1", "two", 0)?.IsDimmed);   // desired state updated…
@@ -169,7 +169,7 @@ public sealed class StalenessMonitorTests : IDisposable
         lastUpdated.RecordUpdate("SN1", "two", 0);
         await Task.Delay(200);
 
-        board.RenderCalls.Clear();
+        board.ClearRenderCalls();
         await monitor.TickAsync();
 
         Assert.True(desired.Get("SN1", "two", 0)?.IsDimmed);
