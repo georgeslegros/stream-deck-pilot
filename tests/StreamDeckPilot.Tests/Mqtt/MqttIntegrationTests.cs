@@ -49,8 +49,9 @@ public sealed class MqttIntegrationTests : IAsyncLifetime
     {
         Host = _rabbit.Hostname,
         Port = _rabbit.GetMappedPublicPort(1883),
-        Username = "guest",
-        Password = "guest",
+        // The Testcontainers module replaces the "guest" user with its own default credentials.
+        Username = RabbitMqBuilder.DefaultUsername,
+        Password = RabbitMqBuilder.DefaultPassword,
         ClientId = "test-client",
     };
 
@@ -105,25 +106,35 @@ public sealed class MqttIntegrationTests : IAsyncLifetime
 
         var (svc, store) = BuildService(configStore);
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         await svc.StartAsync(cts.Token);
-        await Task.Delay(1000, CancellationToken.None); // wait for subscription
 
         // Publish a value that should trigger the red rule
         var publisher = new MqttClientFactory().CreateMqttClient();
         var pubOpts = new MqttClientOptionsBuilder()
             .WithTcpServer(_rabbit.Hostname, _rabbit.GetMappedPublicPort(1883))
-            .WithCredentials("guest", "guest")
+            .WithCredentials(RabbitMqBuilder.DefaultUsername, RabbitMqBuilder.DefaultPassword)
             .WithClientId("test-publisher")
+            // MQTTnet defaults to MQTT 5, which RabbitMQ 3.x rejects unless its mqtt_v5 feature flag
+            // is enabled; the connect then "succeeds" with UnsupportedProtocolVersion and the publish
+            // fails. The service itself speaks 3.1.1 for the same reason.
+            .WithProtocolVersion(MQTTnet.Formatter.MqttProtocolVersion.V311)
             .Build();
-        await publisher.ConnectAsync(pubOpts, cts.Token);
-        await publisher.PublishAsync(new MqttApplicationMessageBuilder()
+        var connect = await publisher.ConnectAsync(pubOpts, cts.Token);
+        Assert.Equal(MqttClientConnectResultCode.Success, connect.ResultCode);
+        // The service connects and subscribes in the background, and RabbitMQ 3.x does not hand
+        // retained messages to wildcard (home/#) subscriptions. Re-publish until the pipeline has
+        // processed one rather than guessing how long connect + subscribe take.
+        var message = new MqttApplicationMessageBuilder()
             .WithTopic("home/co2")
             .WithPayload("""{"value":1200,"unit":"ppm"}""")
             .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
-            .Build(), cts.Token);
-
-        await Task.Delay(1000, CancellationToken.None); // wait for pipeline
+            .Build();
+        for (var i = 0; i < 40 && store.Get("SN_MQTT_TEST", "main", 0)?.BackgroundColour != "#FF0000"; i++)
+        {
+            await publisher.PublishAsync(message, cts.Token);
+            await Task.Delay(500, CancellationToken.None);
+        }
 
         var state = store.Get("SN_MQTT_TEST", "main", 0);
         Assert.NotNull(state);
