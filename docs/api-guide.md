@@ -254,6 +254,7 @@ Full OpenAPI 3 schema (no auth required).
     { "condition": ">800",  "backgroundColour": "#FF8800", "icon": null },
     { "condition": ">=0",   "backgroundColour": "#00AA00", "icon": null }
   ],
+  // "backgroundColour" must be #RRGGBB (or null); other forms ("red", "#F00") are rejected on PUT.
   // A matched rule's "icon" overrides display.baseIcon for that render.
 
   "gestures": {

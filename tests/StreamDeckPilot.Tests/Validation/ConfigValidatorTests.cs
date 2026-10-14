@@ -45,6 +45,26 @@ public class ConfigValidatorTests
             Assert.Contains(result.Errors, e => e.Contains("display.precision"));
     }
 
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("#CC3300", true)]
+    [InlineData("#cc3300", true)]
+    [InlineData("red", false)]
+    [InlineData("#F00", false)]
+    [InlineData("#GG0000", false)]
+    [InlineData("#CC3300FF", false)]
+    [InlineData("CC3300", false)]
+    public void RuleBackgroundColour_MustBeHexRgb(string? colour, bool valid)
+    {
+        var config = new DeviceConfig(1, "SN001", [
+            new ButtonGridPage("main", [Btn("b1", 0, "main") with { Rules = [new ConditionalRule(">0", colour, null)] }])
+        ]);
+        var result = ConfigValidator.ValidateConfig(config, Mk2);
+        Assert.Equal(valid, result.IsValid);
+        if (!valid)
+            Assert.Contains(result.Errors, e => e.Contains("rule 1") && e.Contains("#RRGGBB"));
+    }
+
     [Fact]
     public void KeyIndexOutOfRange_ReturnsError()
     {
