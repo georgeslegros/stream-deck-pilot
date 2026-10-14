@@ -163,7 +163,8 @@ command (or as `image:` in compose) to run the published build instead of a loca
 A GitHub Actions workflow (`.github/workflows/release.yml`) builds and pushes the image on every
 **published GitHub Release**:
 
-1. Create a release with a semver tag, e.g. `v1.0.0` (`gh release create v1.0.0 --generate-notes`).
+1. Create a release with a semver tag from `master`, e.g. `v1.0.0`
+   (`gh release create v1.0.0 --target master --generate-notes`). See [CONTRIBUTING.md](CONTRIBUTING.md).
 2. The workflow builds both architectures and pushes `ghcr.io/georgeslegros/stream-deck-pilot`
    tagged `1.0.0`, `1.0`, `1`, and `latest`.
 
@@ -529,3 +530,6 @@ docker build -f src/StreamDeckPilot.Api/Dockerfile -t stream-deck-pilot .   # bu
 
 The runnable host is `src/StreamDeckPilot.Api`. Logs are structured JSON to stdout (Serilog). For
 architecture details see `CLAUDE.md`; for the full design contract see `streamdeck-service-spec.md`.
+
+Branching, pull requests and releases follow GitHub Flow (`master` + short-lived `feature/*` / `fix/*`
+branches, a release is a `vX.Y.Z` tag). See [CONTRIBUTING.md](CONTRIBUTING.md).
