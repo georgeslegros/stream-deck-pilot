@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Buffers;
 using System.Text;
 using System.Threading.Channels;
@@ -30,6 +31,12 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
     private readonly StreamDeckMetrics? _metrics;
     private readonly IMqttClient _client;
     private readonly BrightnessController _brightness;
+    private readonly TimeProvider _time;
+
+    // A bound topic whose payloads carry no usable value would otherwise log a warning per message.
+    // Warn on the first one, then at most once per interval per topic; the rest go to Debug.
+    internal static readonly TimeSpan NoValueWarningInterval = TimeSpan.FromMinutes(10);
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _noValueWarnedAt = new();
 
     // Serialises brightness state publishes; each one reads the CURRENT level, so the last publish
     // always carries the latest value even when changes race.
@@ -67,7 +74,8 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         Staleness.LastUpdatedStore lastUpdated,
         ILogger<MqttClientService> logger,
         StreamDeckMetrics? metrics = null,
-        BrightnessController? brightness = null)
+        BrightnessController? brightness = null,
+        TimeProvider? timeProvider = null)
     {
         _opts = opts.Value;
         _configStore = configStore;
@@ -78,6 +86,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         _lastUpdated = lastUpdated;
         _metrics = metrics;
         _logger = logger;
+        _time = timeProvider ?? TimeProvider.System;
         _client = new MqttClientFactory().CreateMqttClient();
         _brightness = brightness ?? new BrightnessController(Options.Create(new BrightnessOptions()));
         _brightness.EffectiveChanged += level => _ = Task.Run(PublishBrightnessStateAsync);
@@ -422,7 +431,8 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         }
     }
 
-    private async Task ProcessMessageAsync(string topic, string payload)
+    // internal so tests can drive topic routing (and its metrics) without a broker.
+    internal async Task ProcessMessageAsync(string topic, string payload)
     {
         if (topic == _brightness.Options.SetTopic)
         {
@@ -437,7 +447,8 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         {
             // With a wildcard subscription many topics won't map to a button — this is normal, not a fault.
             _logger.LogDebug("MQTT message on {Topic} has no button binding — dropped", topic);
-            _metrics?.MqttMessagesDropped.Add(1, [new("reason", "no_binding"), new("topic", topic)]);
+            // No topic tag here: under a wildcard every unbound topic would become its own series.
+            _metrics?.MqttMessagesDropped.Add(1, [new("reason", "no_binding")]);
             return;
         }
 
@@ -470,7 +481,8 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         if (value is null)
         {
             // Keep showing the last good value; staleness dims the tile if nothing usable follows.
-            _logger.LogWarning("No value in payload on {Topic} for {ButtonId} (valueField '{ValueField}') — update skipped",
+            _logger.Log(ShouldWarnNoValue(binding?.Topic ?? "") ? LogLevel.Warning : LogLevel.Debug,
+                "No value in payload on {Topic} for {ButtonId} (valueField '{ValueField}') — update skipped",
                 binding?.Topic, button.ButtonId, binding?.ValueField ?? "value");
             _metrics?.MqttMessagesDropped.Add(1, [new("reason", "no_value"), new("topic", binding?.Topic ?? "")]);
             return;
@@ -524,8 +536,20 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
             return;
         }
         _renderer.RenderButton(board, serial, button.KeyIndex, renderState);
-        _logger.LogInformation("Rendered key {KeyIndex} on {Serial} — colour={Colour} center={Center}",
+        _logger.LogDebug("Rendered key {KeyIndex} on {Serial} — colour={Colour} center={Center}",
             button.KeyIndex, serial, renderState.BackgroundColour, renderState.CenterText);
+    }
+
+    private bool ShouldWarnNoValue(string topic)
+    {
+        var now = _time.GetUtcNow();
+        var warn = true;
+        _noValueWarnedAt.AddOrUpdate(topic, now, (_, last) =>
+        {
+            warn = now - last >= NoValueWarningInterval;
+            return warn ? now : last;
+        });
+        return warn;
     }
 
     // ── Brightness ────────────────────────────────────────────────────────────
