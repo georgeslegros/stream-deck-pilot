@@ -34,6 +34,7 @@ Device catalogue (app-owned, read-only via API)
 - You cannot write config for a serial that isn't in the catalogue. The device must have been physically connected at least once.
 - Key positions (`keyIndex`) are 0-based, left-to-right, top-to-bottom. MK.2 = 0–14 (5 cols × 3 rows).
 - All config writes are validated before persisting. Errors return `400` with an `errors` array.
+- Every button needs `display`, `rules` and `gestures`, even when empty (`{}`, `[]`, `{}`). Omitting one is a `400`.
 - **Rendering is what you declare, not what the data is.** The layout follows the zones you fill and the icon placement you choose — the service never infers a layout from the *kind* of data a tile carries.
 
 ---
@@ -240,7 +241,7 @@ Full OpenAPI 3 schema (no auth required).
   },
 
   "inbound": {                       // null for press-only buttons
-    "topic": "home/office/co2",
+    "topic": "home/office/co2",      // required when inbound is set
     "valueField": "value",           // dot path into a JSON object ("temperature", "state.mode"); null = the "value" key
     "unitField": "unit",
     "labelField": null,              // optional: extracts a live string for the {label} token
@@ -319,7 +320,7 @@ Conditions are validated when the config is written. A malformed or unknown cond
 | `"heat"` / `true` | JSON string unquoted / `true` |
 | `{"temperature": 21.5}` | `valueField` path, e.g. `temperature` or a dotted `state.mode` |
 
-If a JSON object yields no usable value, the update is skipped and the tile keeps its last value. That happens when `valueField` is missing, or when `valueField` is `null` and there's no `value` key, and also for a `null` field, an object at the path, or a payload that is empty or literally `null` or `[]`. A warning is logged and the message counts as dropped (`no_value`). Generic publishers such as Home Assistant `mqtt_statestream` (bare state text per entity topic) work directly, combined with text rules (`eq:`/`in:`).
+If a JSON object yields no usable value, the update is skipped and the tile keeps its last value. That happens when `valueField` is missing, or when `valueField` is `null` and there's no `value` key, and also for a `null` field, an object at the path, or a payload that is empty or literally `null` or `[]`. A warning is logged (at most once per topic every 10 minutes) and the message counts as dropped (`no_value`). Generic publishers such as Home Assistant `mqtt_statestream` (bare state text per entity topic) work directly, combined with text rules (`eq:`/`in:`).
 Add a `label` field (and point `inbound.labelField` at it) when you want a live string in the `{label}` token, e.g. `{"value": 22.0, "label": "22/18"}`.
 Publishers should set the **retain** flag so the app populates immediately on start.
 

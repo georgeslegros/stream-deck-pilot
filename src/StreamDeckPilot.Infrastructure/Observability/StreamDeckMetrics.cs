@@ -7,6 +7,9 @@ public sealed class StreamDeckMetrics : IDisposable
 {
     private readonly Meter _meter = new("StreamDeckPilot", "1.0");
 
+    // Lets tests listen to this instance only (the meter name is shared by every instance).
+    internal Meter Meter => _meter;
+
     public Counter<long> MqttMessagesReceived { get; }
     public Counter<long> MqttMessagesDropped  { get; }
     public Counter<long> RenderOperations     { get; }
