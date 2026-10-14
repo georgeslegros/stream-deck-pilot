@@ -113,17 +113,17 @@ public class DeviceSupervisorTests : IDisposable
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
         await svc.StartAsync(cts.Token);
-        await Task.Delay(200, CancellationToken.None);
+        await WaitUntilAsync(() => board.RenderCallCount() >= 3); // initial render done
 
-        var rendersBefore = board.RenderCalls.Count;
+        var rendersBefore = board.RenderCallCount();
         board.SimulateDisconnect();
         await Task.Delay(50, CancellationToken.None);
 
         board.RenderCalls.Clear();
         board.SimulateReconnect();
-        await Task.Delay(200, CancellationToken.None);
+        await WaitUntilAsync(() => board.RenderCallCount() >= 3);
 
-        Assert.True(board.RenderCalls.Count >= 3, $"Expected ≥3 render calls on reconnect, got {board.RenderCalls.Count}");
+        Assert.True(board.RenderCallCount() >= 3, $"Expected ≥3 render calls on reconnect, got {board.RenderCallCount()}");
         await svc.StopAsync(CancellationToken.None);
     }
 
@@ -286,11 +286,13 @@ public class DeviceSupervisorTests : IDisposable
 
         var replugged = new FakeMacroBoard { Serial = "SN403", Path = replugPath };
         library.Plug(replugged);
-        await WaitUntilAsync(() => svc.GetState("SN403") == DeviceConnectionState.Connected);
+        // The state turns Connected before the re-render (which loads the config) completes,
+        // so wait for the keys themselves rather than the state.
+        await WaitUntilAsync(() => replugged.RenderedKeyCount() == replugged.Keys.Count);
 
         Assert.Equal(DeviceConnectionState.Connected, svc.GetState("SN403"));
         Assert.Same(replugged, svc.GetBoard("SN403"));
-        Assert.Equal(replugged.Keys.Count, replugged.RenderCalls.Select(c => c.KeyIndex).Distinct().Count());
+        Assert.Equal(replugged.Keys.Count, replugged.RenderedKeyCount());
         await svc.StopAsync(CancellationToken.None);
     }
 

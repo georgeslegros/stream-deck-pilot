@@ -12,7 +12,13 @@ public sealed class FakeMacroBoard : IMacroBoard
     public bool IsDisposed { get; private set; }
     public IKeyLayout Keys { get; } = new GridKeyLayout(5, 3, 72, 32);
 
+    // Written by the supervisor's background work while tests read it: guard both sides.
+    private readonly object _renderLock = new();
     public List<(int KeyIndex, KeyBitmap Bitmap)> RenderCalls { get; } = [];
+
+    public int RenderCallCount() { lock (_renderLock) return RenderCalls.Count; }
+
+    public int RenderedKeyCount() { lock (_renderLock) return RenderCalls.Select(c => c.KeyIndex).Distinct().Count(); }
 
     public event EventHandler<ConnectionEventArgs>? ConnectionStateChanged;
     public event EventHandler<KeyEventArgs>? KeyStateChanged;
@@ -32,8 +38,10 @@ public sealed class FakeMacroBoard : IMacroBoard
     public void SimulateKeyPress(int key) =>
         KeyStateChanged?.Invoke(this, new KeyEventArgs(key, true));
 
-    public void SetKeyBitmap(int keyIndex, KeyBitmap bitmap) =>
-        RenderCalls.Add((keyIndex, bitmap));
+    public void SetKeyBitmap(int keyIndex, KeyBitmap bitmap)
+    {
+        lock (_renderLock) RenderCalls.Add((keyIndex, bitmap));
+    }
 
     public byte? Brightness { get; private set; }
     public void SetBrightness(byte percent) => Brightness = percent;
