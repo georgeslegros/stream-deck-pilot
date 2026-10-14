@@ -39,6 +39,14 @@ jobs:
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.*.props') }}
           restore-keys: nuget-${{ runner.os }}-
 
+      # Key rendering uses system fonts; the container ships DejaVu Sans, so render tests
+      # (golden images) run with the same font.
+      - name: Install fonts
+        run: |
+          if ! fc-list | grep -q "DejaVu Sans"; then
+            sudo apt-get update -q && sudo apt-get install -y -q fonts-dejavu-core
+          fi
+
       - name: Restore
         run: dotnet restore
 
