@@ -164,13 +164,21 @@ A GitHub Actions workflow (`.github/workflows/release.yml`) builds and pushes th
 **published GitHub Release**:
 
 1. Create a release with a semver tag, e.g. `v1.0.0` (`gh release create v1.0.0 --generate-notes`).
-2. The workflow builds both architectures and pushes `ghcr.io/georgeslegros/stream-deck-pilot`
-   tagged `1.0.0`, `1.0`, `1`, and `latest`.
+2. The workflow first runs the CI build and full test suite. Only if that passes does it build both
+   architectures and push `ghcr.io/georgeslegros/stream-deck-pilot` tagged `1.0.0`, `1.0`, `1`, and
+   `latest`.
 
 It uses the built-in `GITHUB_TOKEN` — no secrets to configure. **One-time:** after the first
 release, set the package's visibility to **Public** (repo → Packages → the package → Package
-settings) so it can be pulled without authentication. (CI pushes don't run; the image is built only
-on a release.)
+settings) so it can be pulled without authentication. The image is built only on a release; pushes and
+PRs run the tests only.
+
+### Continuous integration
+
+`.github/workflows/ci.yml` restores, builds and runs the full test suite on every pull request and
+on every push to `master`. The suite includes the Testcontainers integration tests, which need Docker;
+GitHub's `ubuntu-latest` runners provide it. The `Build and test` check is required before a PR
+can merge into `master`. The release workflow calls the same workflow as its first step.
 
 ---
 
