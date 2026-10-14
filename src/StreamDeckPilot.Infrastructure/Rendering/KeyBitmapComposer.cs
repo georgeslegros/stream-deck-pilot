@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Numerics;
 using OpenMacroBoard.SDK;
 using SixLabors.Fonts;
@@ -33,9 +34,13 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
     private static readonly Color DefaultBg = new(new Rgba32(55, 55, 55));
     private static readonly Color InkDark = new(new Rgba32(26, 26, 26));
 
-    // Type ramp (px).
-    private static readonly Font? ValueFont = GeneratedIconSource.TryLoadFont(25.5f, FontStyle.Bold);
-    private static readonly Font? ValueFontSmall = GeneratedIconSource.TryLoadFont(22f, FontStyle.Bold);
+    // Type ramp (px). The hero value starts at 25.5 px (22 px from five characters) and steps
+    // down until it fits the tile, so long values such as "1234.56" are never clipped.
+    private const float ValueFontSize = 25.5f;
+    private const float ValueFontSizeLong = 22f;
+    private const float MinValueFontSize = 9f;
+    private const float MaxValueWidth = Size - 2;   // a 1 px margin on each side
+    private static readonly ConcurrentDictionary<float, Font?> ValueFonts = new();
     private static readonly Font? UnitFont = GeneratedIconSource.TryLoadFont(12f);
     private static readonly Font? CaptionFont = GeneratedIconSource.TryLoadFont(9.5f);
 
@@ -102,9 +107,8 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
         var (head, tail) = SplitValueUnit(centerText);
         var heroBaseline = hasBottom ? 40f : 44f;   // lift the hero when a caption is present so the rows fit
 
-        if (!string.IsNullOrEmpty(head) && ValueFont is not null)
+        if (!string.IsNullOrEmpty(head) && FitValueFont(head) is { } font)
         {
-            var font = head.Length >= 5 && ValueFontSmall is not null ? ValueFontSmall : ValueFont;
             // 1px black shadow keeps the value legible near the luminance threshold.
             DrawCentredText(image, head, font, Color.Black, x: 36f, baseline: heroBaseline + 1);
             DrawCentredText(image, head, font, ink, x: 36f, baseline: heroBaseline);
@@ -113,6 +117,21 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
         if (!string.IsNullOrEmpty(tail) && UnitFont is not null)
             DrawCentredText(image, tail, UnitFont, WithAlpha(ink, 0.75f), x: 36f, baseline: heroBaseline + 15);
     }
+
+    private static Font? FitValueFont(string text)
+    {
+        var size = text.Length >= 5 ? ValueFontSizeLong : ValueFontSize;
+        for (; size > MinValueFontSize; size -= 1f)
+        {
+            var font = ValueFontAt(size);
+            if (font is null || TextMeasurer.MeasureBounds(text, new TextOptions(font)).Width <= MaxValueWidth)
+                return font;
+        }
+        return ValueFontAt(MinValueFontSize);
+    }
+
+    private static Font? ValueFontAt(float size) =>
+        ValueFonts.GetOrAdd(size, s => GeneratedIconSource.TryLoadFont(s, FontStyle.Bold));
 
     // Small caption along the bottom, e.g. a room name.
     private static void DrawBottomCaption(Image<Rgba32> image, string text, Color ink)

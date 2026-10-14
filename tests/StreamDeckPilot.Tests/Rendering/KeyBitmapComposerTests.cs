@@ -110,6 +110,22 @@ public sealed class KeyBitmapComposerTests : IDisposable
         Assert.False(AllPixels(onLight, p => Math.Abs(p.R - DarkInk.R) > 12 || Math.Abs(p.G - DarkInk.G) > 12));
     }
 
+    // #48: long values shrink to fit instead of running off both edges.
+    [Theory]
+    [InlineData("12345")]
+    [InlineData("1234.56")]
+    [InlineData("-12.345")]
+    [InlineData("unavailable")]
+    public void CenterValue_NeverTouchesTheEdges(string value)
+    {
+        var bg = new Rgba32(0x33, 0xAA, 0x33);
+        using var image = _composer.ComposeImage(State("#33AA33", center: value), "SN1");
+
+        Assert.True(InkPixels(image, bg, 0, Size, 1, Size - 1) > 80);
+        Assert.Equal(0, InkPixels(image, bg, 0, Size, 0, 1));
+        Assert.Equal(0, InkPixels(image, bg, 0, Size, Size - 1, Size));
+    }
+
     [Fact]
     public void BottomCaption_IsDrawnAlongTheBottom_Only()
     {
@@ -233,6 +249,8 @@ public sealed class KeyBitmapComposerTests : IDisposable
         { "stale", State("#0066AA", "builtin:thermometer", IconPlacement.Corner, "19.2 °C", "Salon", dimmed: true) },
         { "long-value", State("#33AA33", null, IconPlacement.Corner, "12345 W", "Power") },
         { "text-state", State("#FF8800", null, IconPlacement.Corner, "heat", "Mode") },
+        { "value-7-chars", State("#33AA33", null, IconPlacement.Corner, "1234.56 kWh", "Energy") },
+        { "value-negative", State("#0066AA", "builtin:thermometer", IconPlacement.Corner, "-12.35 °C", "Outside") },
     };
 
     [Theory]
