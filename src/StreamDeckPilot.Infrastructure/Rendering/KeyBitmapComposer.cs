@@ -21,10 +21,9 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver, ILogger<KeyBitm
 
     private const int Size = 72;
 
-    // ── Corner-icon watermark (experimental, tunable) ────────────────────────────
-    // IconPlacement.Corner no longer draws a tiny top-left glyph; it draws a large, faint
-    // watermark anchored to the tile's RIGHT edge, sitting UNDER the hero value and caption.
-    // These consts are the only knobs — adjust freely.
+    // ── Corner-icon watermark (tunable) ──────────────────────────────────────────
+    // IconPlacement.Corner draws a large, faint watermark centred on the tile, sitting UNDER the
+    // hero value and caption. These consts are the only knobs — adjust freely.
 
     // Glyph diameter in px. ~15% larger than the 66px centre hero icon.
     private const int WatermarkSize = 76;
@@ -168,12 +167,12 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver, ILogger<KeyBitm
         catch (Exception ex) { IconFailed(reference, ex); }
     }
 
-    // Large, faint, right-anchored watermark for IconPlacement.Corner. The glyph is resized and
-    // tinted like a normal icon, then composited at WatermarkOpacity with its centre on the tile's
-    // right edge so only the left half shows. Because the placement is partly outside the tile,
-    // ImageSharp's DrawImage (which requires the overlay rectangle to lie within bounds) would
-    // throw — so we crop the resized glyph to the visible region and composite that crop at the
-    // clamped on-tile origin. Drawn before the hero text, so the text always sits on top.
+    // Large, faint watermark for IconPlacement.Corner. The glyph is resized and tinted like a
+    // normal icon, then composited at WatermarkOpacity at WatermarkLeft/Top (centred by default).
+    // The glyph is larger than the tile, so it lies partly outside it, and ImageSharp's DrawImage
+    // requires the overlay rectangle to lie within bounds — so we crop the resized glyph to the
+    // visible region and composite that crop at the clamped on-tile origin. Drawn before the hero
+    // text, so the text always sits on top.
     private void DrawWatermark(Image<Rgba32> image, string? reference, string serial, Color ink)
     {
         if (reference is null) return;

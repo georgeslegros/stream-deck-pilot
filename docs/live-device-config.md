@@ -19,7 +19,7 @@ This documents the configuration **actually running** on the physical Stream Dec
 
 Each tile is an icon + two text zones, with layout declared explicitly:
 
-- **`iconPlacement`** — `corner` (small icon, top-left; used for value tiles) or
+- **`iconPlacement`** — `corner` (faint watermark behind the text; used for value tiles) or
   `center` (large centred icon; used for toggles / navigation).
 - **`center`** zone — the large hero text. `template` is resolved from live MQTT
   (`{value}`/`{unit}`/`{label}`); split on the first space → big value + small unit.
