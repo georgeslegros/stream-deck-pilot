@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using OpenMacroBoard.SDK;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using StreamDeckPilot.Core.Models.Config;
@@ -78,6 +79,18 @@ public sealed class KeyBitmapComposerTests : IDisposable
 
         Assert.Equal(Size, bitmap.Width);
         Assert.Equal(Size, bitmap.Height);
+    }
+
+    // The composed image reaches OpenMacroBoard as raw pixels: check the channel order survives
+    // (OpenMacroBoard stores blue first), so a red rule is red on the deck, not blue.
+    [Fact]
+    public void Compose_KeepsColoursWhenHandingPixelsToOpenMacroBoard()
+    {
+        var bitmap = _composer.Compose(State("#CC3300"), "SN1");
+        var data = ((IKeyBitmapDataAccess)bitmap).GetData();
+
+        Assert.Equal(0, data.Length % (Size * Size));
+        Assert.Equal((0x00, 0x33, 0xCC), (data[0], data[1], data[2]));
     }
 
     [Fact]

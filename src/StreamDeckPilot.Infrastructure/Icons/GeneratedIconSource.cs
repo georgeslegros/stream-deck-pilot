@@ -60,7 +60,7 @@ public static class GeneratedIconSource
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center,
                 };
-                ctx.DrawText(opts, label, Color.White);
+                ctx.Paint(canvas => canvas.DrawText(opts, label, Brushes.Solid(Color.White), null));
             }
         });
         using var ms = new MemoryStream();

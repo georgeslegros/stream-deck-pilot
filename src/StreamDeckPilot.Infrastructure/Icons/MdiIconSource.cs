@@ -38,7 +38,7 @@ internal static class MdiIconSource
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
             };
-            ctx.DrawText(opts, glyph, Color.White);
+            ctx.Paint(canvas => canvas.DrawText(opts, glyph, Brushes.Solid(Color.White), null));
         });
         return image;
     }

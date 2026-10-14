@@ -126,22 +126,22 @@ public sealed class IconResolverTests : IDisposable
             Assert.NotNull(unrestricted.Metadata.IccProfile);
 
         Assert.True(IconImageFormats.IsSupported(bytes));
-        using var image = Image.Load<Rgba32>(IconImageFormats.Configuration, bytes);
+        using var image = Image.Load<Rgba32>(IconImageFormats.DecoderOptions, bytes);
         Assert.Null(image.Metadata.IccProfile);
         Assert.Equal(TestImages.Size, image.Width);
     }
 
-    // ImageSharp 2.1 does not read iCCP chunks at all; this guards that a PNG carrying one still
-    // decodes as an icon without a profile (e.g. after an ImageSharp upgrade).
+    // ImageSharp 4 keeps a PNG iCCP profile on the image even with SkipMetadata; what matters is
+    // that the icon decodes and its pixels are not converted through the profile.
     [Fact]
-    public void IconImageFormats_IgnoresPngIccProfile()
+    public void IconImageFormats_PngWithIccProfile_DecodesWithoutConversion()
     {
         var bytes = TestImages.PngWithIccProfile();
 
         Assert.True(IconImageFormats.IsSupported(bytes));
-        using var image = Image.Load<Rgba32>(IconImageFormats.Configuration, bytes);
-        Assert.Null(image.Metadata.IccProfile);
+        using var image = Image.Load<Rgba32>(IconImageFormats.DecoderOptions, bytes);
         Assert.Equal(TestImages.Size, image.Width);
+        Assert.Equal(new Rgba32(200, 30, 30), image[0, 0]);
     }
 
     [Fact]

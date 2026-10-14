@@ -8,7 +8,7 @@ public static class StreamDeckHardwareRegistration
 {
     private static int _registered;
 
-    // PID 0x00A5 is the MK.2 Scissor Switch revision, missing from StreamDeckSharp 6.1.0.
+    // PID 0x00A5 is the MK.2 Scissor Switch revision, still missing from StreamDeckSharp 10.0.0.
     // Must be called before any EnumerateDevices() or OpenDevice() call.
     public static void Register()
     {

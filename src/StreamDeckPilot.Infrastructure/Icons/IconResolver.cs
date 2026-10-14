@@ -77,14 +77,14 @@ public sealed class IconResolver(CustomImageSource customSource, ILogger<IconRes
     // Decodes PNG or JPEG only; anything else (TIFF, BMP, GIF, WebP...) yields null.
     private static Image<Rgba32>? LoadPng(byte[] bytes)
     {
-        try { return Image.Load<Rgba32>(IconImageFormats.Configuration, bytes); }
+        try { return Image.Load<Rgba32>(IconImageFormats.DecoderOptions, bytes); }
         catch { return null; }
     }
 
     private static byte[] GenerateFallback()
     {
         using var image = new Image<Rgba32>(72, 72);
-        image.Mutate(ctx => ctx.Fill(new Color(new Rgba32(60, 60, 60))));
+        image.Mutate(ctx => ctx.Paint(canvas => canvas.Clear(Brushes.Solid(Color.FromPixel(new Rgba32(60, 60, 60))))));
         using var ms = new MemoryStream();
         image.Save(ms, new PngEncoder());
         return ms.ToArray();

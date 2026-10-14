@@ -30,8 +30,8 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
     // Vertically centred; may be slightly negative (clips top/bottom) — intentional.
     private const int WatermarkTop = (Size - WatermarkSize) / 2;
 
-    private static readonly Color DefaultBg = new(new Rgba32(55, 55, 55));
-    private static readonly Color InkDark = new(new Rgba32(26, 26, 26));
+    private static readonly Color DefaultBg = Color.FromPixel(new Rgba32(55, 55, 55));
+    private static readonly Color InkDark = Color.FromPixel(new Rgba32(26, 26, 26));
 
     // Type ramp (px).
     private static readonly Font? ValueFont = GeneratedIconSource.TryLoadFont(25.5f, FontStyle.Bold);
@@ -42,7 +42,11 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
     public KeyBitmap Compose(ButtonRenderState state, string serial)
     {
         using var image = ComposeImage(state, serial);
-        return KeyBitmap.Create.FromImageSharpImage(image);
+        // Hand raw RGBA bytes to OpenMacroBoard rather than the ImageSharp image: OpenMacroBoard is
+        // built against an older ImageSharp major, and raw pixels keep the two from ever meeting.
+        var pixels = new byte[Size * Size * 4];
+        image.CopyPixelDataTo(pixels);
+        return KeyBitmap.Create.FromRgba32Array(Size, Size, pixels);
     }
 
     // Composes the 72x72 key image. Caller owns (and must dispose) the returned image.
@@ -52,7 +56,7 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
         var image = new Image<Rgba32>(Size, Size);
 
         var bg = ParseColour(state.BackgroundColour) ?? DefaultBg;
-        image.Mutate(ctx => ctx.Fill(bg));
+        image.Mutate(ctx => ctx.Paint(canvas => canvas.Clear(Brushes.Solid(bg))));
 
         // Stale tiles desaturate the background first so ink is computed on the drained colour.
         if (state.IsDimmed)
@@ -250,7 +254,7 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Bottom,
         };
-        image.Mutate(ctx => ctx.DrawText(opts, text, colour));
+        image.Mutate(ctx => ctx.Paint(canvas => canvas.DrawText(opts, text, Brushes.Solid(colour), null)));
     }
 
     // sRGB perceived luminance (no gamma) — fast and correct for a binary ink decision.
@@ -264,7 +268,7 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
     private static Color WithAlpha(Color colour, float alpha)
     {
         var p = colour.ToPixel<Rgba32>();
-        return new Color(new Rgba32(p.R, p.G, p.B, (byte)(alpha * 255)));
+        return Color.FromPixel(new Rgba32(p.R, p.G, p.B, (byte)(alpha * 255)));
     }
 
     // Splits "23.5 °C" → ("23.5", "°C"); "ON" → ("ON", null).
@@ -281,7 +285,7 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
     private static Color SampleBackground(Image<Rgba32> image)
     {
         var p = image[1, 1];
-        return new Color(p);
+        return Color.FromPixel(p);
     }
 
     private static Color? ParseColour(string? hex)
@@ -292,7 +296,7 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver)
             var r = Convert.ToByte(hex.Substring(1, 2), 16);
             var g = Convert.ToByte(hex.Substring(3, 2), 16);
             var b = Convert.ToByte(hex.Substring(5, 2), 16);
-            return new Color(new Rgba32(r, g, b));
+            return Color.FromPixel(new Rgba32(r, g, b));
         }
         catch { return null; }
     }

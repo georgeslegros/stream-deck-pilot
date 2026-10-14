@@ -22,4 +22,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /app .
+# Licence of this project plus the notices and licence texts of the third-party components it ships.
+COPY --from=build /src/LICENSE /src/THIRD-PARTY-NOTICES.md /app/
+COPY --from=build /src/licenses /app/licenses
 ENTRYPOINT ["dotnet", "StreamDeckPilot.Api.dll"]

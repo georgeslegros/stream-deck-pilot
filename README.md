@@ -57,7 +57,7 @@ unreachable is a degraded state, not a crash — the API stays up regardless.
 - **Elgato Stream Deck** — any model supported by StreamDeckSharp (Original, MK.2, XL, Mini, and
   variants). The service reads key geometry from the device at discovery time (`CountX × CountY`), so
   different grid sizes work without config changes. PID `0x00A5` (MK.2 Scissor Switch revision,
-  missing from StreamDeckSharp 6.1.0) is registered at startup automatically.
+  still missing from StreamDeckSharp 10.0.0) is registered at startup automatically.
 - **MQTT broker** speaking MQTT 3.1.1. The integration tests run against Mosquitto (`eclipse-mosquitto:2`);
   any compliant broker works. RabbitMQ's MQTT plugin does not deliver retained messages to wildcard
   subscriptions, so tiles fed by retained topics stay empty until the next update there.
@@ -378,14 +378,10 @@ extension) with `POST /devices/{serial}/images` (`multipart/form-data`). The res
 under `/data/images/<serial>/` and can be listed or removed via the image endpoints. The icon
 resolver tries built-in, then custom, then a fallback — it never throws.
 
-**Known advisories (ImageSharp 2.1.x).** Rendering uses SixLabors.ImageSharp 2.1.11, the version the
-Stream Deck libraries (StreamDeckSharp / OpenMacroBoard 6.1.0) are built against. Five ImageSharp
-advisories published in October 2026 are only fixed in 4.1.2, a major upgrade with API and licence
-changes, so the package is not upgraded yet (tracked in #36). None of them is reachable from the
-service: it never uses histogram equalisation or encodes TIFF, and it decodes custom icons with only
-the PNG and JPEG decoders and with metadata ignored, so TIFF content and embedded ICC profiles are
-never parsed. Custom icons are also the only untrusted images it decodes, and uploading one requires
-the API key.
+**Image decoding.** Custom icons are decoded with only the PNG and JPEG decoders and without
+metadata, so other formats (TIFF, GIF, WebP, ...) never reach ImageSharp's decoders, and embedded
+colour profiles are never applied. Custom icons are the only untrusted images the service decodes,
+and uploading one requires the API key.
 
 ---
 
