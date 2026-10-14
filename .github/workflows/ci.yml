@@ -61,7 +61,6 @@ jobs:
           dotnet reportgenerator -reports:"TestResults/**/coverage.cobertura.xml" \
             -targetdir:coverage -reporttypes:"MarkdownSummaryGithub;Cobertura" -verbosity:Warning
           cat coverage/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY"
-          echo "${{ github.event.pull_request.number }}" > coverage/pr-number
 
       - name: Upload coverage
         if: ${{ !cancelled() && hashFiles('coverage/SummaryGithub.md') != '' }}
