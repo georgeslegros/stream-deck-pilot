@@ -28,6 +28,20 @@ public static class ConfigValidator
                 if (!seenPositions.Add(pos))
                     errors.Add($"Button '{button.ButtonId}': duplicate position (page '{button.PageId}', key {button.KeyIndex}).");
 
+                // JSON doesn't enforce the model's nullability: a button that omits one of these
+                // deserialises with null there, and everything downstream dereferences it.
+                if (button.Display is null)
+                    errors.Add($"Button '{button.ButtonId}': display is required (use {{}} for the defaults).");
+                if (button.Rules is null)
+                    errors.Add($"Button '{button.ButtonId}': rules is required (use [] for none).");
+                if (button.Gestures is null)
+                    errors.Add($"Button '{button.ButtonId}': gestures is required (use {{}} for none).");
+                if (button.Display is null || button.Rules is null || button.Gestures is null)
+                    continue;
+
+                if (button.Inbound is { } inbound && string.IsNullOrWhiteSpace(inbound.Topic))
+                    errors.Add($"Button '{button.ButtonId}': inbound.topic is required when inbound is set.");
+
                 if (button.Display.Precision is < 0 or > DisplaySpec.MaxPrecision)
                     errors.Add($"Button '{button.ButtonId}': display.precision must be between 0 and {DisplaySpec.MaxPrecision} (got {button.Display.Precision}).");
 
@@ -53,7 +67,7 @@ public static class ConfigValidator
             foreach (var page in config.Pages)
                 if (page is ButtonGridPage grid)
                     foreach (var button in grid.Buttons)
-                        foreach (var actions in button.Gestures.Values)
+                        foreach (var actions in button.Gestures?.Values ?? [])
                             foreach (var action in actions)
                                 if (action is NavigateAction nav)
                                     reachablePages.Add(nav.TargetPageId);

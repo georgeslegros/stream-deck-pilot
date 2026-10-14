@@ -173,6 +173,32 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
             Assert.Contains("display.precision", await response.Content.ReadAsStringAsync());
     }
 
+    // Omitted fields deserialise as null despite the model's annotations; they used to reach
+    // the validator and fail with a 500 (#61).
+    [Theory]
+    [InlineData("SN030", "\"rules\":[],\"gestures\":{}", "display is required")]
+    [InlineData("SN031", "\"display\":{},\"gestures\":{}", "rules is required")]
+    [InlineData("SN032", "\"display\":{},\"rules\":[]", "gestures is required")]
+    [InlineData("SN033", "\"display\":{},\"rules\":[],\"gestures\":{},\"inbound\":{\"expectsRetained\":true}", "inbound.topic is required")]
+    [InlineData("SN034", "\"display\":{},\"rules\":[],\"gestures\":{},\"inbound\":{\"topic\":\" \"}", "inbound.topic is required")]
+    public async Task PutConfig_MissingButtonField_Returns400NamingTheButton(string serial, string fields, string expectedError)
+    {
+        await _factory.SeedDeviceAsync(serial);
+        var client = _factory.CreateAuthenticatedClient();
+        var body = new StringContent($$"""
+            {"schemaVersion":2,"serial":"{{serial}}","pages":[{"pageType":"ButtonGrid","pageId":"main","buttons":[
+              {"buttonId":"power","keyIndex":0,"pageId":"main",{{fields}}}]}]}
+            """, Encoding.UTF8, "application/json");
+
+        var response = await client.PutAsync($"/devices/{serial}/config", body);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var json = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Button 'power'", json);
+        Assert.Contains(expectedError, json);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/devices/{serial}/config")).StatusCode);
+    }
+
     [Fact]
     public async Task PutConfig_DuplicatePosition_Returns400()
     {
