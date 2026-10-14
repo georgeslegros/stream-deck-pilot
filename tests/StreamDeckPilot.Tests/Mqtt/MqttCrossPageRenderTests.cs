@@ -87,7 +87,7 @@ public sealed class MqttCrossPageRenderTests : IDisposable
     public async Task InboundForButtonOnInactivePage_UpdatesDesiredState_ButDoesNotPaintBoard()
     {
         var (svc, board, desired) = await BuildAsync(activePage: "main");
-        board.RenderCalls.Clear(); // ignore the initial render of "main"
+        board.ClearRenderCalls(); // ignore the initial render of "main"
 
         // Drive an update for c0, which lives on the INACTIVE "climate" page.
         svc.RunPipeline(Serial, "climate", ButtonOn("climate"), """{"value":21.5,"unit":"°C"}""");
@@ -106,7 +106,7 @@ public sealed class MqttCrossPageRenderTests : IDisposable
     {
         // Same button, but now "climate" is the active page — it must paint.
         var (svc, board, desired) = await BuildAsync(activePage: "climate");
-        board.RenderCalls.Clear();
+        board.ClearRenderCalls();
 
         svc.RunPipeline(Serial, "climate", ButtonOn("climate"), """{"value":21.5,"unit":"°C"}""");
 
