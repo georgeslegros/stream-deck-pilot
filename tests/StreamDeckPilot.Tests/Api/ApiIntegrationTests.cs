@@ -41,6 +41,20 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
+    // --- GET /openapi.json ---
+
+    [Fact]
+    public async Task OpenApiDocument_DescribesTheApi()
+    {
+        var client = _factory.CreateAuthenticatedClient();
+        var response = await client.GetAsync("/openapi.json");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.StartsWith("3.", doc.RootElement.GetProperty("openapi").GetString());
+        Assert.True(doc.RootElement.GetProperty("paths").TryGetProperty("/devices", out _));
+    }
+
     // --- GET /devices ---
 
     [Fact]

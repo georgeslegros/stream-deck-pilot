@@ -374,6 +374,13 @@ extension) with `POST /devices/{serial}/images` (`multipart/form-data`). The res
 under `/data/images/<serial>/` and can be listed or removed via the image endpoints. The icon
 resolver tries built-in, then custom, then a fallback — it never throws.
 
+**Known advisories (ImageSharp 2.1.x).** Rendering uses SixLabors.ImageSharp 2.1.11, the version the
+Stream Deck libraries (StreamDeckSharp / OpenMacroBoard 6.1.0) are built against. Several ImageSharp
+advisories published in October 2026 are only fixed in 4.1.2, a major upgrade with API and licence
+changes, so they are not patched yet (tracked in #36). The only untrusted input ImageSharp decodes is a
+custom icon uploaded through `POST /devices/{serial}/images`, which requires the API key. Keep the API
+key secret and the API off untrusted networks until #36 is done.
+
 ---
 
 ## 7. MQTT integration
