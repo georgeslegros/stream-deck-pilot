@@ -27,6 +27,9 @@ public sealed class StalenessMonitor(
         catch (OperationCanceledException) { }
     }
 
+    /// <summary>Test seam: runs between reading a button's state and writing it back.</summary>
+    internal Action? AfterStateRead { get; set; }
+
     internal async Task TickAsync()
     {
         var serials = await configStore.ListSerialsAsync();
@@ -51,11 +54,16 @@ public sealed class StalenessMonitor(
                     var stale = now - last.Value > timeout.Value;
                     var current = desiredState.Get(serial, page.PageId, button.KeyIndex);
                     if (current is null) continue;
+                    AfterStateRead?.Invoke();
 
+                    // Every write below is a compare-and-set against the state read above: the MQTT
+                    // pipeline writes the same key concurrently, and a plain Set would put the old
+                    // value back over a fresh one (#62). If it lost, the fresh state wins; the next
+                    // tick re-evaluates it.
                     if (stale && !current.IsDimmed)
                     {
                         var dimmed = current with { IsDimmed = true };
-                        desiredState.Set(serial, page.PageId, button.KeyIndex, dimmed);
+                        if (!desiredState.TryUpdate(serial, page.PageId, button.KeyIndex, current, dimmed)) continue;
                         var board = supervisor.GetBoard(serial);
                         // Only paint the hardware if this button's page is the one on screen.
                         // Desired state is updated above regardless, so it renders correctly on
@@ -73,7 +81,7 @@ public sealed class StalenessMonitor(
                         // Value arrived recently — un-dim (MQTT pipeline should have already done this,
                         // but handle the edge case here too)
                         var undimmed = current with { IsDimmed = false };
-                        desiredState.Set(serial, page.PageId, button.KeyIndex, undimmed);
+                        if (!desiredState.TryUpdate(serial, page.PageId, button.KeyIndex, current, undimmed)) continue;
                         var board = supervisor.GetBoard(serial);
                         // Only paint the hardware if this button's page is the one on screen.
                         // Desired state is updated above regardless, so it renders correctly on
