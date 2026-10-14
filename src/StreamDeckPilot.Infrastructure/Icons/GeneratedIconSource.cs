@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Numerics;
 using SixLabors.Fonts;
 using SixLabors.ImageSharp;
@@ -24,7 +25,8 @@ public static class GeneratedIconSource
         ["placeholder"]  = "…",
     };
 
-    private static readonly Dictionary<string, byte[]> Cache = new();
+    // Keys are rendered from several threads (MQTT drainer, API requests, device supervisor).
+    private static readonly ConcurrentDictionary<string, byte[]> Cache = new(StringComparer.Ordinal);
     private static readonly Font? IconFont = TryLoadFont(18f);
 
     internal static Font? TryLoadFont(float size, FontStyle style = FontStyle.Regular)
@@ -38,10 +40,7 @@ public static class GeneratedIconSource
     public static byte[]? Load(string name)
     {
         if (!Definitions.TryGetValue(name, out var label)) return null;
-        if (Cache.TryGetValue(name, out var cached)) return cached;
-        var bytes = Generate(label);
-        Cache[name] = bytes;
-        return bytes;
+        return Cache.GetOrAdd(name, _ => Generate(label));
     }
 
     public static IEnumerable<string> KnownNames => Definitions.Keys;
