@@ -44,6 +44,9 @@ public sealed class ButtonTopicIndex
 
     public IReadOnlyList<string> AllTopics => _index.Keys.ToList();
 
+    public IReadOnlyList<string> TopicsFor(string serial) =>
+        _index.Where(kv => kv.Value.Any(e => e.Serial == serial)).Select(kv => kv.Key).ToList();
+
     public IReadOnlyList<(string Serial, string PageId, ButtonDefinition Button)> Lookup(string topic) =>
         _index.TryGetValue(topic, out var entries)
             ? entries.Select(e => (e.Serial, e.PageId, e.Button)).ToList()
