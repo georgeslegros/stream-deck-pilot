@@ -148,6 +148,19 @@ public sealed class IconResolverTests : IDisposable
     public void IconImageFormats_RejectsNonImageContent() =>
         Assert.False(IconImageFormats.IsSupported("not an image"u8));
 
+    // Keys render from several threads at once; the generated-icon cache must cope (#49).
+    [Fact]
+    public async Task GeneratedIcons_LoadConcurrently()
+    {
+        var names = GeneratedIconSource.KnownNames.ToArray();
+        var results = await Task.WhenAll(Enumerable.Range(0, 64).Select(i =>
+            Task.Run(() => GeneratedIconSource.Load(names[i % names.Length]))));
+
+        Assert.All(results, bytes => Assert.Equal(0x89, bytes![0]));
+        foreach (var name in names)
+            Assert.Same(GeneratedIconSource.Load(name), GeneratedIconSource.Load(name));
+    }
+
     [Theory]
     [InlineData("thermometer")]
     [InlineData("humidity")]
