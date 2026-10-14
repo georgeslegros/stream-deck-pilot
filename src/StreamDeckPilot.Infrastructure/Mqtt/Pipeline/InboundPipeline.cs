@@ -50,17 +50,21 @@ public static class InboundPipeline
         return (null, null);
     }
 
-    // Step 4 — format numeric value to string with given precision
-    public static string FormatValue(string? valueStr, int precision = 1)
+    // Step 4 — format numeric value to string with the button's precision
+    public static string FormatValue(string? valueStr, int? precision = null)
     {
         if (valueStr is null) return string.Empty;
         if (!double.TryParse(valueStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var d))
             return valueStr;
-        // Whole numbers render without a decimal (e.g. "612" ppm, "45" %); fractional
-        // values keep `precision` decimals (e.g. "21.4" °C).
-        return d == Math.Truncate(d)
-            ? d.ToString("F0", CultureInfo.InvariantCulture)
-            : d.ToString($"F{precision}", CultureInfo.InvariantCulture);
+
+        // An explicit precision always shows that many decimals ("1.20" kW stays the same width
+        // as "1.23" kW). Without one, whole numbers render without a decimal (e.g. "612" ppm,
+        // "45" %) and fractional values keep one (e.g. "21.4" °C).
+        var decimals = precision ?? (d == Math.Truncate(d) ? 0 : 1);
+        var rounded = Math.Round(d, decimals, MidpointRounding.AwayFromZero);
+        // Avoid "-0" / "-0.0" when a small negative value rounds to zero.
+        if (rounded == 0) rounded = 0;
+        return rounded.ToString($"F{decimals}", CultureInfo.InvariantCulture);
     }
 
     // Step 5 — resolve a text zone to the string it should display.

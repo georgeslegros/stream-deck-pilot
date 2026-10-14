@@ -147,6 +147,32 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
         Assert.Contains("out of range", json, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData(2, HttpStatusCode.NoContent)]
+    [InlineData(4, HttpStatusCode.BadRequest)]
+    public async Task PutConfig_DisplayPrecision_IsValidated(int precision, HttpStatusCode expected)
+    {
+        await _factory.SeedDeviceAsync("SN021");
+        var client = _factory.CreateAuthenticatedClient();
+        var body = new StringContent($$$"""
+            {"schemaVersion":2,"serial":"SN021","pages":[{"pageType":"ButtonGrid","pageId":"main","buttons":[
+              {"buttonId":"power","keyIndex":0,"pageId":"main","display":{"precision":{{{precision}}}},
+               "inbound":null,"rules":[],"gestures":{}}]}]}
+            """, Encoding.UTF8, "application/json");
+
+        var response = await client.PutAsync("/devices/SN021/config", body);
+
+        Assert.Equal(expected, response.StatusCode);
+        if (expected == HttpStatusCode.NoContent)
+        {
+            var get = await client.GetFromJsonAsync<JsonElement>("/devices/SN021/config");
+            Assert.Equal(precision, get.GetProperty("pages")[0].GetProperty("buttons")[0]
+                .GetProperty("display").GetProperty("precision").GetInt32());
+        }
+        else
+            Assert.Contains("display.precision", await response.Content.ReadAsStringAsync());
+    }
+
     [Fact]
     public async Task PutConfig_DuplicatePosition_Returns400()
     {

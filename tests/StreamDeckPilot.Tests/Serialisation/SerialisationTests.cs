@@ -50,6 +50,17 @@ public class SerialisationTests
     }
 
     [Fact]
+    public void DisplaySpec_Precision_ReadFromJsonAndOptional()
+    {
+        var withPrecision = JsonSerializer.Deserialize<DisplaySpec>("""{"precision":2}""", JsonOptions.Default)!;
+        var without = JsonSerializer.Deserialize<DisplaySpec>("""{"baseIcon":"builtin:flash"}""", JsonOptions.Default)!;
+
+        Assert.Equal(2, withPrecision.Precision);
+        Assert.Null(without.Precision);
+        Assert.Equal(2, RoundTrip(withPrecision).Precision);
+    }
+
+    [Fact]
     public void ButtonGridPage_RoundTrips()
     {
         var page = new ButtonGridPage("main", [

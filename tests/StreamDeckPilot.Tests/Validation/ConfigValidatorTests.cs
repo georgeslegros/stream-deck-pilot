@@ -28,6 +28,23 @@ public class ConfigValidatorTests
         Assert.True(result.IsValid);
     }
 
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData(0, true)]
+    [InlineData(3, true)]
+    [InlineData(-1, false)]
+    [InlineData(4, false)]
+    public void DisplayPrecision_MustBeZeroToThree(int? precision, bool valid)
+    {
+        var config = new DeviceConfig(1, "SN001", [
+            new ButtonGridPage("main", [Btn("b1", 0, "main") with { Display = new DisplaySpec(Precision: precision) }])
+        ]);
+        var result = ConfigValidator.ValidateConfig(config, Mk2);
+        Assert.Equal(valid, result.IsValid);
+        if (!valid)
+            Assert.Contains(result.Errors, e => e.Contains("display.precision"));
+    }
+
     [Fact]
     public void KeyIndexOutOfRange_ReturnsError()
     {

@@ -28,6 +28,9 @@ public static class ConfigValidator
                 if (!seenPositions.Add(pos))
                     errors.Add($"Button '{button.ButtonId}': duplicate position (page '{button.PageId}', key {button.KeyIndex}).");
 
+                if (button.Display.Precision is < 0 or > DisplaySpec.MaxPrecision)
+                    errors.Add($"Button '{button.ButtonId}': display.precision must be between 0 and {DisplaySpec.MaxPrecision} (got {button.Display.Precision}).");
+
                 for (var i = 0; i < button.Rules.Count; i++)
                     if (!RuleCondition.TryParse(button.Rules[i].Condition, out _, out var conditionError))
                         errors.Add($"Button '{button.ButtonId}' rule {i + 1}: {conditionError}.");
