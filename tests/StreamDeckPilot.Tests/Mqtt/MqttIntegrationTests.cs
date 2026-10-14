@@ -66,9 +66,10 @@ public sealed class MqttIntegrationTests : IAsyncLifetime
         return publisher;
     }
 
-    private static Task PublishAsync(IMqttClient publisher, string payload, bool retain, CancellationToken ct) =>
+    private static Task PublishAsync(IMqttClient publisher, string payload, bool retain, CancellationToken ct,
+        string topic = "home/co2") =>
         publisher.PublishAsync(new MqttApplicationMessageBuilder()
-            .WithTopic("home/co2")
+            .WithTopic(topic)
             .WithPayload(payload)
             .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
             .WithRetainFlag(retain)
@@ -103,7 +104,7 @@ public sealed class MqttIntegrationTests : IAsyncLifetime
         return configStore;
     }
 
-    private (MqttClientService Service, DesiredStateStore Store) BuildService(ConfigStore configStore)
+    private (MqttClientService Service, DesiredStateStore Store, DeviceSupervisorService Supervisor) BuildService(ConfigStore configStore)
     {
         var opts = Options.Create(new StorageOptions { BaseDirectory = _storageDir });
         var desiredState = new DesiredStateStore();
@@ -130,7 +131,7 @@ public sealed class MqttIntegrationTests : IAsyncLifetime
             new Infrastructure.Staleness.LastUpdatedStore(),
             NullLogger<MqttClientService>.Instance);
 
-        return (service, desiredState);
+        return (service, desiredState, supervisor);
     }
 
     // A value retained before the service subscribes reaches it through the home/# wildcard.
@@ -143,7 +144,7 @@ public sealed class MqttIntegrationTests : IAsyncLifetime
         await PublishAsync(publisher, """{"value":1200,"unit":"ppm"}""", retain: true, cts.Token);
 
         var configStore = await SeedCo2ConfigAsync(Options.Create(new StorageOptions { BaseDirectory = _storageDir }));
-        var (svc, store) = BuildService(configStore);
+        var (svc, store, _) = BuildService(configStore);
         await svc.StartAsync(cts.Token);
 
         Assert.True(await WaitForAsync(() => store.Get("SN_MQTT_TEST", "main", 0) is not null, TimeSpan.FromSeconds(15)),
@@ -166,7 +167,7 @@ public sealed class MqttIntegrationTests : IAsyncLifetime
         await PublishAsync(publisher, """{"value":1200,"unit":"ppm"}""", retain: true, cts.Token);
 
         var configStore = await SeedCo2ConfigAsync(Options.Create(new StorageOptions { BaseDirectory = _storageDir }));
-        var (svc, store) = BuildService(configStore);
+        var (svc, store, _) = BuildService(configStore);
         await svc.StartAsync(cts.Token);
         Assert.True(await WaitForAsync(() => store.Get("SN_MQTT_TEST", "main", 0) is not null, TimeSpan.FromSeconds(15)));
 
@@ -175,6 +176,50 @@ public sealed class MqttIntegrationTests : IAsyncLifetime
         Assert.True(await WaitForAsync(() => store.Get("SN_MQTT_TEST", "main", 0)?.BackgroundColour == "#00AA00", TimeSpan.FromSeconds(10)),
             "live message did not update the button");
         Assert.Contains("450", store.Get("SN_MQTT_TEST", "main", 0)!.CenterText ?? "");
+
+        await svc.StopAsync(CancellationToken.None);
+        await publisher.DisconnectAsync();
+    }
+
+    // #41: a config change rebuilds the device's desired state, and the wildcard subscription
+    // only received retained messages when it was made. Both a newly bound topic and a topic
+    // that was already bound must show their retained value again without a new publish.
+    [Fact]
+    public async Task ConfigChange_TilesGetRetainedValuesWithoutNewPublish()
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var publisher = await ConnectPublisherAsync(cts.Token);
+        await PublishAsync(publisher, """{"value":1200,"unit":"ppm"}""", retain: true, cts.Token);
+        await PublishAsync(publisher, "48.7", retain: true, cts.Token, topic: "home/humidity");
+
+        var opts = Options.Create(new StorageOptions { BaseDirectory = _storageDir });
+        var configStore = await SeedCo2ConfigAsync(opts);
+        var (svc, store, supervisor) = BuildService(configStore);
+        await svc.StartAsync(cts.Token);
+        Assert.True(await WaitForAsync(() => store.Get("SN_MQTT_TEST", "main", 0) is not null, TimeSpan.FromSeconds(15)));
+
+        // PUT: keep the CO2 button, add a humidity button on key 1. Same sequence as the endpoint.
+        var config = (await configStore.LoadAsync("SN_MQTT_TEST"))!;
+        var grid = (ButtonGridPage)config.Pages[0];
+        var humidity = new ButtonDefinition("humidity", 1, "main",
+            new DisplaySpec(Center: new TextZone(null, "{value} %"), Precision: 0),
+            new InboundBinding("home/humidity", null, null, true, null),
+            [], new Dictionary<string, IReadOnlyList<ButtonAction>>());
+        await configStore.SaveAsync(config with { Pages = [grid with { Buttons = [.. grid.Buttons, humidity] }] });
+        await svc.NotifyConfigChangedAsync("SN_MQTT_TEST", cts.Token);
+        await supervisor.ApplyConfigChangeAsync("SN_MQTT_TEST", resetActivePage: false);
+        await svc.RefreshRetainedAsync("SN_MQTT_TEST", cts.Token);
+
+        Assert.True(await WaitForAsync(() => store.Get("SN_MQTT_TEST", "main", 1)?.CenterText == "49 %", TimeSpan.FromSeconds(10)),
+            $"newly bound tile did not get its retained value (got '{store.Get("SN_MQTT_TEST", "main", 1)?.CenterText}')");
+        Assert.True(await WaitForAsync(() => store.Get("SN_MQTT_TEST", "main", 0)?.BackgroundColour == "#FF0000", TimeSpan.FromSeconds(10)),
+            "already bound tile lost its value after the config change");
+        Assert.Contains("1200", store.Get("SN_MQTT_TEST", "main", 0)!.CenterText ?? "");
+
+        // Unsubscribing the exact topics must leave the wildcard in place: live updates still arrive.
+        await PublishAsync(publisher, "51.2", retain: false, cts.Token, topic: "home/humidity");
+        Assert.True(await WaitForAsync(() => store.Get("SN_MQTT_TEST", "main", 1)?.CenterText == "51 %", TimeSpan.FromSeconds(10)),
+            "live update did not arrive after the retained refresh");
 
         await svc.StopAsync(CancellationToken.None);
         await publisher.DisconnectAsync();

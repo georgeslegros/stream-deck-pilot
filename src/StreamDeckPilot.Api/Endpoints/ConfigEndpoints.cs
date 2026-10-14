@@ -59,6 +59,7 @@ public static class ConfigEndpoints
             if (request.Query.TryGetValue("resetPage", out var rp) && bool.TryParse(rp, out var parsed))
                 resetPage = parsed;
             await supervisor.ApplyConfigChangeAsync(serial, resetActivePage: resetPage);
+            await notifier.RefreshRetainedAsync(serial);
 
             return Results.NoContent();
         });

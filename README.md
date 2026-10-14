@@ -391,13 +391,15 @@ the API key.
 
 ### Inbound (display updates)
 
-- The service holds **one** wildcard subscription (`Mqtt__TopicPrefix`, default `home/#`). Changing
-  button config never touches the broker — topic dispatch happens in-process. Anything not matched by
-  a button binding is silently dropped.
+- The service holds **one** wildcard subscription (`Mqtt__TopicPrefix`, default `home/#`). Topic
+  dispatch happens in-process. Anything not matched by a button binding is silently dropped.
 - Each button's `inbound.topic` is matched exactly against incoming messages.
 - The payload format is detected automatically (see below), so generic publishers work without a
   bridge: Home Assistant `mqtt_statestream`, Zigbee2MQTT, Node-RED.
 - Publishers should set the **retain** flag so a button populates immediately on service start.
+  After a config `PUT`, the service briefly subscribes to each of that device's bound topics and
+  then unsubscribes, so the broker resends their retained values. Tiles, including newly bound ones,
+  fill in straight away instead of waiting for the next publish.
 - The extracted value is run through the ordered `rules` (first match wins) to pick colour/icon. Text
   states such as `on`/`off` or `heat` can be matched with `eq:`/`in:` conditions.
 
