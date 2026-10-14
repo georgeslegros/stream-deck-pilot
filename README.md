@@ -181,6 +181,8 @@ PRs run the tests only.
 on every push to `master`. The suite includes the Testcontainers integration tests (a Mosquitto container), which need Docker;
 GitHub's `ubuntu-latest` runners provide it. The `Build and test` check is required before a PR
 can merge into `master`. The release workflow calls the same workflow as its first step.
+CI also collects code coverage. The summary appears on the workflow run page, and on pull
+requests `coverage-comment.yml` posts it as a single PR comment that is updated on each push.
 
 ---
 

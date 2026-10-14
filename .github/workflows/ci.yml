@@ -50,6 +50,25 @@ jobs:
           dotnet test --no-build --configuration Release
           --logger "trx;LogFileName=test-results.trx"
           --results-directory TestResults
+          --collect:"XPlat Code Coverage" --settings coverage.runsettings
+
+      # Coverage summary on the run page. On pull requests, coverage-comment.yml also posts it
+      # on the PR: this workflow only has read access (it also runs as release.yml's gate).
+      - name: Coverage report
+        if: ${{ !cancelled() && hashFiles('TestResults/**/coverage.cobertura.xml') != '' }}
+        run: |
+          dotnet tool restore
+          dotnet reportgenerator -reports:"TestResults/**/coverage.cobertura.xml" \
+            -targetdir:coverage -reporttypes:"MarkdownSummaryGithub;Cobertura" -verbosity:Warning
+          cat coverage/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage
+        if: ${{ !cancelled() && hashFiles('coverage/SummaryGithub.md') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 14
 
       - name: Upload test results
         if: failure()
