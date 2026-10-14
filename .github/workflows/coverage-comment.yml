@@ -1,0 +1,44 @@
+name: Coverage comment
+
+# Posts the coverage summary produced by CI as a single PR comment, updated on every push.
+# Runs separately via workflow_run so CI itself (also release.yml's gate) keeps read-only
+# permissions. workflow_run uses this file from the default branch.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  actions: read
+  pull-requests: write
+
+jobs:
+  comment:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Download coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage
+          path: coverage
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Post or update comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          pr="$(tr -dc '0-9' < coverage/pr-number)"
+          [ -n "$pr" ] || { echo "No PR number in the artifact"; exit 0; }
+          marker='<!-- coverage-report -->'
+          { echo "$marker"; echo; head -c 60000 coverage/SummaryGithub.md; } > body.md
+          id="$(gh api "repos/$REPO/issues/$pr/comments" --paginate \
+                  --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -n1)"
+          if [ -n "$id" ]; then
+            gh api --method PATCH "repos/$REPO/issues/comments/$id" -F body=@body.md > /dev/null
+          else
+            gh api --method POST "repos/$REPO/issues/$pr/comments" -F body=@body.md > /dev/null
+          fi

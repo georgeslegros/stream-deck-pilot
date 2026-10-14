@@ -63,4 +63,9 @@ Versioning follows semver: `fix` → patch, new features or enhancements → min
 dotnet build
 dotnet test                                    # full suite; integration tests need Docker
 dotnet test --filter "Category!=Integration"   # fast unit tests only
+
+# coverage report, same as CI (HTML in coverage/index.html)
+dotnet test --collect:"XPlat Code Coverage" --settings coverage.runsettings --results-directory TestResults
+dotnet tool restore
+dotnet reportgenerator -reports:"TestResults/**/coverage.cobertura.xml" -targetdir:coverage -reporttypes:Html
 ```
