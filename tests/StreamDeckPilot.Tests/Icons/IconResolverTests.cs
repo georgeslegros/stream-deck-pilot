@@ -68,6 +68,56 @@ public sealed class IconResolverTests : IDisposable
     }
 
     [Theory]
+    [InlineData("png")]
+    [InlineData("jpeg")]
+    public async Task ResolveImage_CustomPngOrJpeg_Decodes(string format)
+    {
+        await using (var s = new MemoryStream(TestImages.Encode(format)))
+            await _custom.SaveAsync("SN1", "icon.png", s);
+
+        using var image = _resolver.ResolveImage("custom:icon.png", "SN1", 72);
+
+        Assert.NotNull(image);
+        Assert.Equal(TestImages.Size, image.Width);
+    }
+
+    // Files already on disk are decoded with PNG and JPEG decoders only, whatever their name.
+    [Theory]
+    [InlineData("tiff")]
+    [InlineData("bmp")]
+    [InlineData("gif")]
+    [InlineData("webp")]
+    [InlineData("tga")]
+    public async Task ResolveImage_CustomInOtherFormat_UsesFallback(string format)
+    {
+        await using (var s = new MemoryStream(TestImages.Encode(format)))
+            await _custom.SaveAsync("SN1", "icon.png", s);
+
+        using var image = _resolver.ResolveImage("custom:icon.png", "SN1", 72);
+        using var fallback = _resolver.ResolveImage(null, "SN1", 72);
+
+        Assert.NotNull(image);
+        Assert.NotNull(fallback);
+        Assert.NotEqual(TestImages.Size, image.Width);
+        Assert.Equal(fallback.Width, image.Width);
+    }
+
+    [Theory]
+    [InlineData("png", true)]
+    [InlineData("jpeg", true)]
+    [InlineData("tiff", false)]
+    [InlineData("bmp", false)]
+    [InlineData("gif", false)]
+    [InlineData("webp", false)]
+    [InlineData("tga", false)]
+    public void IconImageFormats_AcceptsOnlyPngAndJpeg(string format, bool expected) =>
+        Assert.Equal(expected, IconImageFormats.IsSupported(TestImages.Encode(format)));
+
+    [Fact]
+    public void IconImageFormats_RejectsNonImageContent() =>
+        Assert.False(IconImageFormats.IsSupported("not an image"u8));
+
+    [Theory]
     [InlineData("thermometer")]
     [InlineData("humidity")]
     [InlineData("co2")]

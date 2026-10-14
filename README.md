@@ -368,8 +368,8 @@ Icons are referenced by string in `display.baseIcon` and in a rule's `icon` fiel
 Browse the full set and find names at <https://pictogrammers.com/library/mdi>. See
 `docs/icon-vocabulary.md` for the project's naming conventions.
 
-To use your own artwork, upload a PNG or JPEG (max 512 KB) with
-`POST /devices/{serial}/images` (`multipart/form-data`). The response returns a reference like
+To use your own artwork, upload a PNG or JPEG (max 512 KB; the content is checked, not just the
+extension) with `POST /devices/{serial}/images` (`multipart/form-data`). The response returns a reference like
 `{ "ref": "custom:my-icon.png" }`; use that string as `display.baseIcon`. Uploaded files are stored
 under `/data/images/<serial>/` and can be listed or removed via the image endpoints. The icon
 resolver tries built-in, then custom, then a fallback — it never throws.

@@ -195,8 +195,13 @@ the device isn't connected.
 ### `POST /devices/{serial}/images`
 Upload a custom icon (PNG or JPEG, max 512 KB). `multipart/form-data`.
 
+The file name must end in `.png`, `.jpg` or `.jpeg`, **and** the content must actually be PNG or JPEG
+(checked from the file header). Anything else, such as a TIFF, GIF, BMP or WebP renamed to `.png`, is
+rejected.
+
 ```
 Response 200: { "ref": "custom:my-icon.png" }
+Response 400: { "error": "File content is not a PNG or JPEG image" }
 ```
 
 Use `"ref"` as `display.baseIcon` in a `ButtonDefinition`.

@@ -35,8 +35,15 @@ public static class ImageEndpoints
             if (safeName != file.FileName || safeName.Contains(".."))
                 return Results.BadRequest(new { error = "Invalid filename" });
 
-            await using var stream = file.OpenReadStream();
-            var @ref = await store.SaveAsync(serial, safeName, stream);
+            // The extension is only a hint: check the content itself is PNG or JPEG.
+            using var content = new MemoryStream((int)file.Length);
+            await using (var upload = file.OpenReadStream())
+                await upload.CopyToAsync(content);
+            if (!IconImageFormats.IsSupported(content.GetBuffer().AsSpan(0, (int)content.Length)))
+                return Results.BadRequest(new { error = "File content is not a PNG or JPEG image" });
+
+            content.Position = 0;
+            var @ref = await store.SaveAsync(serial, safeName, content);
             return Results.Ok(new { @ref });
         });
 
