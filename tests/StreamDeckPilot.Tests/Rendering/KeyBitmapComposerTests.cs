@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using SixLabors.ImageSharp;
@@ -219,6 +220,35 @@ public sealed class KeyBitmapComposerTests : IDisposable
         var (key, bitmap) = Assert.Single(board.RenderCalls);
         Assert.Equal(3, key);
         Assert.Equal(Size, bitmap.Width);
+    }
+
+    // #52: an icon that fails to draw is logged (once per icon and error), not silently dropped.
+    [Fact]
+    public void IconFailures_AreLoggedOncePerIconAndError()
+    {
+        var logger = new ListLogger<KeyBitmapComposer>();
+        var custom = new CustomImageSource(Options.Create(new StorageOptions { BaseDirectory = _dir }));
+        var composer = new KeyBitmapComposer(new IconResolver(custom, NullLogger<IconResolver>.Instance), logger);
+
+        composer.IconFailed("custom:broken.png", new InvalidOperationException("boom"));
+        composer.IconFailed("custom:broken.png", new InvalidOperationException("boom again"));
+        composer.IconFailed("custom:broken.png", new ArgumentException("other"));
+        composer.IconFailed("builtin:other", new InvalidOperationException("boom"));
+
+        Assert.Equal(3, logger.Warnings.Count);
+        Assert.Contains("custom:broken.png", logger.Warnings[0]);
+    }
+
+    private sealed class ListLogger<T> : ILogger<T>
+    {
+        public List<string> Warnings { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning) Warnings.Add(formatter(state, exception));
+        }
     }
 
     // ── Golden keys ──────────────────────────────────────────────────────────
