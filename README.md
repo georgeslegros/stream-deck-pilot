@@ -417,7 +417,8 @@ the API key.
 
 **Fallback:** a JSON object is read through `valueField`, or its `value` key when `valueField` is `null`.
 When that finds nothing usable, the update is **skipped**: the tile keeps its last value, a warning
-is logged, and the message is counted as dropped with reason `no_value`. This covers a missing key, a
+is logged (at most once per topic every 10 minutes; repeats go to Debug), and the message is counted
+as dropped with reason `no_value`. This covers a missing key, a
 path pointing at an object or array, a `null` field, and payloads that are empty or literally `null`
 or `[]`. If no usable value follows, `stalenessTimeout` dims the tile as usual.
 
