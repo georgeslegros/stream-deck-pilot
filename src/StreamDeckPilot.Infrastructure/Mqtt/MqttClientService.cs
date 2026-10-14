@@ -523,7 +523,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
                 button.ButtonId, pageId, activePage);
             return;
         }
-        _renderer.RenderButton(board, serial, button.KeyIndex, renderState);
+        _renderer.RenderLatest(board, serial, pageId, button.KeyIndex, _desiredState);
         _logger.LogInformation("Rendered key {KeyIndex} on {Serial} — colour={Colour} center={Center}",
             button.KeyIndex, serial, renderState.BackgroundColour, renderState.CenterText);
     }

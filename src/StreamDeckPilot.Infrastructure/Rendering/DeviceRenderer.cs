@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using OpenMacroBoard.SDK;
 using StreamDeckPilot.Core.Rendering;
 using StreamDeckPilot.Infrastructure.Icons;
@@ -9,6 +10,7 @@ public sealed class DeviceRenderer : IDeviceRenderer
 {
     private readonly KeyBitmapComposer? _composer;
     private readonly StreamDeckMetrics? _metrics;
+    private readonly ConcurrentDictionary<(string Serial, int KeyIndex), object> _keyLocks = new();
 
     public DeviceRenderer() { }
 
@@ -37,14 +39,23 @@ public sealed class DeviceRenderer : IDeviceRenderer
         }
     }
 
+    public void RenderLatest(IMacroBoard board, string serial, string pageId, int keyIndex, DesiredStateStore stateStore)
+    {
+        lock (_keyLocks.GetOrAdd((serial, keyIndex), _ => new object()))
+        {
+            var state = stateStore.Get(serial, pageId, keyIndex);
+            if (state is not null) RenderButton(board, serial, keyIndex, state);
+        }
+    }
+
     public void RenderAll(IMacroBoard board, string serial, string pageId, DesiredStateStore stateStore)
     {
         if (!board.IsConnected) return;
 
         var bound = new HashSet<int>();
-        foreach (var (keyIndex, state) in stateStore.GetPage(serial, pageId))
+        foreach (var (keyIndex, _) in stateStore.GetPage(serial, pageId))
         {
-            RenderButton(board, serial, keyIndex, state);
+            RenderLatest(board, serial, pageId, keyIndex, stateStore);
             bound.Add(keyIndex);
         }
 

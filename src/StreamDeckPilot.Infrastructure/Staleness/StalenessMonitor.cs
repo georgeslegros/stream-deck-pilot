@@ -70,7 +70,7 @@ public sealed class StalenessMonitor(
                         // navigation — without this guard a stale button on an off-screen page
                         // would repaint its key over whatever page is currently displayed.
                         if (board?.IsConnected == true && supervisor.GetActivePage(serial) == page.PageId)
-                            renderer.RenderButton(board, serial, button.KeyIndex, dimmed);
+                            renderer.RenderLatest(board, serial, page.PageId, button.KeyIndex, desiredState);
 
                         logger.LogInformation(
                             "Button {ButtonId} on {Serial} marked stale (no update for {Elapsed:0.0}s)",
@@ -88,7 +88,7 @@ public sealed class StalenessMonitor(
                         // navigation — without this guard a stale button on an off-screen page
                         // would repaint its key over whatever page is currently displayed.
                         if (board?.IsConnected == true && supervisor.GetActivePage(serial) == page.PageId)
-                            renderer.RenderButton(board, serial, button.KeyIndex, undimmed);
+                            renderer.RenderLatest(board, serial, page.PageId, button.KeyIndex, desiredState);
                     }
                 }
             }
