@@ -1,7 +1,8 @@
 name: Release
 
 # Builds the multi-arch container image and publishes it to GitHub Container Registry
-# (ghcr.io/<owner>/<repo>) whenever a GitHub Release is published. Tag the release `vX.Y.Z`.
+# (ghcr.io/<owner>/<repo>) whenever a GitHub Release is published, after the CI test suite passes.
+# Tag the release `vX.Y.Z`.
 on:
   release:
     types: [published]
@@ -11,7 +12,12 @@ permissions:
   packages: write
 
 jobs:
+  # Same build + full test suite as PR CI; the image is only published if it passes.
+  test:
+    uses: ./.github/workflows/ci.yml
+
   publish-image:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
