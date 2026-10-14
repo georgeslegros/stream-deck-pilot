@@ -47,9 +47,18 @@ A tile is composed from an optional icon plus two **text zones**. You decide wha
   "baseIcon": "builtin:thermometer",   // "builtin:<mdi-name>" | "custom:<filename>" | null
   "iconPlacement": "corner",           // "corner" | "center"   (see below)
   "center": { "label": null,  "template": "{value} {unit}" },   // large hero text
-  "bottom": { "label": "Bureau", "template": null }             // small bottom caption
+  "bottom": { "label": "Bureau", "template": null },            // small bottom caption
+  "precision": 1                       // optional: decimals for numeric {value}, 0–3
 }
 ```
+
+### `precision`
+
+Optional number of decimals used for a numeric `{value}`, from `0` to `3` (anything else is
+rejected on `PUT`). When set, the value always shows exactly that many decimals: with `2`, `1.2345`
+shows `1.23` and `1.2` shows `1.20`. With `0`, `45.3` shows `45`. Rounding is half away from zero.
+When omitted or `null`, whole numbers show no decimal (`45`) and others show one (`21.6`). Text
+values are never changed.
 
 ### Text zones — `center` and `bottom`
 
@@ -226,7 +235,8 @@ Full OpenAPI 3 schema (no auth required).
     "baseIcon": "builtin:molecule-co2",  // "builtin:<mdi-name>" | "custom:<filename>" | null
     "iconPlacement": "corner",           // "corner" (small, top-left) | "center" (large hero)
     "center": { "label": null,  "template": "{value} {unit}" },  // large hero text
-    "bottom": { "label": "CO₂",  "template": null }              // small caption
+    "bottom": { "label": "CO₂",  "template": null },             // small caption
+    "precision": 0                       // optional: decimals for numeric {value} (0–3); null = default
   },
 
   "inbound": {                       // null for press-only buttons

@@ -445,7 +445,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         var (colour, icon) = InboundPipeline.EvaluateRules(value, button.Rules);
 
         // Step 4 — format
-        var formatted = InboundPipeline.FormatValue(value);
+        var formatted = InboundPipeline.FormatValue(value, button.Display.Precision);
 
         // Step 5 — resolve text zones (a message arrived ⇒ there is live data to resolve against)
         var center = InboundPipeline.ResolveZone(button.Display.Center, hasData: true, formatted, unit, mqttLabel);

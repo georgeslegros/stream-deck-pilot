@@ -176,6 +176,33 @@ public class InboundPipelineTests
         Assert.Equal(expected, InboundPipeline.FormatValue(input, precision));
     }
 
+    // No precision configured: whole numbers without a decimal, anything else with one.
+    [Theory]
+    [InlineData("45", "45")]
+    [InlineData("45.0", "45")]
+    [InlineData("45.3", "45.3")]
+    [InlineData("21.567", "21.6")]
+    [InlineData("-0.04", "0.0")]
+    public void FormatValue_DefaultPrecision(string input, string expected)
+    {
+        Assert.Equal(expected, InboundPipeline.FormatValue(input));
+    }
+
+    // An explicit precision always shows exactly that many decimals.
+    [Theory]
+    [InlineData("45.3", 0, "45")]
+    [InlineData("2.5", 0, "3")]
+    [InlineData("-0.3", 0, "0")]
+    [InlineData("1.234", 2, "1.23")]
+    [InlineData("1.2", 2, "1.20")]
+    [InlineData("1", 2, "1.00")]
+    [InlineData("0.12345", 3, "0.123")]
+    [InlineData("on", 2, "on")]
+    public void FormatValue_ExplicitPrecision(string input, int precision, string expected)
+    {
+        Assert.Equal(expected, InboundPipeline.FormatValue(input, precision));
+    }
+
     // ── ResolveZone ───────────────────────────────────────────────────────────
 
     [Fact]

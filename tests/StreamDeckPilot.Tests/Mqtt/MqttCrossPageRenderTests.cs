@@ -126,6 +126,25 @@ public sealed class MqttCrossPageRenderTests : IDisposable
         Assert.Contains("21.5", desired.Get(Serial, "climate", 0)!.CenterText ?? "");
     }
 
+    [Theory]
+    [InlineData(null, "1.2345", "1.2 kW")]
+    [InlineData(2, "1.2345", "1.23 kW")]
+    [InlineData(2, "1.2", "1.20 kW")]
+    [InlineData(0, "45.3", "45 kW")]
+    public async Task DisplayPrecision_FormatsValue(int? precision, string payload, string expected)
+    {
+        var (svc, _, desired) = await BuildAsync(activePage: "climate");
+        var button = ButtonOn("climate") with
+        {
+            Display = new DisplaySpec(Center: new TextZone(null, "{value} kW"), Precision: precision),
+            Inbound = new InboundBinding("home/power", null, null, true, null),
+        };
+
+        svc.RunPipeline(Serial, "climate", button, payload);
+
+        Assert.Equal(expected, desired.Get(Serial, "climate", 0)!.CenterText);
+    }
+
     [Fact]
     public async Task RawTextPayload_DrivesTextRule()
     {
