@@ -58,8 +58,9 @@ unreachable is a degraded state, not a crash — the API stays up regardless.
   variants). The service reads key geometry from the device at discovery time (`CountX × CountY`), so
   different grid sizes work without config changes. PID `0x00A5` (MK.2 Scissor Switch revision,
   missing from StreamDeckSharp 6.1.0) is registered at startup automatically.
-- **MQTT broker** speaking MQTT 3.1.1. Tested against RabbitMQ with the `rabbitmq_mqtt` plugin; any
-  compliant broker works.
+- **MQTT broker** speaking MQTT 3.1.1. The integration tests run against Mosquitto (`eclipse-mosquitto:2`);
+  any compliant broker works. RabbitMQ's MQTT plugin does not deliver retained messages to wildcard
+  subscriptions, so tiles fed by retained topics stay empty until the next update there.
 - The container already installs `libhidapi-libusb0`, `libusb-1.0-0`, and `fonts-dejavu-core`
   (see the Dockerfile) — nothing extra to install on the host beyond Docker itself.
 
@@ -177,7 +178,7 @@ PRs run the tests only.
 ### Continuous integration
 
 `.github/workflows/ci.yml` restores, builds and runs the full test suite on every pull request and
-on every push to `master`. The suite includes the Testcontainers integration tests, which need Docker;
+on every push to `master`. The suite includes the Testcontainers integration tests (a Mosquitto container), which need Docker;
 GitHub's `ubuntu-latest` runners provide it. The `Build and test` check is required before a PR
 can merge into `master`. The release workflow calls the same workflow as its first step.
 CI also collects code coverage. The summary appears on the workflow run page, and on pull
@@ -392,13 +393,15 @@ the API key.
 
 ### Inbound (display updates)
 
-- The service holds **one** wildcard subscription (`Mqtt__TopicPrefix`, default `home/#`). Changing
-  button config never touches the broker — topic dispatch happens in-process. Anything not matched by
-  a button binding is silently dropped.
+- The service holds **one** wildcard subscription (`Mqtt__TopicPrefix`, default `home/#`). Topic
+  dispatch happens in-process. Anything not matched by a button binding is silently dropped.
 - Each button's `inbound.topic` is matched exactly against incoming messages.
 - The payload format is detected automatically (see below), so generic publishers work without a
   bridge: Home Assistant `mqtt_statestream`, Zigbee2MQTT, Node-RED.
 - Publishers should set the **retain** flag so a button populates immediately on service start.
+  After a config `PUT`, the service briefly subscribes to each of that device's bound topics and
+  then unsubscribes, so the broker resends their retained values. Tiles, including newly bound ones,
+  fill in straight away instead of waiting for the next publish.
 - The extracted value is run through the ordered `rules` (first match wins) to pick colour/icon. Text
   states such as `on`/`off` or `heat` can be matched with `eq:`/`in:` conditions.
 

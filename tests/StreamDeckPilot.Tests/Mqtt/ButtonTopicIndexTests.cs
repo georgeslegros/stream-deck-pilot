@@ -16,6 +16,29 @@ public sealed class ButtonTopicIndexTests
     ]);
 
     [Fact]
+    public void TopicsFor_ReturnsOnlyThatDevicesTopics()
+    {
+        var index = new ButtonTopicIndex();
+        index.Update("SN1", Config("SN1", "home/co2"));
+        index.Update("SN2", Config("SN2", "home/humidity"));
+
+        Assert.Equal(["home/co2"], index.TopicsFor("SN1"));
+        Assert.Empty(index.TopicsFor("SN3"));
+    }
+
+    // The retained refresh subscribes then unsubscribes each topic: a wildcard binding must never
+    // be in that list (unsubscribing "home/#" would drop the service's own wildcard), nor a topic
+    // the wildcard does not cover.
+    [Fact]
+    public void RetainedRefreshTopics_ExactTopicsUnderPrefixOnly()
+    {
+        var topics = MqttClientService.RetainedRefreshTopics(
+            ["home/co2", "home/#", "home/+/temp", "office/co2", "home/a/b"], "home/#");
+
+        Assert.Equal(["home/co2", "home/a/b"], topics);
+    }
+
+    [Fact]
     public void Update_RemovingSerial_DropsEmptyTopicKeys()
     {
         var index = new ButtonTopicIndex();

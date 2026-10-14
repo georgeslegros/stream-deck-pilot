@@ -141,6 +141,36 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         _logger.LogInformation("Config index updated for {Serial} ({TopicCount} bound topics)", serial, _topicIndex.AllTopics.Count);
     }
 
+    // A config change rebuilds the device's desired state from scratch, and the wildcard only
+    // receives retained messages when it is first made, so tiles would wait for each topic's
+    // next publish (#41). Subscribing to a topic makes the broker send its retained message even
+    // though the wildcard already covers it; unsubscribing straight after keeps later messages
+    // from arriving twice (one published in between may still arrive twice, which is harmless:
+    // rendering the same value again is idempotent). Best effort: if this fails, tiles fill in
+    // on the next publish.
+    public async Task RefreshRetainedAsync(string serial, CancellationToken ct = default)
+    {
+        var topics = RetainedRefreshTopics(_topicIndex.TopicsFor(serial), _opts.TopicPrefix);
+        if (topics.Count == 0 || !_client.IsConnected) return;
+
+        try
+        {
+            var subscribe = new MqttClientSubscribeOptionsBuilder();
+            foreach (var topic in topics) subscribe.WithTopicFilter(BuildFilter(topic));
+            await _client.SubscribeAsync(subscribe.Build(), ct);
+
+            var unsubscribe = new MqttClientUnsubscribeOptionsBuilder();
+            foreach (var topic in topics) unsubscribe.WithTopicFilter(topic);
+            await _client.UnsubscribeAsync(unsubscribe.Build(), ct);
+
+            _logger.LogInformation("Requested retained values for {Count} topics bound on {Serial}", topics.Count, serial);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Could not request retained values for {Serial}; tiles fill in on the next publish", serial);
+        }
+    }
+
     // ── Connection ────────────────────────────────────────────────────────────
 
     private async Task ConnectWithRetryAsync(CancellationToken ct)
@@ -322,6 +352,11 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
             }
         }
     }
+
+    // Only exact topics under the wildcard. A binding containing + or # never matches a message
+    // anyway, and unsubscribing it could remove the wildcard subscription itself.
+    internal static IReadOnlyList<string> RetainedRefreshTopics(IEnumerable<string> boundTopics, string prefix) =>
+        boundTopics.Where(t => !t.Contains('+') && !t.Contains('#') && IsCoveredBy(t, prefix)).ToList();
 
     internal static bool IsCoveredBy(string topic, string filter) =>
         MqttTopicFilterComparer.Compare(topic, filter) == MqttTopicFilterCompareResult.IsMatch;
