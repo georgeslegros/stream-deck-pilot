@@ -145,7 +145,9 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
     // receives retained messages when it is first made, so tiles would wait for each topic's
     // next publish (#41). Subscribing to a topic makes the broker send its retained message even
     // though the wildcard already covers it; unsubscribing straight after keeps later messages
-    // from arriving twice. Best effort: if this fails, tiles fill in on the next publish.
+    // from arriving twice (one published in between may still arrive twice, which is harmless:
+    // rendering the same value again is idempotent). Best effort: if this fails, tiles fill in
+    // on the next publish.
     public async Task RefreshRetainedAsync(string serial, CancellationToken ct = default)
     {
         var topics = RetainedRefreshTopics(_topicIndex.TopicsFor(serial), _opts.TopicPrefix);
