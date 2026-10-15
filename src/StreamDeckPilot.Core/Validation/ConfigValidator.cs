@@ -53,6 +53,13 @@ public static class ConfigValidator
                         errors.Add($"Button '{button.ButtonId}' rule {i + 1}: backgroundColour '{colour}' must be #RRGGBB (e.g. #CC3300).");
                 }
 
+                // A bad publish topic only fails at press time (the MQTT client refuses to build or
+                // send it), where it's logged and the press silently does nothing.
+                foreach (var (gesture, actions) in button.Gestures)
+                    for (var i = 0; i < actions.Count; i++)
+                        if (actions[i] is PublishAction publish && PublishTopicError(publish.Topic) is { } topicError)
+                            errors.Add($"Button '{button.ButtonId}' gesture '{gesture}' action {i + 1}: publish topic {topicError}.");
+
                 foreach (var (gesture, actions) in button.Gestures)
                     foreach (var action in actions)
                         if (action is NavigateAction nav && !pageIds.Contains(nav.TargetPageId))
@@ -77,6 +84,17 @@ public static class ConfigValidator
             warnings.Add($"Page '{pageId}' is unreachable by any navigation action.");
 
         return new ValidationResult(errors, warnings);
+    }
+
+    // MQTT publish topic rules: non-empty, no wildcards (+ and # are for subscriptions only),
+    // no NUL, at most 65 535 bytes as UTF-8.
+    private static string? PublishTopicError(string? topic)
+    {
+        if (string.IsNullOrWhiteSpace(topic)) return "is required";
+        if (topic.AsSpan().IndexOfAny('+', '#') >= 0) return $"'{topic}' must not contain the wildcards '+' or '#'";
+        if (topic.Contains('\0')) return "must not contain a NUL character";
+        if (System.Text.Encoding.UTF8.GetByteCount(topic) > 65_535) return "is longer than 65 535 bytes";
+        return null;
     }
 
     // The renderer understands #RRGGBB only; anything else silently fell back to the default grey.

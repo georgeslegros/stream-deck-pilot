@@ -238,6 +238,22 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
         Assert.Contains("ghost-page", await response.Content.ReadAsStringAsync());
     }
 
+    [Fact]
+    public async Task PutConfig_WildcardPublishTopic_Returns400_AndSavesNothing()
+    {
+        await _factory.SeedDeviceAsync("SN00P");
+        var client = _factory.CreateAuthenticatedClient();
+        const string json = """
+            { "schemaVersion": 2, "serial": "SN00P", "pages": [ { "pageType": "ButtonGrid", "pageId": "main", "buttons": [
+              { "buttonId": "power", "keyIndex": 0, "pageId": "main", "display": {}, "rules": [],
+                "gestures": { "Tap": [ { "type": "Publish", "topic": "home/#", "payload": "1" } ] } } ] } ] }
+            """;
+        var response = await client.PutAsync("/devices/SN00P/config", new StringContent(json, Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("Button 'power' gesture 'Tap' action 1: publish topic", await response.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/devices/SN00P/config")).StatusCode);
+    }
+
     // --- Navigation troubleshooting endpoints ---
 
     private static StringContent TwoPageConfigBody(string serial) =>

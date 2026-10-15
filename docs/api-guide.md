@@ -35,6 +35,7 @@ Device catalogue (app-owned, read-only via API)
 - Key positions (`keyIndex`) are 0-based, left-to-right, top-to-bottom. MK.2 = 0–14 (5 cols × 3 rows).
 - All config writes are validated before persisting. Errors return `400` with an `errors` array.
 - Every button needs `display`, `rules` and `gestures`, even when empty (`{}`, `[]`, `{}`). Omitting one is a `400`.
+- A `Publish` action needs a `topic` without the wildcards `+` or `#`; an empty or wildcard topic is a `400`. A missing `payload` publishes an empty message.
 - **Rendering is what you declare, not what the data is.** The layout follows the zones you fill and the icon placement you choose — the service never infers a layout from the *kind* of data a tile carries.
 
 ---

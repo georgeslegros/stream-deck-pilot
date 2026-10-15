@@ -360,7 +360,7 @@ Field reference (from the domain model in `src/StreamDeckPilot.Core/Models/Confi
   - **`"any"`:** matches every value. Put it last as an "otherwise" rule.
   - Conditions are checked when the config is written. An unknown or malformed one (e.g. `">abc"`, or `"==on"` instead of `"eq:on"`) returns `400`.
 - **`gestures`** — map of gesture name to an ordered action list. `Tap` is the only gesture at launch; actions fire in order.
-  - `{ "type": "Publish", "topic": "...", "payload": "..." }` — emit an MQTT message (payload sent verbatim).
+  - `{ "type": "Publish", "topic": "...", "payload": "..." }` — emit an MQTT message (QoS 1, not retained; payload sent verbatim, a missing payload sends an empty message). `topic` is required and must not contain the wildcards `+` or `#`; otherwise the `PUT` is a `400`.
   - `{ "type": "Navigate", "targetPageId": "..." }` — switch the active page on the device.
 
 ---
