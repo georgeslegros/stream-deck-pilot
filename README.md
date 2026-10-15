@@ -355,7 +355,7 @@ Field reference (from the domain model in `src/StreamDeckPilot.Core/Models/Confi
   - **`expectsRetained`** — `true` renders a placeholder until the first value arrives (set the retain flag on the publisher).
   - **`stalenessTimeout`** — `TimeSpan` (`hh:mm:ss`); after this silence the button is dimmed. `null` = never stale.
 - **`rules`** — ordered conditional rules over the extracted value; **first match wins**. Each rule may override `backgroundColour` (`#RRGGBB` exactly; anything else is rejected on `PUT`) and/or `icon`. Numeric and text conditions can be mixed in one list.
-  - **Numeric:** `">N"`, `">=N"`, `"<N"`, `"<=N"`, `"==N"`, `"between:A:B"` (inclusive). These only match when the value is a number. Text such as `unavailable` skips them.
+  - **Numeric:** `">N"`, `">=N"`, `"<N"`, `"<=N"`, `"==N"`, `"between:A:B"` (inclusive). These only match when the value is a number (`.` decimal point, no commas, finite; `1,5` and `NaN` are text). Text such as `unavailable` skips them.
   - **Text:** `"eq:on"`, `"ne:unavailable"`, `"in:heat,cool,auto"`. Values are trimmed and compared **case-insensitively** (`eq:on` matches `ON`). Numbers are compared as the text they arrived as, so `eq:1` does not match `1.0`; use `==1` for numbers. Everything after `eq:`/`ne:` is the value. `in:` values are comma-separated, so they can't contain a comma.
   - **`"any"`:** matches every value. Put it last as an "otherwise" rule.
   - Conditions are checked when the config is written. An unknown or malformed one (e.g. `">abc"`, or `"==on"` instead of `"eq:on"`) returns `400`.
