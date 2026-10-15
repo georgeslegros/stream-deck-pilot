@@ -31,6 +31,26 @@ public class RuleConditionTests
     public void Numeric_NeverMatchesText(string condition) =>
         Assert.False(Matches(condition, "unavailable"));
 
+    // Strict parsing (#71): '.' decimals only, no thousands separators, finite values only.
+    // Anything else is text, so numeric rules don't match it.
+    [Theory]
+    [InlineData(">10", "1,5", false)]           // a comma decimal is not 15
+    [InlineData(">10", "1,2,3", false)]
+    [InlineData("<10", "(5)", false)]           // no accounting negatives
+    [InlineData("<10", "5-", false)]            // no trailing sign
+    [InlineData(">10", "Infinity", false)]
+    [InlineData(">10", "1e400", false)]         // overflows to infinity
+    [InlineData("<10", "NaN", false)]
+    [InlineData(">=1000", "1e3", true)]         // exponents still parse
+    [InlineData(">10", " 11 ", true)]           // surrounding whitespace is fine
+    [InlineData("<0", "-1e-3", true)]
+    public void Numeric_StrictParsing(string condition, string value, bool expected) =>
+        Assert.Equal(expected, Matches(condition, value));
+
+    [Fact]
+    public void CommaDecimal_StillMatchesAsText() =>
+        Assert.True(Matches("eq:1,5", "1,5"));
+
     [Theory]
     [InlineData("eq:on", "on", true)]
     [InlineData("eq:on", "ON", true)]           // case-insensitive
@@ -68,6 +88,11 @@ public class RuleConditionTests
     [InlineData(">abc", "needs a number")]
     [InlineData("==on", "eq:on")]               // points at the text form
     [InlineData("between:5", "between:A:B")]
+    [InlineData(">1,5", "needs a number")]      // not read as >15
+    [InlineData(">NaN", "needs a number")]
+    [InlineData("<-Infinity", "needs a number")]
+    [InlineData("==Infinity", "eq:Infinity")]
+    [InlineData("between:1,5:3", "between:A:B")]
     [InlineData("between:9:1", "never match")]
     [InlineData("eq:", "needs a value")]
     [InlineData("in: , ", "at least one value")]

@@ -16,14 +16,20 @@ public sealed class MigrationRunner
     /// <exception cref="UnsupportedSchemaVersionException">
     /// Thrown when the document version is below <paramref name="minimumSupported"/>.
     /// </exception>
+    /// <exception cref="InvalidSchemaVersionException">
+    /// Thrown when <c>schemaVersion</c> is missing or not an integer.
+    /// </exception>
     /// <exception cref="MissingMigrationException">
     /// Thrown when a required migration step is absent.
     /// </exception>
     public JsonObject Migrate(JsonObject doc, int minimumSupported, int targetVersion,
         string? source = null)
     {
-        var current = doc["schemaVersion"]?.GetValue<int>()
-                      ?? throw new InvalidOperationException("Document has no 'schemaVersion' field.");
+        var version = doc["schemaVersion"]
+                      ?? throw new InvalidSchemaVersionException("Document has no 'schemaVersion' field.");
+        if (version is not JsonValue value || !value.TryGetValue<int>(out var current))
+            throw new InvalidSchemaVersionException(
+                $"'schemaVersion' must be an integer (got {version.ToJsonString()}).");
 
         if (current < minimumSupported)
             throw new UnsupportedSchemaVersionException(current, minimumSupported, source);

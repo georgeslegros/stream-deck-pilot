@@ -11,6 +11,31 @@ public static class ConfigValidator
         var errors = new List<string>();
         var warnings = new List<string>();
 
+        // JSON doesn't enforce the model's nullability: an omitted list or a null entry deserialises
+        // as null, and the checks below (and everything downstream) would dereference it (#61, #78).
+        if (config.Pages is null)
+            return new ValidationResult(["pages is required (use [] for none)."], warnings);
+
+        for (var i = 0; i < config.Pages.Count; i++)
+        {
+            switch (config.Pages[i])
+            {
+                case null:
+                    errors.Add($"Page {i + 1} is null.");
+                    break;
+                case ButtonGridPage { Buttons: null } g:
+                    errors.Add($"Page '{g.PageId}': buttons is required (use [] for none).");
+                    break;
+                case ButtonGridPage g:
+                    for (var b = 0; b < g.Buttons.Count; b++)
+                        if (g.Buttons[b] is null)
+                            errors.Add($"Page '{g.PageId}' button {b + 1} is null.");
+                    break;
+            }
+        }
+        if (errors.Count > 0)
+            return new ValidationResult(errors, warnings);
+
         var pageIds = config.Pages.Select(p => p.PageId).ToHashSet();
         var seenPositions = new HashSet<(string pageId, int keyIndex)>();
 
@@ -45,25 +70,51 @@ public static class ConfigValidator
                 if (button.Display.Precision is < 0 or > DisplaySpec.MaxPrecision)
                     errors.Add($"Button '{button.ButtonId}': display.precision must be between 0 and {DisplaySpec.MaxPrecision} (got {button.Display.Precision}).");
 
+                if (IconReference.Validate(button.Display.BaseIcon) is { } baseIconError)
+                    errors.Add($"Button '{button.ButtonId}': display.baseIcon '{button.Display.BaseIcon}' {baseIconError}.");
+
                 for (var i = 0; i < button.Rules.Count; i++)
                 {
+                    if (button.Rules[i] is null)
+                    {
+                        errors.Add($"Button '{button.ButtonId}' rule {i + 1} is null.");
+                        continue;
+                    }
                     if (!RuleCondition.TryParse(button.Rules[i].Condition, out _, out var conditionError))
                         errors.Add($"Button '{button.ButtonId}' rule {i + 1}: {conditionError}.");
                     if (button.Rules[i].BackgroundColour is { } colour && !IsHexColour(colour))
                         errors.Add($"Button '{button.ButtonId}' rule {i + 1}: backgroundColour '{colour}' must be #RRGGBB (e.g. #CC3300).");
+                    if (IconReference.Validate(button.Rules[i].Icon) is { } iconError)
+                        errors.Add($"Button '{button.ButtonId}' rule {i + 1}: icon '{button.Rules[i].Icon}' {iconError}.");
                 }
 
                 // A bad publish topic only fails at press time (the MQTT client refuses to build or
                 // send it), where it's logged and the press silently does nothing.
                 foreach (var (gesture, actions) in button.Gestures)
-                    for (var i = 0; i < actions.Count; i++)
-                        if (actions[i] is PublishAction publish && PublishTopicError(publish.Topic) is { } topicError)
-                            errors.Add($"Button '{button.ButtonId}' gesture '{gesture}' action {i + 1}: publish topic {topicError}.");
+                {
+                    // The press handler looks gestures up by exact name, so "tap" would be stored and never fire.
+                    if (!GestureNames.Supported.Contains(gesture))
+                    {
+                        var hint = GestureNames.Supported.FirstOrDefault(g => string.Equals(g, gesture, StringComparison.OrdinalIgnoreCase));
+                        errors.Add(hint is not null
+                            ? $"Button '{button.ButtonId}': gesture '{gesture}' must be written '{hint}'."
+                            : $"Button '{button.ButtonId}': gesture '{gesture}' is not supported (supported: {string.Join(", ", GestureNames.Supported)}).");
+                        continue;
+                    }
 
-                foreach (var (gesture, actions) in button.Gestures)
-                    foreach (var action in actions)
-                        if (action is NavigateAction nav && !pageIds.Contains(nav.TargetPageId))
+                    if (actions is null)
+                    {
+                        errors.Add($"Button '{button.ButtonId}' gesture '{gesture}': the action list is required (use [] for none).");
+                        continue;
+                    }
+                    for (var a = 0; a < actions.Count; a++)
+                        if (actions[a] is null)
+                            errors.Add($"Button '{button.ButtonId}' gesture '{gesture}' action {a + 1} is null.");
+                        else if (actions[a] is NavigateAction nav && !pageIds.Contains(nav.TargetPageId))
                             errors.Add($"Button '{button.ButtonId}' gesture '{gesture}': navigate target '{nav.TargetPageId}' does not exist.");
+                        else if (actions[a] is PublishAction publish && PublishTopicError(publish.Topic) is { } topicError)
+                            errors.Add($"Button '{button.ButtonId}' gesture '{gesture}' action {a + 1}: publish topic {topicError}.");
+                }
             }
         }
 
@@ -75,7 +126,7 @@ public static class ConfigValidator
                 if (page is ButtonGridPage grid)
                     foreach (var button in grid.Buttons)
                         foreach (var actions in button.Gestures?.Values ?? [])
-                            foreach (var action in actions)
+                            foreach (var action in actions ?? [])
                                 if (action is NavigateAction nav)
                                     reachablePages.Add(nav.TargetPageId);
         }

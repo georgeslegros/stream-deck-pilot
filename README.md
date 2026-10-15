@@ -343,7 +343,7 @@ Field reference (from the domain model in `src/StreamDeckPilot.Core/Models/Confi
 - **`buttonId`** — stable, human-readable button identifier.
 - **`keyIndex`** — 0-based key position, left-to-right, top-to-bottom. Range depends on the device grid (e.g. 0–14 for a 5×3, 0–31 for a 4×8 XL).
 - **`display`**, **`rules`** and **`gestures`** are required on every button; use `{}`, `[]` and `{}` for "none". A button that omits one is rejected with `400`.
-- **`display.baseIcon`** — `builtin:<mdi-name>`, `custom:<filename>`, or `null`.
+- **`display.baseIcon`** — `builtin:<mdi-name>`, `custom:<filename>`, or `null`. The same applies to a rule's `icon`. `<filename>` must be a bare file name (no `/`, `\` or `..`); any other prefix or form is rejected with `400`.
 - **`display.iconPlacement`** — `"corner"` (a large, faint watermark of the icon behind the value and caption) or `"center"` (large centred icon, the hero). Centre text takes precedence over a centre-placed icon. Layout is what you declare here and in the zones — it is **not** inferred from the kind of data the tile carries.
 - **`display.center`** / **`display.bottom`** — text zones, each `{ "label": ..., "template": ... }` (or `null`). `center` renders large (the hero; its value/unit split on the first space), `bottom` renders as a small caption. `template` is resolved against live data (tokens `{value}`, `{unit}`, `{label}`); `label` is static and is the fallback shown when there's no live data yet. Either field may be `null`.
 - **`display.precision`** — optional number of decimals (`0`–`3`) for a numeric `{value}`. When set, the value always shows exactly that many (`2`: `1.2345` → `1.23`, `1.2` → `1.20`; `0`: `45.3` → `45`). When omitted or `null`, whole numbers show no decimal and others show one (`21.6`). Text values are unchanged.
@@ -355,11 +355,11 @@ Field reference (from the domain model in `src/StreamDeckPilot.Core/Models/Confi
   - **`expectsRetained`** — `true` renders a placeholder until the first value arrives (set the retain flag on the publisher).
   - **`stalenessTimeout`** — `TimeSpan` (`hh:mm:ss`); after this silence the button is dimmed. `null` = never stale.
 - **`rules`** — ordered conditional rules over the extracted value; **first match wins**. Each rule may override `backgroundColour` (`#RRGGBB` exactly; anything else is rejected on `PUT`) and/or `icon`. Numeric and text conditions can be mixed in one list.
-  - **Numeric:** `">N"`, `">=N"`, `"<N"`, `"<=N"`, `"==N"`, `"between:A:B"` (inclusive). These only match when the value is a number. Text such as `unavailable` skips them.
+  - **Numeric:** `">N"`, `">=N"`, `"<N"`, `"<=N"`, `"==N"`, `"between:A:B"` (inclusive). These only match when the value is a number (`.` decimal point, no commas, finite; `1,5` and `NaN` are text). Text such as `unavailable` skips them.
   - **Text:** `"eq:on"`, `"ne:unavailable"`, `"in:heat,cool,auto"`. Values are trimmed and compared **case-insensitively** (`eq:on` matches `ON`). Numbers are compared as the text they arrived as, so `eq:1` does not match `1.0`; use `==1` for numbers. Everything after `eq:`/`ne:` is the value. `in:` values are comma-separated, so they can't contain a comma.
   - **`"any"`:** matches every value. Put it last as an "otherwise" rule.
   - Conditions are checked when the config is written. An unknown or malformed one (e.g. `">abc"`, or `"==on"` instead of `"eq:on"`) returns `400`.
-- **`gestures`** — map of gesture name to an ordered action list. `Tap` is the only gesture at launch; actions fire in order.
+- **`gestures`** — map of gesture name to an ordered action list. `Tap` is the only gesture at launch; actions fire in order. Names are case-sensitive: any other key (`tap`, `LongPress`, …) is rejected with `400`.
   - `{ "type": "Publish", "topic": "...", "payload": "..." }` — emit an MQTT message (QoS 1, not retained; payload sent verbatim, a missing payload sends an empty message). `topic` is required and must not contain the wildcards `+` or `#`; otherwise the `PUT` is a `400`.
   - `{ "type": "Navigate", "targetPageId": "..." }` — switch the active page on the device.
 
@@ -373,7 +373,7 @@ Icons are referenced by string in `display.baseIcon` and in a rule's `icon` fiel
 Browse the full set and find names at <https://pictogrammers.com/library/mdi>. See
 `docs/icon-vocabulary.md` for the project's naming conventions.
 
-To use your own artwork, upload a PNG or JPEG (max 512 KB; the content is checked, not just the
+To use your own artwork, upload a PNG or JPEG (max 512 KB and 1024×1024 pixels; the content is checked, not just the
 extension) with `POST /devices/{serial}/images` (`multipart/form-data`). The response returns a reference like
 `{ "ref": "custom:my-icon.png" }`; use that string as `display.baseIcon`. Uploaded files are stored
 under `/data/images/<serial>/` and can be listed or removed via the image endpoints. The icon
@@ -535,11 +535,13 @@ key returns `401`. See `docs/api-guide.md` for full request/response shapes and 
 | PUT | `/devices/{serial}/config` | Yes | Replace the full config (validated). On success rebuilds the projection, clears+redraws all keys, resets to the first page (`?resetPage=false` to keep the current page). `204` / `400`. |
 | POST | `/config/upgrade` | Yes | Migrate a config JSON to the current schema version. Does not persist. `422` if unsupported. |
 | GET | `/devices/{serial}/images` | Yes | List custom icons for a device. |
-| POST | `/devices/{serial}/images` | Yes | Upload a custom icon (PNG/JPEG, max 512 KB). Returns `{"ref":"custom:..."}`. |
+| POST | `/devices/{serial}/images` | Yes | Upload a custom icon (PNG/JPEG, max 512 KB and 1024×1024 px). Returns `{"ref":"custom:..."}`. |
 | DELETE | `/devices/{serial}/images/{filename}` | Yes | Delete a custom icon. |
 
-Common error codes: `400` validation (`errors` array), `401` bad/missing key, `404` unknown serial or
-no config, `422` schema too old to upgrade.
+Errors are RFC 7807 problems (`application/problem+json` with `status`, `title`, `detail`). Common
+codes: `400` validation or malformed body (`errors` array on config writes), `401` bad/missing key,
+`404` unknown serial or no config, `409` force-render while disconnected, `422` schema too old to
+upgrade.
 
 ---
 

@@ -618,7 +618,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         var button = grid.Buttons.FirstOrDefault(b => b.KeyIndex == keyIndex);
         if (button is null) return;
 
-        if (!button.Gestures.TryGetValue("Tap", out var actions)) return;
+        if (!button.Gestures.TryGetValue(GestureNames.Tap, out var actions)) return;
 
         foreach (var action in actions)
         {
