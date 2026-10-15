@@ -30,6 +30,15 @@ public sealed class CustomImageSource(IOptions<StorageOptions> opts)
         return path is not null && File.Exists(path) ? File.ReadAllBytes(path) : null;
     }
 
+    /// <summary>The file's metadata (size, last write), or null when it doesn't exist. No content is read.</summary>
+    public FileInfo? Stat(string serial, string filename)
+    {
+        var path = SafePath(serial, filename);
+        if (path is null) return null;
+        var info = new FileInfo(path);
+        return info.Exists ? info : null;
+    }
+
     public async Task<string> SaveAsync(string serial, string filename, Stream content)
     {
         var path = SafePath(serial, filename)

@@ -213,10 +213,18 @@ The file name must end in `.png`, `.jpg` or `.jpeg`, **and** the content must ac
 (checked from the file header). Anything else, such as a TIFF, GIF, BMP or WebP renamed to `.png`, is
 rejected.
 
+The image may be at most **1024×1024 pixels** (read from its header; keys are 72–96 px, so there is
+no benefit in more). A request body over 576 KB is refused with `413` before it is read.
+
+Icons are decoded once and cached (shrunk to key size) until the file changes, is uploaded again or is
+deleted. A file on the volume over the pixel limit renders the fallback icon instead.
+
 ```
 Response 200: { "ref": "custom:my-icon.png" }
 Response 400 problem: { ..., "detail": "File content is not a PNG or JPEG image." }
+Response 400 problem: { ..., "detail": "Image is 4000x3000; the limit is 1024x1024 pixels." }
 Response 404 problem: serial not in the catalogue (nothing is created)
+Response 413 problem: { ..., "detail": "Request exceeds the 576 KB upload limit." }
 ```
 
 Use `"ref"` as `display.baseIcon` in a `ButtonDefinition`.

@@ -25,6 +25,9 @@ internal static class ApiProblem
     public static IResult NotFound(string detail) =>
         Results.Problem(detail: detail, statusCode: StatusCodes.Status404NotFound);
 
+    public static IResult TooLarge(string detail) =>
+        Results.Problem(detail: detail, statusCode: StatusCodes.Status413PayloadTooLarge);
+
     public static IResult Conflict(string detail) =>
         Results.Problem(detail: detail, statusCode: StatusCodes.Status409Conflict);
 

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http.Features;
 using StreamDeckPilot.Core.Validation;
 using StreamDeckPilot.Infrastructure.Icons;
 using StreamDeckPilot.Infrastructure.Persistence;
@@ -9,6 +10,10 @@ public static class ImageEndpoints
     private static readonly HashSet<string> AllowedExtensions = [".png", ".jpg", ".jpeg"];
     private const long MaxBytes = 512 * 1024;
 
+    // The whole multipart body: the file plus generous room for headers and boundaries. Checked
+    // before the form is read, so an oversized upload is refused instead of buffered (#77).
+    internal const long MaxRequestBytes = MaxBytes + 64 * 1024;
+
     public static void MapImageEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/devices/{serial}/images", async (string serial, CatalogueStore catalogue,
@@ -19,15 +24,25 @@ public static class ImageEndpoints
         });
 
         app.MapPost("/devices/{serial}/images", async (string serial, HttpRequest request,
-            CatalogueStore catalogue, CustomImageSource store) =>
+            CatalogueStore catalogue, CustomImageSource store, IconResolver resolver) =>
         {
+            if (request.ContentLength > MaxRequestBytes)
+                return TooLarge();
+            if (request.HttpContext.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
+                limit.MaxRequestBodySize = MaxRequestBytes;
+
             // Checked first, so an upload for an unknown serial never creates images/<serial>/.
             if (!await IsKnownAsync(catalogue, serial)) return UnknownDevice(serial);
 
             if (!request.HasFormContentType)
                 return ApiProblem.BadRequest("Expected multipart/form-data.");
 
-            var form = await request.ReadFormAsync();
+            IFormCollection form;
+            try { form = await request.ReadFormAsync(); }
+            catch (BadHttpRequestException ex) when (ex.StatusCode == StatusCodes.Status413PayloadTooLarge)
+            {
+                return TooLarge();
+            }
             var file = form.Files.FirstOrDefault();
             if (file is null)
                 return ApiProblem.BadRequest("No file uploaded.");
@@ -51,22 +66,35 @@ public static class ImageEndpoints
             if (!IconImageFormats.IsSupported(content.GetBuffer().AsSpan(0, (int)content.Length)))
                 return ApiProblem.BadRequest("File content is not a PNG or JPEG image.");
 
+            // A small, highly compressed file can declare a huge canvas: check the header's
+            // dimensions without decoding the pixels.
+            content.Position = 0;
+            var size = IconImageFormats.Identify(content);
+            if (size is null)
+                return ApiProblem.BadRequest("File content is not a PNG or JPEG image.");
+            if (!IconImageFormats.IsWithinLimits(size.Value))
+                return ApiProblem.BadRequest(
+                    $"Image is {size.Value.Width}x{size.Value.Height}; the limit is " +
+                    $"{IconImageFormats.MaxDimension}x{IconImageFormats.MaxDimension} pixels.");
+
             content.Position = 0;
             var @ref = await store.SaveAsync(serial, safeName, content);
+            resolver.Invalidate(serial, safeName);
             return Results.Ok(new { @ref });
         });
 
         app.MapDelete("/devices/{serial}/images/{filename}", async (string serial, string filename,
-            CatalogueStore catalogue, CustomImageSource store) =>
+            CatalogueStore catalogue, CustomImageSource store, IconResolver resolver) =>
         {
             if (!await IsKnownAsync(catalogue, serial)) return UnknownDevice(serial);
 
             if (!IconReference.IsBareFileName(filename) || !IconReference.IsBareFileName(serial))
                 return ApiProblem.BadRequest("Invalid filename.");
 
-            return store.Delete(serial, filename)
-                ? Results.NoContent()
-                : ApiProblem.NotFound($"No image '{filename}' for device '{serial}'.");
+            if (!store.Delete(serial, filename))
+                return ApiProblem.NotFound($"No image '{filename}' for device '{serial}'.");
+            resolver.Invalidate(serial, filename);
+            return Results.NoContent();
         });
     }
 
@@ -75,4 +103,7 @@ public static class ImageEndpoints
 
     private static IResult UnknownDevice(string serial) =>
         ApiProblem.NotFound($"Device '{serial}' is not in the catalogue.");
+
+    private static IResult TooLarge() =>
+        ApiProblem.TooLarge($"Request exceeds the {MaxRequestBytes / 1024} KB upload limit.");
 }
