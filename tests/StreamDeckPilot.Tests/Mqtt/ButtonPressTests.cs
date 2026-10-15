@@ -63,7 +63,8 @@ public sealed class ButtonPressTests : IAsyncLifetime
         MqttClientService Service, DeviceSupervisorService Supervisor, Dictionary<string, FakeMacroBoard> Boards);
 
     private async Task<Harness> StartAsync(
-        IReadOnlyList<ButtonGridPage> pages, BrightnessController? brightness = null, params string[] serials)
+        IReadOnlyList<ButtonGridPage> pages, BrightnessController? brightness = null, bool startService = true,
+        params string[] serials)
     {
         if (serials.Length == 0) serials = [SerialA];
         var opts = Options.Create(new StorageOptions { BaseDirectory = _storageDir });
@@ -102,7 +103,7 @@ public sealed class ButtonPressTests : IAsyncLifetime
             .WithTopicFilter("cmd/#", MqttQualityOfServiceLevel.AtLeastOnce).Build(), _cts.Token);
 
         await supervisor.StartAsync(_cts.Token);
-        await service.StartAsync(_cts.Token);
+        if (startService) await service.StartAsync(_cts.Token);
         _cleanup.Add(async () =>
         {
             await service.StopAsync(CancellationToken.None);
@@ -113,7 +114,7 @@ public sealed class ButtonPressTests : IAsyncLifetime
         });
 
         Assert.True(await WaitForAsync(() =>
-                service.IsConnected && serials.All(s => supervisor.GetActivePage(s) == pages[0].PageId)),
+                (service.IsConnected || !startService) && serials.All(s => supervisor.GetActivePage(s) == pages[0].PageId)),
             "service didn't connect or the boards weren't registered");
         return new Harness(service, supervisor, boards);
     }
@@ -234,7 +235,7 @@ public sealed class ButtonPressTests : IAsyncLifetime
     {
         var h = await StartAsync(
             [new ButtonGridPage("main", [Key(0, "main", new PublishAction("cmd/who", "x"))])],
-            brightness: null, SerialA, SerialB);
+            brightness: null, startService: true, SerialA, SerialB);
         var gateA = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         h.Service.BeforePressHandled = serial => serial == SerialA ? gateA.Task : Task.CompletedTask;
 
@@ -244,6 +245,24 @@ public sealed class ButtonPressTests : IAsyncLifetime
         Assert.True(await WaitForAsync(() => Payloads("cmd/who").Length == 1), "device B waited on device A");
         gateA.SetResult();
         Assert.True(await WaitForAsync(() => Payloads("cmd/who").Length == 2));
+    }
+
+    [Fact]
+    public async Task PressBeforeTheServiceStarts_IsIgnored_AndPressesWorkOnceItHas()
+    {
+        var h = await StartAsync([new ButtonGridPage("main", [
+            Key(0, "main", new PublishAction("cmd/start", "early")),
+            Key(1, "main", new PublishAction("cmd/start", "late")),
+        ])], startService: false);
+
+        h.Boards[SerialA].SimulateKeyPress(0); // the board is live, the MQTT service isn't yet
+        await h.Service.StartAsync(_cts.Token);
+        Assert.True(await WaitForAsync(() => h.Service.IsConnected));
+        h.Boards[SerialA].SimulateKeyPress(1);
+
+        // Had the early press been queued, it would have been handled before this one.
+        Assert.True(await WaitForAsync(() => Payloads("cmd/start").Length == 1));
+        Assert.Equal(["late"], Payloads("cmd/start"));
     }
 
     [Fact]

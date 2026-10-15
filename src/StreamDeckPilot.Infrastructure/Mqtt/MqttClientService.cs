@@ -113,11 +113,14 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
     {
         _stoppingToken = stoppingToken;
 
-        _supervisor.ButtonPressed += OnButtonPressed;
+        // Subscribed only here, with the stopping token captured, so a press can't reach the queues
+        // before the service has started, and every press consumer runs under the service's token.
+        _supervisor.ButtonPressed += (serial, keyIndex) => OnButtonPressed(serial, keyIndex, stoppingToken);
 
-        // Both background loops are SUPERVISED: if either throws unexpectedly it is logged at
-        // Critical and restarted, so a single fault can never silently kill inbound processing
-        // (the "publishes still work but nothing renders" failure mode) or the reconnect loop.
+        // Every background loop (these two, and one press consumer per device) is SUPERVISED: if it
+        // throws unexpectedly it is logged at Critical and restarted, so a single fault can never
+        // silently kill inbound processing (the "publishes still work but nothing renders" failure
+        // mode), the reconnect loop or a device's key presses.
         _ = Task.Run(() => SuperviseAsync("mqtt-connect", ConnectWithRetryAsync, stoppingToken), stoppingToken);
         _ = Task.Run(() => SuperviseAsync("mqtt-drain", DrainMessageChannelAsync, stoppingToken), stoppingToken);
         return Task.CompletedTask;
@@ -141,7 +144,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
             }
             catch (Exception ex)
             {
-                _logger.LogCritical(ex, "MQTT background loop '{Loop}' faulted — restarting in 1s", name);
+                _logger.LogCritical(ex, "Background loop '{Loop}' faulted — restarting in 1s", name);
                 try { await Task.Delay(TimeSpan.FromSeconds(1), ct); }
                 catch (OperationCanceledException) { return; }
             }
@@ -614,13 +617,13 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
 
     // Raised synchronously on the device's key event, so the active page read here is the one that
     // was on screen when the key went down, not whatever a queued Navigate has switched to since.
-    private void OnButtonPressed(string serial, int keyIndex)
+    private void OnButtonPressed(string serial, int keyIndex, CancellationToken stoppingToken)
     {
-        if (_stoppingToken.IsCancellationRequested) return;
-        GetPressQueue(serial).Writer.TryWrite(new KeyPress(serial, keyIndex, _supervisor.GetActivePage(serial)));
+        if (stoppingToken.IsCancellationRequested) return;
+        GetPressQueue(serial, stoppingToken).Writer.TryWrite(new KeyPress(serial, keyIndex, _supervisor.GetActivePage(serial)));
     }
 
-    private Channel<KeyPress> GetPressQueue(string serial)
+    private Channel<KeyPress> GetPressQueue(string serial, CancellationToken stoppingToken)
     {
         lock (_pressQueues)
         {
@@ -628,7 +631,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
             {
                 queue = Channel.CreateUnbounded<KeyPress>(new UnboundedChannelOptions { SingleReader = true });
                 _pressQueues[serial] = queue;
-                _ = Task.Run(() => SuperviseAsync($"presses-{serial}", ct => DrainPressesAsync(queue, ct), _stoppingToken));
+                _ = Task.Run(() => SuperviseAsync($"presses-{serial}", ct => DrainPressesAsync(queue, ct), stoppingToken));
             }
             return queue;
         }
