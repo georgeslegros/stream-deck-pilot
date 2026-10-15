@@ -47,6 +47,15 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
     private readonly Channel<(string topic, string payload)> _messageChannel =
         Channel.CreateUnbounded<(string, string)>(new UnboundedChannelOptions { SingleReader = true });
 
+    // Key presses, one ordered queue per device, each drained by a single consumer (#74). A press
+    // runs its actions only after the previous press on that device has finished, and against the
+    // page captured when the key went down. Devices don't wait on each other.
+    private readonly record struct KeyPress(string Serial, int KeyIndex, string? PageId);
+    private readonly Dictionary<string, Channel<KeyPress>> _pressQueues = new();
+
+    /// <summary>Test seam: awaited by a device's press consumer before it handles each press.</summary>
+    internal Func<string, Task>? BeforePressHandled { get; set; }
+
     private CancellationToken _stoppingToken;
 
     // UTC ticks of the last inbound message. Read/written across threads (drainer + connect loop),
@@ -104,12 +113,14 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
     {
         _stoppingToken = stoppingToken;
 
-        _supervisor.ButtonPressed += (serial, keyIndex) =>
-            _ = Task.Run(() => HandleButtonPressAsync(serial, keyIndex), stoppingToken);
+        // Subscribed only here, with the stopping token captured, so a press can't reach the queues
+        // before the service has started, and every press consumer runs under the service's token.
+        _supervisor.ButtonPressed += (serial, keyIndex) => OnButtonPressed(serial, keyIndex, stoppingToken);
 
-        // Both background loops are SUPERVISED: if either throws unexpectedly it is logged at
-        // Critical and restarted, so a single fault can never silently kill inbound processing
-        // (the "publishes still work but nothing renders" failure mode) or the reconnect loop.
+        // Every background loop (these two, and one press consumer per device) is SUPERVISED: if it
+        // throws unexpectedly it is logged at Critical and restarted, so a single fault can never
+        // silently kill inbound processing (the "publishes still work but nothing renders" failure
+        // mode), the reconnect loop or a device's key presses.
         _ = Task.Run(() => SuperviseAsync("mqtt-connect", ConnectWithRetryAsync, stoppingToken), stoppingToken);
         _ = Task.Run(() => SuperviseAsync("mqtt-drain", DrainMessageChannelAsync, stoppingToken), stoppingToken);
         return Task.CompletedTask;
@@ -133,7 +144,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
             }
             catch (Exception ex)
             {
-                _logger.LogCritical(ex, "MQTT background loop '{Loop}' faulted — restarting in 1s", name);
+                _logger.LogCritical(ex, "Background loop '{Loop}' faulted — restarting in 1s", name);
                 try { await Task.Delay(TimeSpan.FromSeconds(1), ct); }
                 catch (OperationCanceledException) { return; }
             }
@@ -604,9 +615,48 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
 
     // ── Button press handling ─────────────────────────────────────────────────
 
-    private async Task HandleButtonPressAsync(string serial, int keyIndex)
+    // Raised synchronously on the device's key event, so the active page read here is the one that
+    // was on screen when the key went down, not whatever a queued Navigate has switched to since.
+    private void OnButtonPressed(string serial, int keyIndex, CancellationToken stoppingToken)
     {
-        var pageId = _supervisor.GetActivePage(serial);
+        if (stoppingToken.IsCancellationRequested) return;
+        GetPressQueue(serial, stoppingToken).Writer.TryWrite(new KeyPress(serial, keyIndex, _supervisor.GetActivePage(serial)));
+    }
+
+    private Channel<KeyPress> GetPressQueue(string serial, CancellationToken stoppingToken)
+    {
+        lock (_pressQueues)
+        {
+            if (!_pressQueues.TryGetValue(serial, out var queue))
+            {
+                queue = Channel.CreateUnbounded<KeyPress>(new UnboundedChannelOptions { SingleReader = true });
+                _pressQueues[serial] = queue;
+                _ = Task.Run(() => SuperviseAsync($"presses-{serial}", ct => DrainPressesAsync(queue, ct), stoppingToken));
+            }
+            return queue;
+        }
+    }
+
+    private async Task DrainPressesAsync(Channel<KeyPress> queue, CancellationToken ct)
+    {
+        await foreach (var press in queue.Reader.ReadAllAsync(ct))
+        {
+            try
+            {
+                if (BeforePressHandled is { } hook) await hook(press.Serial);
+                await HandleButtonPressAsync(press);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                // One bad press must not stop the presses queued behind it.
+                _logger.LogWarning(ex, "Key {Key} press on {Serial} failed", press.KeyIndex, press.Serial);
+            }
+        }
+    }
+
+    private async Task HandleButtonPressAsync(KeyPress press)
+    {
+        var (serial, keyIndex, pageId) = press;
         if (pageId is null) return;
 
         var config = await _configStore.LoadAsync(serial);
