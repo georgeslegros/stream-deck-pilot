@@ -70,6 +70,9 @@ public static class ConfigValidator
                 if (button.Display.Precision is < 0 or > DisplaySpec.MaxPrecision)
                     errors.Add($"Button '{button.ButtonId}': display.precision must be between 0 and {DisplaySpec.MaxPrecision} (got {button.Display.Precision}).");
 
+                if (IconReference.Validate(button.Display.BaseIcon) is { } baseIconError)
+                    errors.Add($"Button '{button.ButtonId}': display.baseIcon '{button.Display.BaseIcon}' {baseIconError}.");
+
                 for (var i = 0; i < button.Rules.Count; i++)
                 {
                     if (button.Rules[i] is null)
@@ -81,6 +84,8 @@ public static class ConfigValidator
                         errors.Add($"Button '{button.ButtonId}' rule {i + 1}: {conditionError}.");
                     if (button.Rules[i].BackgroundColour is { } colour && !IsHexColour(colour))
                         errors.Add($"Button '{button.ButtonId}' rule {i + 1}: backgroundColour '{colour}' must be #RRGGBB (e.g. #CC3300).");
+                    if (IconReference.Validate(button.Rules[i].Icon) is { } iconError)
+                        errors.Add($"Button '{button.ButtonId}' rule {i + 1}: icon '{button.Rules[i].Icon}' {iconError}.");
                 }
 
                 foreach (var (gesture, actions) in button.Gestures)
