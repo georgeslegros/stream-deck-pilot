@@ -538,8 +538,10 @@ key returns `401`. See `docs/api-guide.md` for full request/response shapes and 
 | POST | `/devices/{serial}/images` | Yes | Upload a custom icon (PNG/JPEG, max 512 KB). Returns `{"ref":"custom:..."}`. |
 | DELETE | `/devices/{serial}/images/{filename}` | Yes | Delete a custom icon. |
 
-Common error codes: `400` validation (`errors` array), `401` bad/missing key, `404` unknown serial or
-no config, `422` schema too old to upgrade.
+Errors are RFC 7807 problems (`application/problem+json` with `status`, `title`, `detail`). Common
+codes: `400` validation or malformed body (`errors` array on config writes), `401` bad/missing key,
+`404` unknown serial or no config, `409` force-render while disconnected, `422` schema too old to
+upgrade.
 
 ---
 
