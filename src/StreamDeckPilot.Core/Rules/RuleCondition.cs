@@ -6,7 +6,8 @@ namespace StreamDeckPilot.Core.Rules;
 /// A parsed <c>ConditionalRule.Condition</c>. Grammar:
 /// <list type="bullet">
 ///   <item>Numeric: <c>&gt;N</c>, <c>&gt;=N</c>, <c>&lt;N</c>, <c>&lt;=N</c>, <c>==N</c>, <c>between:A:B</c> (inclusive).
-///   Only match when the value parses as a number.</item>
+///   Only match when the value parses as a number (see <see cref="TryParseNumber"/>: '.' decimals only,
+///   no thousands separators, finite).</item>
 ///   <item>Text: <c>eq:TEXT</c>, <c>ne:TEXT</c>, <c>in:A,B,C</c>. Compare the value as text, trimmed and
 ///   case-insensitive. A number is compared as the text it arrived as (<c>eq:1</c> does not match <c>1.0</c>).</item>
 ///   <item><c>any</c>: matches every value (an "otherwise" rule at the end of the list).</item>
@@ -85,14 +86,24 @@ public abstract record RuleCondition
         return true;
     }
 
-    private static bool TryNum(string s, out double n) =>
-        double.TryParse(s.Trim(), NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out n);
+    private static bool TryNum(string s, out double n) => TryParseNumber(s, out n);
 
-    // Same leniency as the pipeline has always used for incoming values.
-    internal static bool TryValueAsNumber(string? value, out double n)
+    internal static bool TryValueAsNumber(string? value, out double n) => TryParseNumber(value, out n);
+
+    /// <summary>
+    /// The one numeric parse used for incoming values and rule operands: invariant culture,
+    /// optional surrounding whitespace, leading sign, '.' decimal point and exponent, and a finite
+    /// result. No thousands separators (under the invariant culture ',' would be dropped, turning a
+    /// comma-decimal "1,5" into 15), no parentheses or trailing signs, no NaN/Infinity. Anything
+    /// else is text: numeric rules don't match it and it's displayed as received.
+    /// </summary>
+    public static bool TryParseNumber(string? value, out double n)
     {
         n = 0;
-        return value is not null && double.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out n);
+        if (value is null || !double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) || !double.IsFinite(parsed))
+            return false;
+        n = parsed;
+        return true;
     }
 
     private static bool TextEquals(string? value, string expected) =>
