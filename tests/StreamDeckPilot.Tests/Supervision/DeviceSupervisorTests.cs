@@ -492,4 +492,27 @@ public class DeviceSupervisorTests : IDisposable
 
         await svc.StopAsync(CancellationToken.None);
     }
+
+    [Fact]
+    public async Task Stop_ReleasesEveryBoard_AndIsIdempotent()
+    {
+        // #69: a stopped service must not leave the deck showing values that no longer update.
+        var a = new FakeMacroBoard { Serial = "SN601", Path = "/fake/0" };
+        var b = new FakeMacroBoard { Serial = "SN602", Path = "/fake/1" };
+        var svc = BuildSupervisor(new FakeStreamDeckLibrary(a, b));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await svc.StartAsync(cts.Token);
+        await WaitUntilAsync(() => svc.GetState("SN601") == DeviceConnectionState.Connected
+                                   && svc.GetState("SN602") == DeviceConnectionState.Connected);
+
+        await svc.StopAsync(CancellationToken.None);
+
+        Assert.True(a.IsDisposed);
+        Assert.True(b.IsDisposed);
+        Assert.Null(svc.GetBoard("SN601"));
+        Assert.Null(svc.GetBoard("SN602"));
+        Assert.Equal(DeviceConnectionState.Disconnected, svc.GetState("SN601"));
+
+        await svc.StopAsync(CancellationToken.None); // second stop: nothing left, no throw
+    }
 }
