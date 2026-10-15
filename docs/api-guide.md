@@ -12,7 +12,7 @@ Every endpoint except `/health` and `/openapi.json` requires:
 X-Api-Key: <value of the API_KEY environment variable>
 ```
 
-Missing or wrong key → `401 Unauthorized`.
+Missing or wrong key → `401 Unauthorized` (a problem body with `"error": "invalid_api_key"`; see [Error reference](#error-reference)).
 
 ---
 
@@ -150,7 +150,8 @@ Write (replace) the full config for a device. Validated before save. The body mu
   ]
 }
 // Response 204 No Content on success
-// Response 400 { "errors": ["..."] } on validation failure
+// Response 400 problem with an "errors" list on validation failure, malformed JSON, or a
+//   missing list/null entry (pages, buttons, rules, gesture actions) — nothing is saved
 ```
 
 On success the device's live projection is rebuilt immediately (no restart/reconnect): desired
@@ -168,7 +169,8 @@ Migrate a config JSON from any supported schema version to the current version. 
 ```jsonc
 // Request: any DeviceConfig JSON (any supported schemaVersion)
 // Response 200: same config at current schemaVersion (2)
-// Response 422: { "error": "unsupported_schema_version", "message": "..." }
+// Response 400 problem: body not a JSON object, or schemaVersion missing / not an integer
+// Response 422 problem: { ..., "error": "unsupported_schema_version", "detail": "..." }
 ```
 
 ### `GET /devices/{serial}/active-page`
@@ -192,15 +194,16 @@ Force navigation to a page without publishing an MQTT `Navigate` action — hand
 { "pageId": "climate" }
 // Response 200 { "serial": "...", "activePageId": "climate", "rendered": true }
 //   rendered=false → page set but device offline; it will render on next connect
-// Response 400 { "message": "...", "availablePages": [...] }  // unknown/empty pageId
-// Response 404  // no config for this device
+// Response 400 problem with "availablePages": [...]  // unknown/empty pageId
+// Response 404 problem  // no config for this device
 ```
 
 ### `POST /devices/{serial}/force-render`
 Rebuilds desired state from the persisted config and does a full clear-and-redraw of the **current**
 page (no page reset) — the same projection rebuild a config `PUT` performs. Useful after editing the
-config file on disk, or to recover the on-screen layout. `202 Accepted`, or `200` with a message if
-the device isn't connected.
+config file on disk, or to recover the on-screen layout. `202 Accepted`; `404` if the serial isn't
+in the catalogue, `409 Conflict` if the device isn't connected (it renders from desired state when
+it reconnects).
 
 ### `POST /devices/{serial}/images`
 Upload a custom icon (PNG or JPEG, max 512 KB). `multipart/form-data`.
@@ -211,7 +214,8 @@ rejected.
 
 ```
 Response 200: { "ref": "custom:my-icon.png" }
-Response 400: { "error": "File content is not a PNG or JPEG image" }
+Response 400 problem: { ..., "detail": "File content is not a PNG or JPEG image." }
+Response 404 problem: serial not in the catalogue (nothing is created)
 ```
 
 Use `"ref"` as `display.baseIcon` in a `ButtonDefinition`.
@@ -421,10 +425,30 @@ mosquitto_pub -h rabbitmq.local -u $MQTT_USER -P $MQTT_PASS \
 
 ## Error reference
 
+Every error is an [RFC 7807](https://www.rfc-editor.org/rfc/rfc7807) problem, served as
+`application/problem+json`:
+
+```jsonc
+{
+  "type": "https://tools.ietf.org/html/rfc9110#section-15.5.1",
+  "title": "Invalid configuration",
+  "status": 400,
+  "detail": "Button 'power': rules is required (use [] for none). (and 1 more)",
+  "errors": ["Button 'power': rules is required (use [] for none).", "..."]
+}
+```
+
+`status`, `title` and `type` are always present; `detail` explains this occurrence. Extra members:
+`errors` (every validation message) on config validation failures, `error` (a stable code:
+`invalid_api_key`, `unsupported_schema_version`) where clients branch on it, and `availablePages` on
+navigate. An unexpected server error is a `500` problem with no exception details.
+
 | Code | Meaning |
 |------|---------|
+| 400 | Validation error or malformed body (`errors` on config writes), bad/unknown `pageId` on navigate, bad upload |
 | 401 | Missing or wrong `X-Api-Key` |
-| 400 | Validation error (`errors` array), or bad/unknown `pageId` on navigate |
-| 404 | Serial not in catalogue, or no config for that serial |
+| 404 | Serial not in catalogue, no config for that serial, unknown image, unknown route |
+| 409 | `force-render` while the device isn't connected |
 | 422 | Schema version too old for `POST /config/upgrade` |
+| 500 | Unexpected server error (logged; no details in the response) |
 | 204 | Config saved successfully (`PUT /devices/.../config`) |

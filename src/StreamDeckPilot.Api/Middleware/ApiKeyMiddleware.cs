@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 
 namespace StreamDeckPilot.Api.Middleware;
 
@@ -30,9 +29,12 @@ public sealed class ApiKeyMiddleware(RequestDelegate next, IConfiguration config
 
         if (!match)
         {
-            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "invalid_api_key" }));
+            // Same problem shape as every other error; `error` stays for clients that branch on it.
+            await Results.Problem(
+                    detail: "Missing or invalid X-Api-Key header.",
+                    statusCode: StatusCodes.Status401Unauthorized,
+                    extensions: new Dictionary<string, object?> { ["error"] = "invalid_api_key" })
+                .ExecuteAsync(context);
             return;
         }
 
