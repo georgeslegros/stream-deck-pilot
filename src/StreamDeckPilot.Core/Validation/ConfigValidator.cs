@@ -54,9 +54,21 @@ public static class ConfigValidator
                 }
 
                 foreach (var (gesture, actions) in button.Gestures)
+                {
+                    // The press handler looks gestures up by exact name, so "tap" would be stored and never fire.
+                    if (!GestureNames.Supported.Contains(gesture))
+                    {
+                        var hint = GestureNames.Supported.FirstOrDefault(g => string.Equals(g, gesture, StringComparison.OrdinalIgnoreCase));
+                        errors.Add(hint is not null
+                            ? $"Button '{button.ButtonId}': gesture '{gesture}' must be written '{hint}'."
+                            : $"Button '{button.ButtonId}': gesture '{gesture}' is not supported (supported: {string.Join(", ", GestureNames.Supported)}).");
+                        continue;
+                    }
+
                     foreach (var action in actions)
                         if (action is NavigateAction nav && !pageIds.Contains(nav.TargetPageId))
                             errors.Add($"Button '{button.ButtonId}' gesture '{gesture}': navigate target '{nav.TargetPageId}' does not exist.");
+                }
             }
         }
 
