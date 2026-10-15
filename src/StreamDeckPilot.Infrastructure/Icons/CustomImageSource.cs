@@ -14,6 +14,13 @@ public sealed class CustomImageSource(IOptions<StorageOptions> opts)
         return File.Exists(path) ? File.ReadAllBytes(path) : null;
     }
 
+    /// <summary>The file's metadata (size, last write), or null when it doesn't exist. No content is read.</summary>
+    public FileInfo? Stat(string serial, string filename)
+    {
+        var info = new FileInfo(Path.Combine(Dir(serial), filename));
+        return info.Exists ? info : null;
+    }
+
     public async Task<string> SaveAsync(string serial, string filename, Stream content)
     {
         var dir = Dir(serial);

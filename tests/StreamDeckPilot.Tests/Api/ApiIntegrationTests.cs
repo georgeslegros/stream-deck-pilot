@@ -381,6 +381,43 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    // A few dozen bytes can declare a canvas that takes gigabytes to decode: the header's
+    // dimensions are checked before anything is stored (#77).
+    [Fact]
+    public async Task UploadImage_HugeDeclaredDimensions_Returns400()
+    {
+        var client = _factory.CreateAuthenticatedClient();
+        var response = await client.PostAsync("/devices/SN021/images",
+            ImageUpload(Icons.TestImages.PngDeclaring(20000, 20000), "bomb.png"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("20000x20000", await response.Content.ReadAsStringAsync());
+        Assert.DoesNotContain("bomb.png", await client.GetStringAsync("/devices/SN021/images"));
+    }
+
+    [Fact]
+    public async Task UploadImage_AtTheDimensionLimit_IsStored()
+    {
+        var client = _factory.CreateAuthenticatedClient();
+        var max = Infrastructure.Icons.IconImageFormats.MaxDimension;
+        var response = await client.PostAsync("/devices/SN021/images",
+            ImageUpload(Icons.TestImages.Png(max, 8, new SixLabors.ImageSharp.PixelFormats.Rgba32(1, 2, 3)), "wide.png"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    // Refused from Content-Length, before the form is buffered.
+    [Fact]
+    public async Task UploadImage_RequestOverSizeLimit_Returns413()
+    {
+        var client = _factory.CreateAuthenticatedClient();
+        var response = await client.PostAsync("/devices/SN021/images",
+            ImageUpload(new byte[2 * 1024 * 1024], "huge.png"));
+
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+        Assert.DoesNotContain("huge.png", await client.GetStringAsync("/devices/SN021/images"));
+    }
+
     [Fact]
     public async Task UploadImage_DisallowedExtension_Returns400()
     {

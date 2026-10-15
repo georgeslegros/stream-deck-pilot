@@ -373,7 +373,7 @@ Icons are referenced by string in `display.baseIcon` and in a rule's `icon` fiel
 Browse the full set and find names at <https://pictogrammers.com/library/mdi>. See
 `docs/icon-vocabulary.md` for the project's naming conventions.
 
-To use your own artwork, upload a PNG or JPEG (max 512 KB; the content is checked, not just the
+To use your own artwork, upload a PNG or JPEG (max 512 KB and 1024×1024 pixels; the content is checked, not just the
 extension) with `POST /devices/{serial}/images` (`multipart/form-data`). The response returns a reference like
 `{ "ref": "custom:my-icon.png" }`; use that string as `display.baseIcon`. Uploaded files are stored
 under `/data/images/<serial>/` and can be listed or removed via the image endpoints. The icon
@@ -535,7 +535,7 @@ key returns `401`. See `docs/api-guide.md` for full request/response shapes and 
 | PUT | `/devices/{serial}/config` | Yes | Replace the full config (validated). On success rebuilds the projection, clears+redraws all keys, resets to the first page (`?resetPage=false` to keep the current page). `204` / `400`. |
 | POST | `/config/upgrade` | Yes | Migrate a config JSON to the current schema version. Does not persist. `422` if unsupported. |
 | GET | `/devices/{serial}/images` | Yes | List custom icons for a device. |
-| POST | `/devices/{serial}/images` | Yes | Upload a custom icon (PNG/JPEG, max 512 KB). Returns `{"ref":"custom:..."}`. |
+| POST | `/devices/{serial}/images` | Yes | Upload a custom icon (PNG/JPEG, max 512 KB and 1024×1024 px). Returns `{"ref":"custom:..."}`. |
 | DELETE | `/devices/{serial}/images/{filename}` | Yes | Delete a custom icon. |
 
 Common error codes: `400` validation (`errors` array), `401` bad/missing key, `404` unknown serial or

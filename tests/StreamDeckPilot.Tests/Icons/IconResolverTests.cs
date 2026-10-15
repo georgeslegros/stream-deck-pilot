@@ -83,6 +83,111 @@ public sealed class IconResolverTests : IDisposable
         Assert.Equal(TestImages.Size, image.Width);
     }
 
+    [Fact]
+    public void IconImageFormats_IdentifiesDimensionsFromTheHeaderOnly()
+    {
+        Assert.Equal((20000, 20000), IconImageFormats.Identify(TestImages.PngDeclaring(20000, 20000)));
+        Assert.Null(IconImageFormats.Identify("not an image"u8.ToArray()));
+        Assert.False(IconImageFormats.IsWithinLimits((IconImageFormats.MaxDimension + 1, 10)));
+        Assert.True(IconImageFormats.IsWithinLimits((IconImageFormats.MaxDimension, IconImageFormats.MaxDimension)));
+    }
+
+    // A file on the volume (put there by hand, or uploaded before the limit) that declares a huge
+    // canvas is refused from its header; decoding it would take gigabytes (#77).
+    [Theory]
+    [InlineData(20000, 20000)]
+    [InlineData(IconImageFormats.MaxDimension + 1, 4)]
+    public async Task ResolveImage_CustomOverDimensionLimit_UsesFallback(int width, int height)
+    {
+        // The small one is a real, decodable PNG: only the limit can make it fall back.
+        var bytes = width > 10000 ? TestImages.PngDeclaring(width, height) : TestImages.Png(width, height, new Rgba32(200, 30, 30));
+        await File.WriteAllBytesAsync(CustomPath("SN1", "big.png"), bytes);
+
+        using var image = _resolver.ResolveImage("custom:big.png", "SN1", 72);
+        using var fallback = _resolver.ResolveImage(null, "SN1", 72);
+
+        Assert.NotNull(image);
+        Assert.Equal(fallback!.Width, image.Width);
+        Assert.NotEqual(width, image.Width);
+    }
+
+    [Fact]
+    public async Task ResolveImage_LargeCustom_IsShrunkToCoverTheRequestedSize()
+    {
+        await File.WriteAllBytesAsync(CustomPath("SN1", "wide.png"), TestImages.Png(400, 200, new Rgba32(0, 0, 255)));
+
+        using var image = _resolver.ResolveImage("custom:wide.png", "SN1", 72);
+
+        Assert.NotNull(image);
+        Assert.Equal((144, 72), (image.Width, image.Height));
+    }
+
+    // Re-renders used to read and decode the file every time. Same last-write time and length:
+    // the cached decode is used, so content swapped in behind its back isn't read.
+    [Fact]
+    public async Task ResolveImage_SecondRender_DoesNotReReadTheFile()
+    {
+        var path = CustomPath("SN1", "icon.png");
+        var red = TestImages.Png(TestImages.Size, TestImages.Size, new Rgba32(200, 30, 30));
+        await File.WriteAllBytesAsync(path, red);
+        using (var first = _resolver.ResolveImage("custom:icon.png", "SN1", 72))
+            Assert.Equal(new Rgba32(200, 30, 30), first![0, 0]);
+
+        var stamp = File.GetLastWriteTimeUtc(path);
+        await File.WriteAllBytesAsync(path, new byte[red.Length]); // same length, not an image
+        File.SetLastWriteTimeUtc(path, stamp);
+
+        using var second = _resolver.ResolveImage("custom:icon.png", "SN1", 72);
+        Assert.NotNull(second);
+        Assert.Equal(new Rgba32(200, 30, 30), second[0, 0]);
+
+        // Callers mutate what they get (resize, tint): each call returns its own copy.
+        using var third = _resolver.ResolveImage("custom:icon.png", "SN1", 72);
+        Assert.NotSame(second, third);
+    }
+
+    [Fact]
+    public async Task ResolveImage_ChangedFile_IsReadAgain()
+    {
+        var path = CustomPath("SN1", "icon.png");
+        await File.WriteAllBytesAsync(path, TestImages.Png(TestImages.Size, TestImages.Size, new Rgba32(200, 30, 30)));
+        using (var first = _resolver.ResolveImage("custom:icon.png", "SN1", 72))
+            Assert.Equal(new Rgba32(200, 30, 30), first![0, 0]);
+
+        await File.WriteAllBytesAsync(path, TestImages.Png(TestImages.Size, TestImages.Size, new Rgba32(0, 200, 0)));
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(1));
+
+        using var second = _resolver.ResolveImage("custom:icon.png", "SN1", 72);
+        Assert.Equal(new Rgba32(0, 200, 0), second![0, 0]);
+    }
+
+    [Fact]
+    public async Task Invalidate_DropsTheCachedDecode()
+    {
+        var path = CustomPath("SN1", "icon.png");
+        var red = TestImages.Png(TestImages.Size, TestImages.Size, new Rgba32(200, 30, 30));
+        await File.WriteAllBytesAsync(path, red);
+        _resolver.ResolveImage("custom:icon.png", "SN1", 72)?.Dispose();
+
+        var green = TestImages.Png(TestImages.Size, TestImages.Size, new Rgba32(0, 200, 0));
+        Assert.Equal(red.Length, green.Length);
+        var stamp = File.GetLastWriteTimeUtc(path);
+        await File.WriteAllBytesAsync(path, green);
+        File.SetLastWriteTimeUtc(path, stamp);
+
+        _resolver.Invalidate("SN1", "icon.png");
+
+        using var image = _resolver.ResolveImage("custom:icon.png", "SN1", 72);
+        Assert.Equal(new Rgba32(0, 200, 0), image![0, 0]);
+    }
+
+    private string CustomPath(string serial, string filename)
+    {
+        var dir = Path.Combine(_dir, "images", serial);
+        Directory.CreateDirectory(dir);
+        return Path.Combine(dir, filename);
+    }
+
     // Files already on disk are decoded with PNG and JPEG decoders only, whatever their name.
     [Theory]
     [InlineData("tiff")]
