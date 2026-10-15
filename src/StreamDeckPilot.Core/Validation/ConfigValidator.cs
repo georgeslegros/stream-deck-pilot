@@ -88,6 +88,8 @@ public static class ConfigValidator
                         errors.Add($"Button '{button.ButtonId}' rule {i + 1}: icon '{button.Rules[i].Icon}' {iconError}.");
                 }
 
+                // A bad publish topic only fails at press time (the MQTT client refuses to build or
+                // send it), where it's logged and the press silently does nothing.
                 foreach (var (gesture, actions) in button.Gestures)
                 {
                     // The press handler looks gestures up by exact name, so "tap" would be stored and never fire.
@@ -110,6 +112,8 @@ public static class ConfigValidator
                             errors.Add($"Button '{button.ButtonId}' gesture '{gesture}' action {a + 1} is null.");
                         else if (actions[a] is NavigateAction nav && !pageIds.Contains(nav.TargetPageId))
                             errors.Add($"Button '{button.ButtonId}' gesture '{gesture}': navigate target '{nav.TargetPageId}' does not exist.");
+                        else if (actions[a] is PublishAction publish && PublishTopicError(publish.Topic) is { } topicError)
+                            errors.Add($"Button '{button.ButtonId}' gesture '{gesture}' action {a + 1}: publish topic {topicError}.");
                 }
             }
         }
@@ -131,6 +135,17 @@ public static class ConfigValidator
             warnings.Add($"Page '{pageId}' is unreachable by any navigation action.");
 
         return new ValidationResult(errors, warnings);
+    }
+
+    // MQTT publish topic rules: non-empty, no wildcards (+ and # are for subscriptions only),
+    // no NUL, at most 65 535 bytes as UTF-8.
+    private static string? PublishTopicError(string? topic)
+    {
+        if (string.IsNullOrWhiteSpace(topic)) return "is required";
+        if (topic.AsSpan().IndexOfAny('+', '#') >= 0) return $"'{topic}' must not contain the wildcards '+' or '#'";
+        if (topic.Contains('\0')) return "must not contain a NUL character";
+        if (System.Text.Encoding.UTF8.GetByteCount(topic) > 65_535) return "is longer than 65 535 bytes";
+        return null;
     }
 
     // The renderer understands #RRGGBB only; anything else silently fell back to the default grey.

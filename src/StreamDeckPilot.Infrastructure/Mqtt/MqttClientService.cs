@@ -644,7 +644,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
                 }
                 var msg = new MqttApplicationMessageBuilder()
                     .WithTopic(publish.Topic)
-                    .WithPayload(publish.Payload)
+                    .WithPayload(publish.Payload ?? string.Empty) // a missing payload publishes an empty message
                     .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
                     .Build();
                 try
