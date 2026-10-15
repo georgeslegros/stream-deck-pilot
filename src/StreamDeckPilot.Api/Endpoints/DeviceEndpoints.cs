@@ -30,7 +30,7 @@ public static class DeviceEndpoints
         {
             var cat = await catalogue.LoadAsync();
             var entry = cat.Devices.FirstOrDefault(d => d.Serial == serial);
-            if (entry is null) return Results.NotFound();
+            if (entry is null) return ApiProblem.NotFound($"Device '{serial}' is not in the catalogue.");
 
             return Results.Ok(new
             {
@@ -40,15 +40,22 @@ public static class DeviceEndpoints
         });
 
         app.MapPost("/devices/{serial}/force-render", async (string serial,
-            DeviceSupervisorService supervisor) =>
+            CatalogueStore catalogue, DeviceSupervisorService supervisor, DeviceConfigGate gate) =>
         {
+            var cat = await catalogue.LoadAsync();
+            if (cat.Devices.All(d => d.Serial != serial))
+                return ApiProblem.NotFound($"Device '{serial}' is not in the catalogue.");
+
             var board = supervisor.GetBoard(serial);
-            if (board is null || !board.IsConnected) return Results.Ok(new { message = "Device not connected" });
+            if (board is null || !board.IsConnected)
+                return ApiProblem.Conflict($"Device '{serial}' is not connected; it renders from desired state when it reconnects.");
 
             // Rebuild desired state from the persisted config and fully clear-and-redraw the current
             // page (no page reset). This is the same projection rebuild a config PUT performs, so a
-            // force-render reflects the latest config rather than just repainting stale state.
-            await supervisor.ApplyConfigChangeAsync(serial, resetActivePage: false);
+            // force-render reflects the latest config rather than just repainting stale state; the
+            // gate keeps it from interleaving with a PUT for the same device.
+            using (await gate.EnterAsync(serial))
+                await supervisor.ApplyConfigChangeAsync(serial, resetActivePage: false);
             return Results.Accepted();
         });
 
@@ -58,7 +65,7 @@ public static class DeviceEndpoints
             DeviceSupervisorService supervisor, ConfigStore configStore) =>
         {
             var config = await configStore.LoadAsync(serial);
-            if (config is null) return Results.NotFound(new { message = $"No config for device '{serial}'." });
+            if (config is null) return ApiProblem.NotFound($"No config for device '{serial}'.");
 
             var board = supervisor.GetBoard(serial);
             return Results.Ok(new
@@ -77,18 +84,16 @@ public static class DeviceEndpoints
             NavigateRequest request, DeviceSupervisorService supervisor, ConfigStore configStore) =>
         {
             if (string.IsNullOrWhiteSpace(request.PageId))
-                return Results.BadRequest(new { message = "pageId is required." });
+                return ApiProblem.BadRequest("pageId is required.");
 
             var config = await configStore.LoadAsync(serial);
-            if (config is null) return Results.NotFound(new { message = $"No config for device '{serial}'." });
+            if (config is null) return ApiProblem.NotFound($"No config for device '{serial}'.");
 
             var pages = config.Pages.Select(p => p.PageId).ToArray();
             if (!pages.Contains(request.PageId))
-                return Results.BadRequest(new
-                {
-                    message = $"Page '{request.PageId}' does not exist for device '{serial}'.",
-                    availablePages = pages,
-                });
+                return ApiProblem.BadRequest(
+                    $"Page '{request.PageId}' does not exist for device '{serial}'.",
+                    new Dictionary<string, object?> { ["availablePages"] = pages });
 
             supervisor.SetActivePage(serial, request.PageId);
 

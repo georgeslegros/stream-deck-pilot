@@ -43,16 +43,29 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
 
     // --- GET /openapi.json ---
 
+    // The README and API guide promise the document without a key; the exemption used to target a
+    // "/openapi" segment that never matched "/openapi.json", so this needed a key (#80).
     [Fact]
-    public async Task OpenApiDocument_DescribesTheApi()
+    public async Task OpenApiDocument_DescribesTheApi_WithoutAKey()
     {
-        var client = _factory.CreateAuthenticatedClient();
+        var client = _factory.CreateClient();
         var response = await client.GetAsync("/openapi.json");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Assert.StartsWith("3.", doc.RootElement.GetProperty("openapi").GetString());
         Assert.True(doc.RootElement.GetProperty("paths").TryGetProperty("/devices", out _));
+    }
+
+    // Only the exact document path is exempt, not anything that merely starts with it.
+    [Theory]
+    [InlineData("/openapi")]
+    [InlineData("/openapi/v1.json")]
+    [InlineData("/openapi.json.bak")]
+    public async Task OpenApiExemption_IsExactPathOnly(string path)
+    {
+        var response = await _factory.CreateClient().GetAsync(path);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     // --- GET /devices ---
@@ -390,6 +403,7 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
     [InlineData("jpeg", "icon.jpg")]
     public async Task UploadImage_PngOrJpegContent_IsStored(string format, string fileName)
     {
+        await _factory.SeedDeviceAsync("SN020"); // image endpoints only serve catalogued devices
         var client = _factory.CreateAuthenticatedClient();
         var response = await client.PostAsync("/devices/SN020/images",
             ImageUpload(Icons.TestImages.Encode(format), fileName));
@@ -406,6 +420,7 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
     [InlineData("webp")]
     public async Task UploadImage_OtherFormatNamedPng_Returns400(string format)
     {
+        await _factory.SeedDeviceAsync("SN020"); // image endpoints only serve catalogued devices
         var client = _factory.CreateAuthenticatedClient();
         var response = await client.PostAsync("/devices/SN020/images",
             ImageUpload(Icons.TestImages.Encode(format), "icon.png"));
@@ -419,6 +434,7 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
     [Fact]
     public async Task UploadImage_NonImageContent_Returns400()
     {
+        await _factory.SeedDeviceAsync("SN020"); // image endpoints only serve catalogued devices
         var client = _factory.CreateAuthenticatedClient();
         var response = await client.PostAsync("/devices/SN020/images",
             ImageUpload("definitely not an image"u8.ToArray(), "icon.jpg"));
@@ -429,6 +445,7 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
     [Fact]
     public async Task UploadImage_DisallowedExtension_Returns400()
     {
+        await _factory.SeedDeviceAsync("SN020"); // image endpoints only serve catalogued devices
         var client = _factory.CreateAuthenticatedClient();
         var response = await client.PostAsync("/devices/SN020/images",
             ImageUpload(Icons.TestImages.Encode("png"), "icon.tiff"));
