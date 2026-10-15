@@ -37,6 +37,10 @@ public sealed class ManualTimeProvider : TimeProvider
             callback(state);
         }
 
+        // Runs the callback even if the timer was re-armed or disposed since: a real timer callback
+        // that was already dispatched to the thread pool can't be recalled.
+        internal void FireStale() => callback(state);
+
         public void Dispose() => DueTime = null;
         public ValueTask DisposeAsync() { Dispose(); return ValueTask.CompletedTask; }
     }

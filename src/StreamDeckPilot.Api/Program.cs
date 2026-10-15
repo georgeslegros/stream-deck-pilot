@@ -81,6 +81,10 @@ builder.Services.AddSingleton<DeviceSupervisorService>(sp =>
         brightness: sp.GetRequiredService<BrightnessController>(),
         brokerIndicator: sp.GetRequiredService<BrokerIndicator>()));
 builder.Services.AddSingleton<IDeviceStateProvider>(sp => sp.GetRequiredService<DeviceSupervisorService>());
+// Registration order matters: the host stops hosted services in reverse order, so the supervisor
+// must be registered BEFORE every service that renders to the boards (MQTT, staleness). Those then
+// stop first, and the supervisor's StopAsync releases the boards with no renders still arriving
+// (#69). Pinned by HostedServiceOrderTests.
 builder.Services.AddHostedService(sp => sp.GetRequiredService<DeviceSupervisorService>());
 
 // MQTT
@@ -117,6 +121,11 @@ builder.Services.AddOpenTelemetry()
         .AddAspNetCoreInstrumentation()
         .AddOtlpExporter());
 
+// Errors: every failure is an RFC 7807 problem (see ApiProblem). Unhandled exceptions become a
+// plain 500 problem without exception details; empty-bodied error statuses get a problem body too.
+builder.Services.AddProblemDetails();
+builder.Services.AddSingleton<DeviceConfigGate>();
+
 builder.Services.ConfigureHttpJsonOptions(o =>
 {
     foreach (var converter in JsonOptions.Default.Converters)
@@ -135,10 +144,12 @@ app.Services.GetRequiredService<StreamDeckMetrics>().RegisterObservableGauges(
 if (string.IsNullOrWhiteSpace(app.Configuration["ApiKey"]))
     app.Logger.LogWarning("ApiKey is not configured — all requests will be rejected with 401. Set the ApiKey environment variable.");
 
+app.UseExceptionHandler();
+app.UseStatusCodePages();
 app.UseMiddleware<ApiKeyMiddleware>();
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
-app.MapOpenApi("/openapi.json");
+app.MapOpenApi(ApiKeyMiddleware.OpenApiPath);
 app.MapDeviceEndpoints();
 app.MapConfigEndpoints();
 app.MapImageEndpoints();

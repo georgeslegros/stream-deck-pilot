@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using SixLabors.ImageSharp;
@@ -69,6 +70,45 @@ public sealed class IconResolverTests : IDisposable
         Assert.NotEmpty(result);
     }
 
+    // Configs saved before #76's validation (or edited by hand) can still hold such names: the
+    // source refuses anything that would resolve outside the device's images directory.
+    [Theory]
+    [InlineData("SN1", "../../secret.png")]
+    [InlineData("SN1", "../SN2/icon.png")]
+    [InlineData("SN1", "sub/icon.png")]
+    [InlineData("SN1", "..")]
+    [InlineData("..", "secret.png")]
+    public async Task CustomImageSource_RefusesNamesOutsideTheImagesDirectory(string serial, string filename)
+    {
+        var png = TestImages.Encode("png");
+        await File.WriteAllBytesAsync(Path.Combine(_dir, "secret.png"), png);
+        Directory.CreateDirectory(Path.Combine(_dir, "images", "SN2"));
+        await File.WriteAllBytesAsync(Path.Combine(_dir, "images", "SN2", "icon.png"), png);
+        Directory.CreateDirectory(Path.Combine(_dir, "images", "SN1", "sub"));
+        await File.WriteAllBytesAsync(Path.Combine(_dir, "images", "SN1", "sub", "icon.png"), png);
+
+        Assert.Null(_custom.Load(serial, filename));
+        Assert.Null(_custom.Load(serial, Path.Combine(_dir, "secret.png")));
+        Assert.Null(_custom.Stat(serial, filename));
+        Assert.Null(_custom.Stat(serial, Path.Combine(_dir, "secret.png")));
+        Assert.False(_custom.Delete(serial, filename));
+        Assert.True(File.Exists(Path.Combine(_dir, "secret.png")));
+        await Assert.ThrowsAsync<ArgumentException>(() => _custom.SaveAsync(serial, filename, new MemoryStream(png)));
+    }
+
+    [Theory]
+    [InlineData("custom:../../secret.png")]
+    [InlineData("custom:/etc/passwd")]
+    public void ResolveImage_CustomOutsideImagesDirectory_UsesFallback(string reference)
+    {
+        File.WriteAllBytes(Path.Combine(_dir, "secret.png"), TestImages.Encode("png"));
+
+        using var image = _resolver.ResolveImage(reference, "SN1", 72);
+
+        Assert.NotNull(image);
+        Assert.NotEqual(TestImages.Size, image.Width);
+    }
+
     [Theory]
     [InlineData("png")]
     [InlineData("jpeg")]
@@ -81,6 +121,161 @@ public sealed class IconResolverTests : IDisposable
 
         Assert.NotNull(image);
         Assert.Equal(TestImages.Size, image.Width);
+    }
+
+    [Fact]
+    public void IconImageFormats_IdentifiesDimensionsFromTheHeaderOnly()
+    {
+        Assert.Equal((20000, 20000), IconImageFormats.Identify(TestImages.PngDeclaring(20000, 20000)));
+        Assert.Null(IconImageFormats.Identify("not an image"u8.ToArray()));
+        Assert.False(IconImageFormats.IsWithinLimits((IconImageFormats.MaxDimension + 1, 10)));
+        Assert.True(IconImageFormats.IsWithinLimits((IconImageFormats.MaxDimension, IconImageFormats.MaxDimension)));
+    }
+
+    // A file on the volume (put there by hand, or uploaded before the limit) that declares a huge
+    // canvas is refused from its header; decoding it would take gigabytes (#77).
+    [Theory]
+    [InlineData(20000, 20000)]
+    [InlineData(IconImageFormats.MaxDimension + 1, 4)]
+    public async Task ResolveImage_CustomOverDimensionLimit_UsesFallback(int width, int height)
+    {
+        // The small one is a real, decodable PNG: only the limit can make it fall back.
+        var bytes = width > 10000 ? TestImages.PngDeclaring(width, height) : TestImages.Png(width, height, new Rgba32(200, 30, 30));
+        await File.WriteAllBytesAsync(CustomPath("SN1", "big.png"), bytes);
+
+        using var image = _resolver.ResolveImage("custom:big.png", "SN1", 72);
+        using var fallback = _resolver.ResolveImage(null, "SN1", 72);
+
+        Assert.NotNull(image);
+        Assert.Equal(fallback!.Width, image.Width);
+        Assert.NotEqual(width, image.Width);
+    }
+
+    [Fact]
+    public async Task ResolveImage_LargeCustom_IsShrunkToCoverTheRequestedSize()
+    {
+        await File.WriteAllBytesAsync(CustomPath("SN1", "wide.png"), TestImages.Png(400, 200, new Rgba32(0, 0, 255)));
+
+        using var image = _resolver.ResolveImage("custom:wide.png", "SN1", 72);
+
+        Assert.NotNull(image);
+        Assert.Equal((144, 72), (image.Width, image.Height));
+    }
+
+    // Re-renders used to read and decode the file every time. Same last-write time and length:
+    // the cached decode is used, so content swapped in behind its back isn't read.
+    [Fact]
+    public async Task ResolveImage_SecondRender_DoesNotReReadTheFile()
+    {
+        var path = CustomPath("SN1", "icon.png");
+        var red = TestImages.Png(TestImages.Size, TestImages.Size, new Rgba32(200, 30, 30));
+        await File.WriteAllBytesAsync(path, red);
+        using (var first = _resolver.ResolveImage("custom:icon.png", "SN1", 72))
+            Assert.Equal(new Rgba32(200, 30, 30), first![0, 0]);
+
+        var stamp = File.GetLastWriteTimeUtc(path);
+        await File.WriteAllBytesAsync(path, new byte[red.Length]); // same length, not an image
+        File.SetLastWriteTimeUtc(path, stamp);
+
+        using var second = _resolver.ResolveImage("custom:icon.png", "SN1", 72);
+        Assert.NotNull(second);
+        Assert.Equal(new Rgba32(200, 30, 30), second[0, 0]);
+
+        // Callers mutate what they get (resize, tint): each call returns its own copy.
+        using var third = _resolver.ResolveImage("custom:icon.png", "SN1", 72);
+        Assert.NotSame(second, third);
+    }
+
+    [Fact]
+    public async Task ResolveImage_ChangedFile_IsReadAgain()
+    {
+        var path = CustomPath("SN1", "icon.png");
+        await File.WriteAllBytesAsync(path, TestImages.Png(TestImages.Size, TestImages.Size, new Rgba32(200, 30, 30)));
+        using (var first = _resolver.ResolveImage("custom:icon.png", "SN1", 72))
+            Assert.Equal(new Rgba32(200, 30, 30), first![0, 0]);
+
+        await File.WriteAllBytesAsync(path, TestImages.Png(TestImages.Size, TestImages.Size, new Rgba32(0, 200, 0)));
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(1));
+
+        using var second = _resolver.ResolveImage("custom:icon.png", "SN1", 72);
+        Assert.Equal(new Rgba32(0, 200, 0), second![0, 0]);
+    }
+
+    [Fact]
+    public async Task Invalidate_DropsTheCachedDecode()
+    {
+        var path = CustomPath("SN1", "icon.png");
+        var red = TestImages.Png(TestImages.Size, TestImages.Size, new Rgba32(200, 30, 30));
+        await File.WriteAllBytesAsync(path, red);
+        _resolver.ResolveImage("custom:icon.png", "SN1", 72)?.Dispose();
+
+        var green = TestImages.Png(TestImages.Size, TestImages.Size, new Rgba32(0, 200, 0));
+        Assert.Equal(red.Length, green.Length);
+        var stamp = File.GetLastWriteTimeUtc(path);
+        await File.WriteAllBytesAsync(path, green);
+        File.SetLastWriteTimeUtc(path, stamp);
+
+        _resolver.Invalidate("SN1", "icon.png");
+
+        using var image = _resolver.ResolveImage("custom:icon.png", "SN1", 72);
+        Assert.Equal(new Rgba32(0, 200, 0), image![0, 0]);
+    }
+
+    // A missing icon reaches the resolver on every render of its key: warn once until the file
+    // appears, and again if it goes missing after that.
+    [Fact]
+    public async Task ResolveImage_MissingCustom_WarnsOnceUntilTheFileAppears()
+    {
+        var logger = new ListLogger<IconResolver>();
+        var resolver = new IconResolver(_custom, logger);
+
+        for (var i = 0; i < 5; i++)
+            resolver.ResolveImage("custom:late.png", "SN1", 72)?.Dispose();
+        Assert.Single(logger.Warnings);
+        Assert.Contains("custom:late.png", logger.Warnings[0]);
+
+        var path = CustomPath("SN1", "late.png");
+        await File.WriteAllBytesAsync(path, TestImages.Encode("png"));
+        resolver.ResolveImage("custom:late.png", "SN1", 72)?.Dispose();
+        Assert.Single(logger.Warnings);
+
+        File.Delete(path);
+        resolver.ResolveImage("custom:late.png", "SN1", 72)?.Dispose();
+        resolver.ResolveImage("custom:late.png", "SN1", 72)?.Dispose();
+        Assert.Equal(2, logger.Warnings.Count);
+    }
+
+    [Fact]
+    public async Task ResolveImage_OversizeOnVolume_WarningNamesTheDimensions()
+    {
+        var logger = new ListLogger<IconResolver>();
+        var resolver = new IconResolver(_custom, logger);
+        await File.WriteAllBytesAsync(CustomPath("SN1", "big.png"), TestImages.PngDeclaring(20000, 20000));
+
+        resolver.ResolveImage("custom:big.png", "SN1", 72)?.Dispose();
+        resolver.ResolveImage("custom:big.png", "SN1", 72)?.Dispose();
+
+        var warning = Assert.Single(logger.Warnings);
+        Assert.Contains("20000x20000", warning);
+    }
+
+    private sealed class ListLogger<T> : ILogger<T>
+    {
+        public List<string> Warnings { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning) Warnings.Add(formatter(state, exception));
+        }
+    }
+
+    private string CustomPath(string serial, string filename)
+    {
+        var dir = Path.Combine(_dir, "images", serial);
+        Directory.CreateDirectory(dir);
+        return Path.Combine(dir, filename);
     }
 
     // Files already on disk are decoded with PNG and JPEG decoders only, whatever their name.

@@ -18,17 +18,19 @@ public static class ConfigEndpoints
         app.MapGet("/devices/{serial}/config", async (string serial, ConfigStore configStore) =>
         {
             var config = await configStore.LoadAsync(serial);
-            return config is null ? Results.NotFound() : Results.Ok(config);
+            return config is null
+                ? ApiProblem.NotFound($"No config for device '{serial}'.")
+                : Results.Ok(config);
         });
 
         app.MapPut("/devices/{serial}/config", async (string serial,
             HttpRequest request, CatalogueStore catalogue, ConfigStore configStore,
-            IConfigChangeNotifier notifier, DeviceSupervisorService supervisor) =>
+            IConfigChangeNotifier notifier, DeviceSupervisorService supervisor, DeviceConfigGate gate) =>
         {
             var cat = await catalogue.LoadAsync();
             var device = cat.Devices.FirstOrDefault(d => d.Serial == serial);
             if (device is null)
-                return Results.BadRequest(new { errors = new[] { $"Device '{serial}' is not in the catalogue. Plug it in first." } });
+                return ApiProblem.Invalid([$"Device '{serial}' is not in the catalogue. Plug it in first."]);
 
             DeviceConfig config;
             try
@@ -39,27 +41,39 @@ public static class ConfigEndpoints
             }
             catch (JsonException ex)
             {
-                return Results.BadRequest(new { errors = new[] { $"Invalid JSON: {ex.Message}" } });
+                return ApiProblem.Invalid([$"Invalid JSON: {ex.Message}"]);
+            }
+            catch (NotSupportedException ex)
+            {
+                // A page or action without its type discriminator (pageType / type) can't be
+                // deserialised polymorphically; System.Text.Json reports that as NotSupported (#78).
+                return ApiProblem.Invalid([$"Invalid JSON: {ex.Message}"]);
             }
 
             if (config.Serial != serial)
-                return Results.BadRequest(new { errors = new[] { $"Config serial '{config.Serial}' does not match URL serial '{serial}'." } });
+                return ApiProblem.Invalid([$"Config serial '{config.Serial}' does not match URL serial '{serial}'."]);
 
             var validation = ConfigValidator.ValidateConfig(config, device);
             if (!validation.IsValid)
-                return Results.BadRequest(new { errors = validation.Errors });
+                return ApiProblem.Invalid(validation.Errors);
 
-            await configStore.SaveAsync(config);
-            await notifier.NotifyConfigChangedAsync(serial);
-
-            // Rebuild the live projection: a full clear-and-redraw always happens (removed/moved
-            // buttons leave no ghost); the page reset is opt-out via ?resetPage=false so frequent
-            // partial updates can keep the user on their current page.
             var resetPage = true;
             if (request.Query.TryGetValue("resetPage", out var rp) && bool.TryParse(rp, out var parsed))
                 resetPage = parsed;
-            await supervisor.ApplyConfigChangeAsync(serial, resetActivePage: resetPage);
-            await notifier.RefreshRetainedAsync(serial);
+
+            // One save-and-apply at a time per device, so the live projection always matches the
+            // config that was saved last (#79).
+            using (await gate.EnterAsync(serial))
+            {
+                await configStore.SaveAsync(config);
+                await notifier.NotifyConfigChangedAsync(serial);
+
+                // Rebuild the live projection: a full clear-and-redraw always happens (removed/moved
+                // buttons leave no ghost); the page reset is opt-out via ?resetPage=false so frequent
+                // partial updates can keep the user on their current page.
+                await supervisor.ApplyConfigChangeAsync(serial, resetActivePage: resetPage);
+                await notifier.RefreshRetainedAsync(serial);
+            }
 
             return Results.NoContent();
         });
@@ -71,11 +85,13 @@ public static class ConfigEndpoints
             {
                 var node = await JsonNode.ParseAsync(request.Body)
                            ?? throw new JsonException("Empty body");
-                doc = node.AsObject();
+                if (node is not JsonObject obj)
+                    return ApiProblem.BadRequest("The body must be a JSON object (a device config document).");
+                doc = obj;
             }
             catch (JsonException ex)
             {
-                return Results.BadRequest(new { error = $"Invalid JSON: {ex.Message}" });
+                return ApiProblem.BadRequest($"Invalid JSON: {ex.Message}");
             }
 
             try
@@ -83,13 +99,13 @@ public static class ConfigEndpoints
                 var migrated = migration.Migrate(doc, ConfigMinimumSupported, ConfigCurrentVersion);
                 return Results.Ok(migrated);
             }
+            catch (InvalidSchemaVersionException ex)
+            {
+                return ApiProblem.BadRequest(ex.Message);
+            }
             catch (UnsupportedSchemaVersionException ex)
             {
-                return Results.UnprocessableEntity(new
-                {
-                    error = "unsupported_schema_version",
-                    message = ex.Message
-                });
+                return ApiProblem.Unprocessable("unsupported_schema_version", ex.Message);
             }
         });
     }

@@ -39,6 +39,34 @@ public static class TestImages
         return ms.ToArray();
     }
 
+    /// <summary>A real PNG of the given size and colour.</summary>
+    public static byte[] Png(int width, int height, Rgba32 colour)
+    {
+        using var image = new Image<Rgba32>(width, height, colour);
+        using var ms = new MemoryStream();
+        image.Save(ms, new PngEncoder());
+        return ms.ToArray();
+    }
+
+    /// <summary>
+    /// A few dozen bytes of PNG whose header declares a <paramref name="width"/>×<paramref name="height"/>
+    /// 1-bit greyscale canvas, with no pixel data: what a decompression bomb looks like to a
+    /// header-only check, without the test having to allocate the canvas.
+    /// </summary>
+    public static byte[] PngDeclaring(int width, int height)
+    {
+        var ihdr = new byte[13];
+        BinaryPrimitives.WriteUInt32BigEndian(ihdr, (uint)width);
+        BinaryPrimitives.WriteUInt32BigEndian(ihdr.AsSpan(4), (uint)height);
+        ihdr[8] = 1; // bit depth; colour type 0 (greyscale), compression/filter/interlace 0
+
+        using var output = new MemoryStream();
+        output.Write([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+        WritePngChunk(output, "IHDR", ihdr);
+        WritePngChunk(output, "IEND", []);
+        return output.ToArray();
+    }
+
     /// <summary>A PNG carrying an iCCP chunk (embedded ICC profile) right after IHDR.</summary>
     public static byte[] PngWithIccProfile()
     {
