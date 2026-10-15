@@ -74,6 +74,10 @@ builder.Services.AddSingleton<DeviceSupervisorService>(sp =>
         metrics: sp.GetRequiredService<StreamDeckMetrics>(),
         brightness: sp.GetRequiredService<BrightnessController>()));
 builder.Services.AddSingleton<IDeviceStateProvider>(sp => sp.GetRequiredService<DeviceSupervisorService>());
+// Registration order matters: the host stops hosted services in reverse order, so the supervisor
+// must be registered BEFORE every service that renders to the boards (MQTT, staleness). Those then
+// stop first, and the supervisor's StopAsync releases the boards with no renders still arriving
+// (#69). Pinned by HostedServiceOrderTests.
 builder.Services.AddHostedService(sp => sp.GetRequiredService<DeviceSupervisorService>());
 
 // MQTT
