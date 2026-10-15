@@ -109,6 +109,11 @@ builder.Services.AddOpenTelemetry()
         .AddAspNetCoreInstrumentation()
         .AddOtlpExporter());
 
+// Errors: every failure is an RFC 7807 problem (see ApiProblem). Unhandled exceptions become a
+// plain 500 problem without exception details; empty-bodied error statuses get a problem body too.
+builder.Services.AddProblemDetails();
+builder.Services.AddSingleton<DeviceConfigGate>();
+
 builder.Services.ConfigureHttpJsonOptions(o =>
 {
     foreach (var converter in JsonOptions.Default.Converters)
@@ -127,10 +132,12 @@ app.Services.GetRequiredService<StreamDeckMetrics>().RegisterObservableGauges(
 if (string.IsNullOrWhiteSpace(app.Configuration["ApiKey"]))
     app.Logger.LogWarning("ApiKey is not configured — all requests will be rejected with 401. Set the ApiKey environment variable.");
 
+app.UseExceptionHandler();
+app.UseStatusCodePages();
 app.UseMiddleware<ApiKeyMiddleware>();
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
-app.MapOpenApi("/openapi.json");
+app.MapOpenApi(ApiKeyMiddleware.OpenApiPath);
 app.MapDeviceEndpoints();
 app.MapConfigEndpoints();
 app.MapImageEndpoints();
