@@ -5,9 +5,9 @@ Symptom: keys are black, but `SetKeyBitmap` returns without exception and
 
 Variables used below:
 ```bash
-API=http://homelab/streamdeck
+API=https://streamdeck.example.com
 KEY="X-Api-Key: $API_KEY"
-SERIAL=A7FZA5191LB60S
+SERIAL=EXAMPLESERIAL1
 ```
 
 ---

@@ -1,0 +1,27 @@
+# Example overlay: run behind a Traefik reverse proxy and send telemetry to an OTLP collector.
+# Copy it, replace the placeholders, and apply it on top of docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.traefik.yml up -d
+#
+# This overlay:
+#   - Puts the service on an external `traefik` network so Traefik can route to it
+#   - Exposes the service at https://streamdeck.example.com (HTTPS terminated by Traefik)
+#   - Points OTLP telemetry at a collector reachable as `otel-collector`
+
+services:
+  stream-deck-pilot:
+    container_name: stream-deck-pilot
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+    networks:
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.streamdeck.rule=Host(`streamdeck.example.com`)"
+      - "traefik.http.routers.streamdeck.entrypoints=https"
+      - "traefik.http.routers.streamdeck.tls.certresolver=letsencrypt"
+      - "traefik.http.services.streamdeck.loadbalancer.server.port=8080"
+
+networks:
+  traefik:
+    external: true

@@ -44,3 +44,7 @@ Thumbs.db
 
 .env
 coverage/
+
+# Local deployment overlays (copied from docker-compose.traefik.example.yml)
+docker-compose.homelab.yml
+docker-compose.traefik.yml

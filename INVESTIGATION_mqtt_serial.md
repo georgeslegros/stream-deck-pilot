@@ -63,7 +63,7 @@ Add at top of `ConnectWithRetryAsync` loop: `_logger.LogInformation("MQTT connec
   **report-id / length prefix byte that StreamDeckSharp does not strip** for the
   Scissor-Switch PID (the same PID that was missing and required manual registration —
   see MEMORY.md). That leading byte decodes to ``. So the device-side serial is
-  `"A7FZA5191LB60S"`.
+  `"EXAMPLESERIAL1"`.
 - **There is NO sanitization anywhere in `src`** (grep for TrimStart / control-char /
   Normalize / Sanitize returns nothing).
 - The serial flows UN-trimmed into:
@@ -71,11 +71,11 @@ Add at top of `ConnectWithRetryAsync` loop: `_logger.LogInformation("MQTT connec
   - `catalogue` via `AppendDeviceAsync(serial, ...)`
   - the config file, because the UI/user copies the serial *from the catalogue*, so the
     submitted config serial ALSO carries `` (matches the observed
-    `"A7FZA5191LB60S"` in the API payload).
+    `"EXAMPLESERIAL1"` in the API payload).
 
 ### Is it a real mismatch risk? Yes — latent.
 Today everything matches *because every path uses the same prefixed string* (that's why
-the log showed `Rendered key 0 on A7FZA5191LB60S` — both sides prefixed). The danger:
+the log showed `Rendered key 0 on EXAMPLESERIAL1` — both sides prefixed). The danger:
 - `ButtonTopicIndex` uses `StringComparer.Ordinal`; `_boards`/`_states` are ordinal too.
   Any path where the prefix is stripped on ONE side (e.g. a human types the clean serial
   into the config, or a future trim is added in one place) → `GetBoard(serial)` returns

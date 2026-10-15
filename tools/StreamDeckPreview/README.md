@@ -26,13 +26,12 @@ The boards embedded in `docs/` are generated from the committed sample under `sa
 
 ```bash
 dotnet run --project tools/StreamDeckPreview -- \
-  tools/StreamDeckPreview/samples/A7FZA5191LB60S.json \
+  tools/StreamDeckPreview/samples/example.json \
   docs/images \
-  tools/StreamDeckPreview/samples/A7FZA5191LB60S.sample.json
+  tools/StreamDeckPreview/samples/example.sample.json
 ```
 
 This writes `docs/images/board-main.png` and `docs/images/board-climate.png`.
 
-> The sample config under `samples/` is a reconstruction of the live homelab layout
-> (`docs/live-device-config.md`) with representative readings — it is for previews/docs,
-> not the source of truth.
+> The sample config under `samples/` is an example layout with representative readings — it is
+> for previews/docs, not the source of truth.
