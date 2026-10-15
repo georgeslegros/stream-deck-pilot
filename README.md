@@ -84,7 +84,7 @@ docker run -d --name stream-deck-pilot \
   --device /dev/hidraw0 \
   -e ApiKey="$(openssl rand -hex 32)" \
   -e Storage__BaseDirectory=/data \
-  -e Mqtt__Host=rabbitmq.local \
+  -e Mqtt__Host=mqtt.example.com \
   -e Mqtt__Port=1883 \
   -e Mqtt__Username=streamdeck \
   -e Mqtt__Password=secret \
@@ -134,7 +134,7 @@ volume at `/data`, and passes through `/dev/hidraw0`. For unattended hosts, swit
 (see [Hot-plug](#hot-plug-give-the-container-a-live-dev)):
 
 ```bash
-API_KEY="$(openssl rand -hex 32)" MQTT_HOST=rabbitmq.local docker compose up -d
+API_KEY="$(openssl rand -hex 32)" MQTT_HOST=mqtt.example.com docker compose up -d
 ```
 
 `API_KEY` is required — compose fails fast if it is unset. An observability stack lives in a separate
@@ -150,7 +150,7 @@ curl http://localhost:8080/health
 ### Pulling the published image (GHCR)
 
 Releases publish a multi-arch image (`linux/amd64` + `linux/arm64`) to the GitHub Container
-Registry, so the homelab doesn't have to build it:
+Registry, so a deployment host doesn't have to build it:
 
 ```bash
 docker pull ghcr.io/georgeslegros/stream-deck-pilot:latest   # or a pinned version, e.g. :1.0.0
@@ -239,7 +239,7 @@ Everything the service persists lives under `Storage__BaseDirectory` (`/data` in
 
 ## 5. Button config — worked example
 
-The live homelab dashboard, rendered by the actual tile composer (`tools/StreamDeckPreview`):
+An example dashboard, rendered by the actual tile composer (`tools/StreamDeckPreview`):
 
 ![Stream Deck board — main page](docs/images/board-main.png)
 
@@ -253,7 +253,7 @@ on one `ButtonGrid` page: a temperature sensor, a light toggle, and a navigation
 ```json
 {
   "schemaVersion": 2,
-  "serial": "A7FZA5191LB60S",
+  "serial": "EXAMPLESERIAL1",
   "pages": [
     {
       "pageType": "ButtonGrid",

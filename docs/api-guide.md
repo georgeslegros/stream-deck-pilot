@@ -98,7 +98,7 @@ Positional styling:
 
 ## What the tiles look like
 
-Rendered by the actual `KeyBitmapComposer` (pixel-accurate to the hardware) — the live homelab
+Rendered by the actual `KeyBitmapComposer` (pixel-accurate to the hardware) — an example
 layout, `main` dashboard and `climate` page:
 
 ![main page](images/board-main.png)
@@ -119,7 +119,7 @@ List the device catalogue with current connection state.
 // Response 200
 [
   {
-    "serial": "A7FZA5191LB60S",
+    "serial": "EXAMPLESERIAL1",
     "model": "Stream Deck MK.2 (Scissor Switch)",
     "keyRows": 3,
     "keyColumns": 5,
@@ -143,7 +143,7 @@ Write (replace) the full config for a device. Validated before save. The body mu
 // Request body — DeviceConfig
 {
   "schemaVersion": 2,
-  "serial": "A7FZA5191LB60S",
+  "serial": "EXAMPLESERIAL1",
   "pages": [
     {
       "pageType": "ButtonGrid",
@@ -182,7 +182,7 @@ Which page the device is currently showing, plus the available navigation target
 ```jsonc
 // Response 200
 {
-  "serial": "A7FZA5191LB60S",
+  "serial": "EXAMPLESERIAL1",
   "activePageId": "main",
   "connected": true,
   "availablePages": ["main", "climate", "lights"]
@@ -360,7 +360,7 @@ a key press only wakes the deck to the last non-zero level (or 80) for `Brightne
 `Brightness__StateTopic`.
 
 ```bash
-mosquitto_pub -h broker.local -u $MQTT_USER -P $MQTT_PASS -r \
+mosquitto_pub -h mqtt.example.com -u $MQTT_USER -P $MQTT_PASS -r \
   -t home/streamdeck/brightness/set -m 30
 ```
 
@@ -370,7 +370,7 @@ mosquitto_pub -h broker.local -u $MQTT_USER -P $MQTT_PASS -r \
 
 ```bash
 # 1. Discover what's connected
-curl -H "X-Api-Key: $API_KEY" http://streamdeck.local/devices
+curl -H "X-Api-Key: $API_KEY" http://streamdeck.example.com/devices
 
 # 2. Write a config: a CO₂ sensor tile on key 0 (value hero + room caption)
 #    and a nav arrow on key 14.
@@ -379,7 +379,7 @@ curl -X PUT \
   -H "Content-Type: application/json" \
   -d '{
     "schemaVersion": 2,
-    "serial": "A7FZA5191LB60S",
+    "serial": "EXAMPLESERIAL1",
     "pages": [{
       "pageType": "ButtonGrid",
       "pageId": "main",
@@ -413,14 +413,14 @@ curl -X PUT \
       ]
     }]
   }' \
-  http://streamdeck.local/devices/A7FZA5191LB60S/config
+  http://streamdeck.example.com/devices/EXAMPLESERIAL1/config
 
 # 3. Force a re-render immediately
 curl -X POST -H "X-Api-Key: $API_KEY" \
-  http://streamdeck.local/devices/A7FZA5191LB60S/force-render
+  http://streamdeck.example.com/devices/EXAMPLESERIAL1/force-render
 
 # 4. Verify MQTT is updating the button — publish a test value
-mosquitto_pub -h rabbitmq.local -u $MQTT_USER -P $MQTT_PASS \
+mosquitto_pub -h mqtt.example.com -u $MQTT_USER -P $MQTT_PASS \
   -r -t home/office/co2 -m '{"value":850,"unit":"ppm"}'
 ```
 
