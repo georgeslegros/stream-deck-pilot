@@ -19,7 +19,22 @@ public class AtomicFileWriterTests : IDisposable
         await AtomicFileWriter_WriteJsonAsync(path, new { Value = 42 });
 
         Assert.True(File.Exists(path));
-        Assert.False(File.Exists(path + ".tmp"));
+        Assert.Empty(Directory.GetFiles(_dir, "*.tmp"));
+    }
+
+    // Every write used the same <path>.tmp, so concurrent writes of one file collided on it with an
+    // IOException (#79). Unique temp names let them all succeed; the last rename wins.
+    [Fact]
+    public async Task WriteJsonAsync_ConcurrentWritesOfOneFile_AllSucceed()
+    {
+        var path = Path.Combine(_dir, "contended.json");
+
+        await Task.WhenAll(Enumerable.Range(0, 40)
+            .Select(i => Task.Run(() => AtomicFileWriter_WriteJsonAsync(path, new { V = i }))));
+
+        var v = JsonDocument.Parse(await File.ReadAllTextAsync(path)).RootElement.GetProperty("v").GetInt32();
+        Assert.InRange(v, 0, 39);
+        Assert.Empty(Directory.GetFiles(_dir, "*.tmp"));
     }
 
     [Fact]

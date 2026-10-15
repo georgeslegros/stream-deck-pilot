@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Http.Features;
+using StreamDeckPilot.Core.Validation;
 using StreamDeckPilot.Infrastructure.Icons;
+using StreamDeckPilot.Infrastructure.Persistence;
 
 namespace StreamDeckPilot.Api.Endpoints;
 
@@ -14,19 +16,26 @@ public static class ImageEndpoints
 
     public static void MapImageEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/devices/{serial}/images", (string serial, CustomImageSource store) =>
-            Results.Ok(store.List(serial).Select(f => new { filename = f, @ref = $"custom:{f}" })));
+        app.MapGet("/devices/{serial}/images", async (string serial, CatalogueStore catalogue,
+            CustomImageSource store) =>
+        {
+            if (!await IsKnownAsync(catalogue, serial)) return UnknownDevice(serial);
+            return Results.Ok(store.List(serial).Select(f => new { filename = f, @ref = $"custom:{f}" }));
+        });
 
         app.MapPost("/devices/{serial}/images", async (string serial, HttpRequest request,
-            CustomImageSource store, IconResolver resolver) =>
+            CatalogueStore catalogue, CustomImageSource store, IconResolver resolver) =>
         {
             if (request.ContentLength > MaxRequestBytes)
                 return TooLarge();
             if (request.HttpContext.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
                 limit.MaxRequestBodySize = MaxRequestBytes;
 
+            // Checked first, so an upload for an unknown serial never creates images/<serial>/.
+            if (!await IsKnownAsync(catalogue, serial)) return UnknownDevice(serial);
+
             if (!request.HasFormContentType)
-                return Results.BadRequest(new { error = "Expected multipart/form-data" });
+                return ApiProblem.BadRequest("Expected multipart/form-data.");
 
             IFormCollection form;
             try { form = await request.ReadFormAsync(); }
@@ -36,39 +45,37 @@ public static class ImageEndpoints
             }
             var file = form.Files.FirstOrDefault();
             if (file is null)
-                return Results.BadRequest(new { error = "No file uploaded" });
+                return ApiProblem.BadRequest("No file uploaded.");
 
             var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
             if (!AllowedExtensions.Contains(ext))
-                return Results.BadRequest(new { error = "Only PNG and JPEG files are accepted" });
+                return ApiProblem.BadRequest("Only PNG and JPEG files are accepted.");
 
             if (file.Length > MaxBytes)
-                return Results.BadRequest(new { error = $"File exceeds 512 KB limit" });
+                return ApiProblem.BadRequest("File exceeds the 512 KB limit.");
 
-            // Prevent path traversal
-            var safeName = Path.GetFileName(file.FileName);
-            if (safeName != file.FileName || safeName.Contains(".."))
-                return Results.BadRequest(new { error = "Invalid filename" });
+            // Prevent path traversal: the same rule as custom: references in the config.
+            var safeName = file.FileName;
+            if (!IconReference.IsBareFileName(safeName) || !IconReference.IsBareFileName(serial))
+                return ApiProblem.BadRequest("Invalid filename.");
 
             // The extension is only a hint: check the content itself is PNG or JPEG.
             using var content = new MemoryStream((int)file.Length);
             await using (var upload = file.OpenReadStream())
                 await upload.CopyToAsync(content);
             if (!IconImageFormats.IsSupported(content.GetBuffer().AsSpan(0, (int)content.Length)))
-                return Results.BadRequest(new { error = "File content is not a PNG or JPEG image" });
+                return ApiProblem.BadRequest("File content is not a PNG or JPEG image.");
 
             // A small, highly compressed file can declare a huge canvas: check the header's
             // dimensions without decoding the pixels.
             content.Position = 0;
             var size = IconImageFormats.Identify(content);
             if (size is null)
-                return Results.BadRequest(new { error = "File content is not a PNG or JPEG image" });
+                return ApiProblem.BadRequest("File content is not a PNG or JPEG image.");
             if (!IconImageFormats.IsWithinLimits(size.Value))
-                return Results.BadRequest(new
-                {
-                    error = $"Image is {size.Value.Width}x{size.Value.Height}; the limit is " +
-                            $"{IconImageFormats.MaxDimension}x{IconImageFormats.MaxDimension} pixels",
-                });
+                return ApiProblem.BadRequest(
+                    $"Image is {size.Value.Width}x{size.Value.Height}; the limit is " +
+                    $"{IconImageFormats.MaxDimension}x{IconImageFormats.MaxDimension} pixels.");
 
             content.Position = 0;
             var @ref = await store.SaveAsync(serial, safeName, content);
@@ -76,20 +83,27 @@ public static class ImageEndpoints
             return Results.Ok(new { @ref });
         });
 
-        app.MapDelete("/devices/{serial}/images/{filename}", (string serial, string filename,
-            CustomImageSource store, IconResolver resolver) =>
+        app.MapDelete("/devices/{serial}/images/{filename}", async (string serial, string filename,
+            CatalogueStore catalogue, CustomImageSource store, IconResolver resolver) =>
         {
-            if (filename.Contains("..") || filename.Contains('/') || filename.Contains('\\'))
-                return Results.BadRequest(new { error = "Invalid filename" });
+            if (!await IsKnownAsync(catalogue, serial)) return UnknownDevice(serial);
+
+            if (!IconReference.IsBareFileName(filename) || !IconReference.IsBareFileName(serial))
+                return ApiProblem.BadRequest("Invalid filename.");
 
             if (!store.Delete(serial, filename))
-                return Results.NotFound();
+                return ApiProblem.NotFound($"No image '{filename}' for device '{serial}'.");
             resolver.Invalidate(serial, filename);
             return Results.NoContent();
         });
     }
 
+    private static async Task<bool> IsKnownAsync(CatalogueStore catalogue, string serial) =>
+        (await catalogue.LoadAsync()).Devices.Any(d => d.Serial == serial);
+
+    private static IResult UnknownDevice(string serial) =>
+        ApiProblem.NotFound($"Device '{serial}' is not in the catalogue.");
+
     private static IResult TooLarge() =>
-        Results.Json(new { error = $"Request exceeds the {MaxRequestBytes / 1024} KB upload limit" },
-            statusCode: StatusCodes.Status413PayloadTooLarge);
+        ApiProblem.TooLarge($"Request exceeds the {MaxRequestBytes / 1024} KB upload limit.");
 }

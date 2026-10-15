@@ -70,6 +70,45 @@ public sealed class IconResolverTests : IDisposable
         Assert.NotEmpty(result);
     }
 
+    // Configs saved before #76's validation (or edited by hand) can still hold such names: the
+    // source refuses anything that would resolve outside the device's images directory.
+    [Theory]
+    [InlineData("SN1", "../../secret.png")]
+    [InlineData("SN1", "../SN2/icon.png")]
+    [InlineData("SN1", "sub/icon.png")]
+    [InlineData("SN1", "..")]
+    [InlineData("..", "secret.png")]
+    public async Task CustomImageSource_RefusesNamesOutsideTheImagesDirectory(string serial, string filename)
+    {
+        var png = TestImages.Encode("png");
+        await File.WriteAllBytesAsync(Path.Combine(_dir, "secret.png"), png);
+        Directory.CreateDirectory(Path.Combine(_dir, "images", "SN2"));
+        await File.WriteAllBytesAsync(Path.Combine(_dir, "images", "SN2", "icon.png"), png);
+        Directory.CreateDirectory(Path.Combine(_dir, "images", "SN1", "sub"));
+        await File.WriteAllBytesAsync(Path.Combine(_dir, "images", "SN1", "sub", "icon.png"), png);
+
+        Assert.Null(_custom.Load(serial, filename));
+        Assert.Null(_custom.Load(serial, Path.Combine(_dir, "secret.png")));
+        Assert.Null(_custom.Stat(serial, filename));
+        Assert.Null(_custom.Stat(serial, Path.Combine(_dir, "secret.png")));
+        Assert.False(_custom.Delete(serial, filename));
+        Assert.True(File.Exists(Path.Combine(_dir, "secret.png")));
+        await Assert.ThrowsAsync<ArgumentException>(() => _custom.SaveAsync(serial, filename, new MemoryStream(png)));
+    }
+
+    [Theory]
+    [InlineData("custom:../../secret.png")]
+    [InlineData("custom:/etc/passwd")]
+    public void ResolveImage_CustomOutsideImagesDirectory_UsesFallback(string reference)
+    {
+        File.WriteAllBytes(Path.Combine(_dir, "secret.png"), TestImages.Encode("png"));
+
+        using var image = _resolver.ResolveImage(reference, "SN1", 72);
+
+        Assert.NotNull(image);
+        Assert.NotEqual(TestImages.Size, image.Width);
+    }
+
     [Theory]
     [InlineData("png")]
     [InlineData("jpeg")]

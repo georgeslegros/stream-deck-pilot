@@ -343,7 +343,7 @@ Field reference (from the domain model in `src/StreamDeckPilot.Core/Models/Confi
 - **`buttonId`** — stable, human-readable button identifier.
 - **`keyIndex`** — 0-based key position, left-to-right, top-to-bottom. Range depends on the device grid (e.g. 0–14 for a 5×3, 0–31 for a 4×8 XL).
 - **`display`**, **`rules`** and **`gestures`** are required on every button; use `{}`, `[]` and `{}` for "none". A button that omits one is rejected with `400`.
-- **`display.baseIcon`** — `builtin:<mdi-name>`, `custom:<filename>`, or `null`.
+- **`display.baseIcon`** — `builtin:<mdi-name>`, `custom:<filename>`, or `null`. The same applies to a rule's `icon`. `<filename>` must be a bare file name (no `/`, `\` or `..`); any other prefix or form is rejected with `400`.
 - **`display.iconPlacement`** — `"corner"` (a large, faint watermark of the icon behind the value and caption) or `"center"` (large centred icon, the hero). Centre text takes precedence over a centre-placed icon. Layout is what you declare here and in the zones — it is **not** inferred from the kind of data the tile carries.
 - **`display.center`** / **`display.bottom`** — text zones, each `{ "label": ..., "template": ... }` (or `null`). `center` renders large (the hero; its value/unit split on the first space), `bottom` renders as a small caption. `template` is resolved against live data (tokens `{value}`, `{unit}`, `{label}`); `label` is static and is the fallback shown when there's no live data yet. Either field may be `null`.
 - **`display.precision`** — optional number of decimals (`0`–`3`) for a numeric `{value}`. When set, the value always shows exactly that many (`2`: `1.2345` → `1.23`, `1.2` → `1.20`; `0`: `45.3` → `45`). When omitted or `null`, whole numbers show no decimal and others show one (`21.6`). Text values are unchanged.
@@ -538,8 +538,10 @@ key returns `401`. See `docs/api-guide.md` for full request/response shapes and 
 | POST | `/devices/{serial}/images` | Yes | Upload a custom icon (PNG/JPEG, max 512 KB and 1024×1024 px). Returns `{"ref":"custom:..."}`. |
 | DELETE | `/devices/{serial}/images/{filename}` | Yes | Delete a custom icon. |
 
-Common error codes: `400` validation (`errors` array), `401` bad/missing key, `404` unknown serial or
-no config, `422` schema too old to upgrade.
+Errors are RFC 7807 problems (`application/problem+json` with `status`, `title`, `detail`). Common
+codes: `400` validation or malformed body (`errors` array on config writes), `401` bad/missing key,
+`404` unknown serial or no config, `409` force-render while disconnected, `422` schema too old to
+upgrade.
 
 ---
 
