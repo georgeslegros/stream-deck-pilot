@@ -113,11 +113,13 @@ public class BrightnessControllerTests
         using var c = Build(wakeTimeoutSeconds: 45);
         c.SetDesired(0);
         c.OnKeyPressed();
-        var timer = Assert.Single(_time.Timers);
-        timer.Change(TimeSpan.FromSeconds(1), Timeout.InfiniteTimeSpan); // simulate time passing
+        var first = Assert.Single(_time.Timers);
+        first.Change(TimeSpan.FromSeconds(1), Timeout.InfiniteTimeSpan); // simulate time passing
 
         c.OnKeyPressed();
-        Assert.Equal(TimeSpan.FromSeconds(45), timer.DueTime);
+        // Each arm gets a fresh timer (tagged with its generation, see #70); the old one is cancelled.
+        Assert.Null(first.DueTime);
+        Assert.Equal(TimeSpan.FromSeconds(45), _time.Timers[^1].DueTime);
     }
 
     [Fact]
@@ -146,5 +148,25 @@ public class BrightnessControllerTests
         _time.FireAll();
         Assert.Equal(50, c.Effective);
         Assert.Empty(_changes);
+    }
+
+    [Fact]
+    public void StaleWakeCallback_AfterAPressReArmed_DoesNotEndTheWake()
+    {
+        // #70: the timeout fires, its callback is dispatched, and a press re-arms the timer before
+        // the callback takes the lock. The press was accepted, so the deck must stay awake.
+        using var c = Build(wakeTimeoutSeconds: 45);
+        c.SetDesired(30);
+        c.SetDesired(0);
+        Assert.True(c.OnKeyPressed());
+        var firstTimer = _time.Timers[^1];
+
+        Assert.False(c.OnKeyPressed()); // accepted press re-arms the timeout
+        firstTimer.FireStale();         // the earlier, already-dispatched callback runs late
+
+        Assert.Equal(30, c.Effective);
+
+        _time.FireAll();                // the re-armed timeout still ends the wake
+        Assert.Equal(0, c.Effective);
     }
 }

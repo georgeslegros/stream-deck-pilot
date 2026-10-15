@@ -17,7 +17,12 @@ public sealed class BrightnessController : IDisposable
 
     private readonly ILogger<BrightnessController> _logger;
     private readonly TimeSpan _wakeTimeout;
-    private readonly ITimer _wakeTimer;
+    private readonly TimeProvider _timeProvider;
+    private ITimer? _wakeTimer;
+    // Bumped every time the wake timer is armed or cancelled. Each timer carries the generation it
+    // was armed with, so a callback that was already dispatched when a press re-armed the timeout
+    // can't end the wake period the press just extended (#70). ITimer.Change can't recall it.
+    private long _wakeGeneration;
     private readonly Lock _lock = new();
 
     private int _desired = DefaultLevel;
@@ -35,8 +40,7 @@ public sealed class BrightnessController : IDisposable
         Options = options.Value;
         _logger = logger ?? NullLogger<BrightnessController>.Instance;
         _wakeTimeout = TimeSpan.FromSeconds(Math.Max(1, Options.WakeTimeoutSeconds));
-        _wakeTimer = (timeProvider ?? TimeProvider.System)
-            .CreateTimer(_ => EndWake(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     public BrightnessOptions Options { get; }
@@ -65,7 +69,7 @@ public sealed class BrightnessController : IDisposable
             if (_awake)
             {
                 _awake = false;
-                _wakeTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+                CancelWakeTimer();
             }
             after = EffectiveUnlocked;
         }
@@ -84,7 +88,7 @@ public sealed class BrightnessController : IDisposable
         {
             if (_desired != 0) return false;
 
-            _wakeTimer.Change(_wakeTimeout, Timeout.InfiniteTimeSpan);
+            ArmWakeTimer();
             if (_awake) return false;
 
             before = EffectiveUnlocked;
@@ -96,12 +100,27 @@ public sealed class BrightnessController : IDisposable
         return true;
     }
 
-    private void EndWake()
+    // Both called under _lock.
+    private void ArmWakeTimer()
+    {
+        CancelWakeTimer();
+        _wakeTimer = _timeProvider.CreateTimer(
+            state => EndWake((long)state!), _wakeGeneration, _wakeTimeout, Timeout.InfiniteTimeSpan);
+    }
+
+    private void CancelWakeTimer()
+    {
+        _wakeGeneration++;
+        _wakeTimer?.Dispose();
+        _wakeTimer = null;
+    }
+
+    private void EndWake(long generation)
     {
         int before, after;
         lock (_lock)
         {
-            if (!_awake) return;
+            if (!_awake || generation != _wakeGeneration) return;
             before = EffectiveUnlocked;
             _awake = false;
             after = EffectiveUnlocked;
@@ -156,5 +175,8 @@ public sealed class BrightnessController : IDisposable
         return true;
     }
 
-    public void Dispose() => _wakeTimer.Dispose();
+    public void Dispose()
+    {
+        lock (_lock) CancelWakeTimer();
+    }
 }
