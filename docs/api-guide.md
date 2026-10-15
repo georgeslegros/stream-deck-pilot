@@ -296,6 +296,8 @@ Rules are evaluated in order; the first matching condition wins. If none matches
 
 **Text matching:** both sides are trimmed and compared **case-insensitively** (`eq:on` matches `On`). Numbers are compared as the text they arrived as, so `eq:1` does not match `1.0`; use `==1` for numbers. Numeric conditions never match text, so `>=0` skips `unavailable`. Everything after `eq:`/`ne:` is the value. `in:` values can't contain a comma.
 
+**What counts as a number:** an optional sign, digits with `.` as the decimal point, and an optional exponent (`21.5`, `-3`, `1e3`), with surrounding whitespace allowed. Commas are never accepted, as a thousands separator or as a decimal point, so `1,5` is text: numeric conditions skip it, `eq:1,5` matches it, and it's displayed as received. `NaN`, `Infinity` and values too large for a double are also text. The same rule applies to the `N`, `A` and `B` operands, so `>1,5` is rejected on `PUT`.
+
 On/off state with a fallback:
 
 ```jsonc
