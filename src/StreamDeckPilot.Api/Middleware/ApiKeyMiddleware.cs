@@ -6,13 +6,17 @@ namespace StreamDeckPilot.Api.Middleware;
 
 public sealed class ApiKeyMiddleware(RequestDelegate next, IConfiguration config)
 {
+    public const string OpenApiPath = "/openapi.json";
+
     private static readonly byte[] _invalid = Encoding.UTF8.GetBytes("__invalid__");
 
     public async Task InvokeAsync(HttpContext context)
     {
-        // Health and OpenAPI endpoints are exempt
+        // Health and the OpenAPI document are exempt. The document is mapped at the exact path
+        // /openapi.json (Program.cs); a "/openapi" segment prefix never matched it (#80). It only
+        // describes the public API surface, nothing configured or stored.
         if (context.Request.Path.StartsWithSegments("/health") ||
-            context.Request.Path.StartsWithSegments("/openapi"))
+            context.Request.Path.Equals(OpenApiPath, StringComparison.OrdinalIgnoreCase))
         {
             await next(context);
             return;

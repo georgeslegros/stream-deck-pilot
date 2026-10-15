@@ -130,7 +130,7 @@ if (string.IsNullOrWhiteSpace(app.Configuration["ApiKey"]))
 app.UseMiddleware<ApiKeyMiddleware>();
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
-app.MapOpenApi("/openapi.json");
+app.MapOpenApi(ApiKeyMiddleware.OpenApiPath);
 app.MapDeviceEndpoints();
 app.MapConfigEndpoints();
 app.MapImageEndpoints();
