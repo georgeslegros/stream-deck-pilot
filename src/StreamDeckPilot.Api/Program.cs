@@ -48,10 +48,16 @@ builder.Services.AddSingleton<LastUpdatedStore>();
 
 // Observability — StreamDeckMetrics owns the Meter; gauges are registered after DI is built
 builder.Services.AddSingleton<StreamDeckMetrics>();
+// Broker-offline overlay (#26): fed by the MQTT service, read by the renderer, repainted by the supervisor
+builder.Services.AddSingleton<BrokerIndicator>(sp =>
+    new BrokerIndicator(
+        TimeSpan.FromSeconds(sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<MqttOptions>>().Value.OfflineIndicatorDelaySeconds),
+        logger: sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<BrokerIndicator>>()));
 builder.Services.AddSingleton<IDeviceRenderer>(sp =>
     new DeviceRenderer(
         sp.GetRequiredService<KeyBitmapComposer>(),
-        sp.GetRequiredService<StreamDeckMetrics>()));
+        sp.GetRequiredService<StreamDeckMetrics>(),
+        sp.GetRequiredService<BrokerIndicator>()));
 
 // Brightness — desired level set over MQTT, applied by the supervisor, state published by MQTT
 builder.Services.Configure<BrightnessOptions>(builder.Configuration.GetSection("Brightness"));
@@ -72,7 +78,8 @@ builder.Services.AddSingleton<DeviceSupervisorService>(sp =>
         sp.GetRequiredService<IDeviceRenderer>(),
         sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<DeviceSupervisorService>>(),
         metrics: sp.GetRequiredService<StreamDeckMetrics>(),
-        brightness: sp.GetRequiredService<BrightnessController>()));
+        brightness: sp.GetRequiredService<BrightnessController>(),
+        brokerIndicator: sp.GetRequiredService<BrokerIndicator>()));
 builder.Services.AddSingleton<IDeviceStateProvider>(sp => sp.GetRequiredService<DeviceSupervisorService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<DeviceSupervisorService>());
 
@@ -90,7 +97,8 @@ builder.Services.AddSingleton<MqttClientService>(sp =>
         sp.GetRequiredService<LastUpdatedStore>(),
         sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<MqttClientService>>(),
         sp.GetRequiredService<StreamDeckMetrics>(),
-        sp.GetRequiredService<BrightnessController>()));
+        sp.GetRequiredService<BrightnessController>(),
+        brokerIndicator: sp.GetRequiredService<BrokerIndicator>()));
 builder.Services.AddSingleton<IConfigChangeNotifier>(sp => sp.GetRequiredService<MqttClientService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<MqttClientService>());
 builder.Services.AddHostedService<StalenessMonitor>();

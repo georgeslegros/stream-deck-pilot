@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenMacroBoard.SDK;
 using StreamDeckPilot.Infrastructure.Brightness;
+using StreamDeckPilot.Infrastructure.Mqtt;
 using StreamDeckPilot.Core.DeviceState;
 using StreamDeckPilot.Core.Models.Config;
 using StreamDeckPilot.Core.Rendering;
@@ -45,7 +46,8 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
         ILogger<DeviceSupervisorService> logger,
         TimeSpan? pollInterval = null,
         StreamDeckMetrics? metrics = null,
-        BrightnessController? brightness = null)
+        BrightnessController? brightness = null,
+        BrokerIndicator? brokerIndicator = null)
     {
         _library = library;
         _catalogue = catalogue;
@@ -58,6 +60,22 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
         _metrics = metrics;
         _brightness = brightness ?? new BrightnessController(Options.Create(new BrightnessOptions()));
         _brightness.EffectiveChanged += ApplyBrightnessToAll;
+        if (brokerIndicator is not null)
+            brokerIndicator.Changed += _ => RepaintActivePages();
+    }
+
+    // The broker-offline overlay is applied at paint time, so turning it on or off is a repaint of
+    // what each deck shows now, from desired state (#26). Retained values that arrive after a
+    // reconnect paint themselves through the MQTT pipeline as usual.
+    private void RepaintActivePages()
+    {
+        foreach (var (serial, board) in _boards)
+        {
+            var pageId = _activePages.GetActivePage(serial);
+            if (pageId is null || !board.IsConnected) continue;
+            try { _renderer.RenderAll(board, serial, pageId, _desiredState); }
+            catch (Exception ex) { _logger.LogWarning(ex, "Repaint after a broker state change failed for {Serial}", serial); }
+        }
     }
 
     public DeviceConnectionState GetState(string serial) =>
@@ -293,7 +311,8 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
                     button.Display.IconPlacement,
                     button.Display.Center?.Label,
                     button.Display.Bottom?.Label,
-                    IsDimmed: placeholder));
+                    IsDimmed: placeholder,
+                    DependsOnBroker: ButtonRenderState.ButtonDependsOnBroker(button)));
             }
         }
     }
