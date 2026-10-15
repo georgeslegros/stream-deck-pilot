@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using SixLabors.ImageSharp;
@@ -179,6 +180,56 @@ public sealed class IconResolverTests : IDisposable
 
         using var image = _resolver.ResolveImage("custom:icon.png", "SN1", 72);
         Assert.Equal(new Rgba32(0, 200, 0), image![0, 0]);
+    }
+
+    // A missing icon reaches the resolver on every render of its key: warn once until the file
+    // appears, and again if it goes missing after that.
+    [Fact]
+    public async Task ResolveImage_MissingCustom_WarnsOnceUntilTheFileAppears()
+    {
+        var logger = new ListLogger<IconResolver>();
+        var resolver = new IconResolver(_custom, logger);
+
+        for (var i = 0; i < 5; i++)
+            resolver.ResolveImage("custom:late.png", "SN1", 72)?.Dispose();
+        Assert.Single(logger.Warnings);
+        Assert.Contains("custom:late.png", logger.Warnings[0]);
+
+        var path = CustomPath("SN1", "late.png");
+        await File.WriteAllBytesAsync(path, TestImages.Encode("png"));
+        resolver.ResolveImage("custom:late.png", "SN1", 72)?.Dispose();
+        Assert.Single(logger.Warnings);
+
+        File.Delete(path);
+        resolver.ResolveImage("custom:late.png", "SN1", 72)?.Dispose();
+        resolver.ResolveImage("custom:late.png", "SN1", 72)?.Dispose();
+        Assert.Equal(2, logger.Warnings.Count);
+    }
+
+    [Fact]
+    public async Task ResolveImage_OversizeOnVolume_WarningNamesTheDimensions()
+    {
+        var logger = new ListLogger<IconResolver>();
+        var resolver = new IconResolver(_custom, logger);
+        await File.WriteAllBytesAsync(CustomPath("SN1", "big.png"), TestImages.PngDeclaring(20000, 20000));
+
+        resolver.ResolveImage("custom:big.png", "SN1", 72)?.Dispose();
+        resolver.ResolveImage("custom:big.png", "SN1", 72)?.Dispose();
+
+        var warning = Assert.Single(logger.Warnings);
+        Assert.Contains("20000x20000", warning);
+    }
+
+    private sealed class ListLogger<T> : ILogger<T>
+    {
+        public List<string> Warnings { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning) Warnings.Add(formatter(state, exception));
+        }
     }
 
     private string CustomPath(string serial, string filename)

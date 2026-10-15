@@ -79,6 +79,9 @@ public sealed class IconResolver(CustomImageSource customSource, ILogger<IconRes
     // cloning them; the GC reclaims them.
     private readonly ConcurrentDictionary<(string Serial, string File, int Size), CachedIcon> _customCache = new();
 
+    // Missing custom files already warned about; cleared when the file shows up again.
+    private readonly ConcurrentDictionary<(string Serial, string File), byte> _missingWarned = new();
+
     private sealed record CachedIcon(DateTime LastWriteUtc, long Length, Image<Rgba32>? Image);
 
     private Image<Rgba32>? ResolveCustom(string reference, string serial, string filename, int sizePixels)
@@ -86,9 +89,13 @@ public sealed class IconResolver(CustomImageSource customSource, ILogger<IconRes
         var info = customSource.Stat(serial, filename);
         if (info is null)
         {
-            logger.LogWarning("Custom icon '{Reference}' not found for device {Serial}, using fallback", reference, serial);
+            // Every render of the key gets here while the file is missing: warn once until it
+            // appears, so a missing icon doesn't flood the log.
+            if (_missingWarned.TryAdd((serial, filename), 0))
+                logger.LogWarning("Custom icon '{Reference}' not found for device {Serial}, using fallback", reference, serial);
             return null;
         }
+        _missingWarned.TryRemove((serial, filename), out _);
 
         var key = (serial, filename, sizePixels);
         if (_customCache.TryGetValue(key, out var cached)
