@@ -88,7 +88,8 @@ Positional styling:
 ### Icons
 
 - `builtin:<mdi-name>` resolves any [Material Design Icons](https://pictogrammers.com/library/mdi/) glyph by name (e.g. `builtin:thermometer`, `builtin:molecule-co2`, `builtin:lightbulb`, `builtin:chevron-right`). The glyph is drawn transparent and tinted to an automatically-chosen ink colour (light or dark) for contrast against the tile background — you never set text/icon colour.
-- `custom:<filename>` references an icon you uploaded via `POST /devices/{serial}/images`.
+- `custom:<filename>` references an icon you uploaded via `POST /devices/{serial}/images`. `<filename>` must be a bare file name (no `/`, `\` or `..`).
+- Any other form (another prefix, an empty name, a path) is rejected with `400`, for `display.baseIcon` and for a rule's `icon`.
 - A small set of legacy generated tokens (`co2`, `thermometer`, `humidity`, `power`, `arrow-left`, `arrow-right`, `placeholder`, `fallback`) remain as a fallback when an MDI name is not found. Prefer MDI names. See `docs/icon-vocabulary.md`.
 
 ---

@@ -199,6 +199,51 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/devices/{serial}/config")).StatusCode);
     }
 
+    // A custom: reference names a file in the device's images directory; anything that isn't a bare
+    // file name could resolve outside it (#76). Unknown prefixes never rendered anything.
+    [Theory]
+    [InlineData("SN040", "\"display\":{\"baseIcon\":\"custom:/abs/icon.png\"},\"rules\":[]", "display.baseIcon")]
+    [InlineData("SN041", "\"display\":{\"baseIcon\":\"custom:../../catalog.json\"},\"rules\":[]", "display.baseIcon")]
+    [InlineData("SN042", "\"display\":{\"baseIcon\":\"custom:a/b.png\"},\"rules\":[]", "display.baseIcon")]
+    [InlineData("SN043", "\"display\":{\"baseIcon\":\"custom:\"},\"rules\":[]", "display.baseIcon")]
+    [InlineData("SN044", "\"display\":{\"baseIcon\":\"mdi:lightbulb\"},\"rules\":[]", "must start with builtin: or custom:")]
+    [InlineData("SN045", "\"display\":{},\"rules\":[{\"condition\":\"any\",\"backgroundColour\":\"#222222\",\"icon\":\"custom:..\\\\x.png\"}]", "rule 1: icon")]
+    public async Task PutConfig_InvalidIconReference_Returns400NamingTheButton(string serial, string fields, string expectedError)
+    {
+        await _factory.SeedDeviceAsync(serial);
+        var client = _factory.CreateAuthenticatedClient();
+        var body = new StringContent($$"""
+            {"schemaVersion":2,"serial":"{{serial}}","pages":[{"pageType":"ButtonGrid","pageId":"main","buttons":[
+              {"buttonId":"power","keyIndex":0,"pageId":"main","gestures":{},{{fields}}}]}]}
+            """, Encoding.UTF8, "application/json");
+
+        var response = await client.PutAsync($"/devices/{serial}/config", body);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var json = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Button 'power'", json);
+        Assert.Contains(expectedError, json);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/devices/{serial}/config")).StatusCode);
+    }
+
+    [Theory]
+    [InlineData("SN046", "custom:my-icon.png")]
+    [InlineData("SN047", "builtin:lightbulb")]
+    public async Task PutConfig_ValidIconReference_Returns204(string serial, string icon)
+    {
+        await _factory.SeedDeviceAsync(serial);
+        var client = _factory.CreateAuthenticatedClient();
+        var body = new StringContent($$"""
+            {"schemaVersion":2,"serial":"{{serial}}","pages":[{"pageType":"ButtonGrid","pageId":"main","buttons":[
+              {"buttonId":"power","keyIndex":0,"pageId":"main","gestures":{},"display":{"baseIcon":"{{icon}}"},
+               "rules":[{"condition":"any","backgroundColour":"#222222","icon":"{{icon}}"}]}]}]}
+            """, Encoding.UTF8, "application/json");
+
+        var response = await client.PutAsync($"/devices/{serial}/config", body);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
     [Fact]
     public async Task PutConfig_DuplicatePosition_Returns400()
     {

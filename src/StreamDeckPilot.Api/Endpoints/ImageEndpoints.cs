@@ -1,3 +1,4 @@
+using StreamDeckPilot.Core.Validation;
 using StreamDeckPilot.Infrastructure.Icons;
 
 namespace StreamDeckPilot.Api.Endpoints;
@@ -30,9 +31,9 @@ public static class ImageEndpoints
             if (file.Length > MaxBytes)
                 return Results.BadRequest(new { error = $"File exceeds 512 KB limit" });
 
-            // Prevent path traversal
-            var safeName = Path.GetFileName(file.FileName);
-            if (safeName != file.FileName || safeName.Contains(".."))
+            // Prevent path traversal: the same rule as custom: references in the config.
+            var safeName = file.FileName;
+            if (!IconReference.IsBareFileName(safeName) || !IconReference.IsBareFileName(serial))
                 return Results.BadRequest(new { error = "Invalid filename" });
 
             // The extension is only a hint: check the content itself is PNG or JPEG.
@@ -50,7 +51,7 @@ public static class ImageEndpoints
         app.MapDelete("/devices/{serial}/images/{filename}", (string serial, string filename,
             CustomImageSource store) =>
         {
-            if (filename.Contains("..") || filename.Contains('/') || filename.Contains('\\'))
+            if (!IconReference.IsBareFileName(filename) || !IconReference.IsBareFileName(serial))
                 return Results.BadRequest(new { error = "Invalid filename" });
 
             return store.Delete(serial, filename)
