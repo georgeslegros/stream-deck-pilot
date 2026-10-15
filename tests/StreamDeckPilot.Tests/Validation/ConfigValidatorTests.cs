@@ -125,6 +125,81 @@ public class ConfigValidatorTests
         Assert.True(result.IsValid);
     }
 
+    private static DeviceConfig WithPublish(string? topic, string? payload = "1") =>
+        new(1, "SN001", [
+            new ButtonGridPage("main", [
+                Btn("b1", 0, "main", [new NavigateAction("main"), new PublishAction(topic!, payload!)]),
+            ])
+        ]);
+
+    [Theory]
+    [InlineData("home/fan/set")]
+    [InlineData("a")]
+    [InlineData("/leading/slash")]
+    [InlineData("with space/ok")]
+    public void PublishTopic_Valid(string topic) =>
+        Assert.True(ConfigValidator.ValidateConfig(WithPublish(topic), Mk2).IsValid);
+
+    [Fact]
+    public void PublishPayload_Missing_IsValid() =>   // published as an empty message
+        Assert.True(ConfigValidator.ValidateConfig(WithPublish("a/b", payload: null), Mk2).IsValid);
+
+    // These used to be accepted and only failed at press time, where the press silently did nothing.
+    [Theory]
+    [InlineData(null, "is required")]
+    [InlineData("", "is required")]
+    [InlineData("   ", "is required")]
+    [InlineData("a/#", "wildcards")]
+    [InlineData("a/+/b", "wildcards")]
+    [InlineData("#", "wildcards")]
+    [InlineData("a\0b", "NUL")]
+    public void PublishTopic_Invalid_ReportsButtonGestureAndAction(string? topic, string expectedFragment)
+    {
+        var result = ConfigValidator.ValidateConfig(WithPublish(topic), Mk2);
+        Assert.False(result.IsValid);
+        var error = Assert.Single(result.Errors);
+        Assert.Contains("Button 'b1' gesture 'Tap' action 2: publish topic", error);
+        Assert.Contains(expectedFragment, error);
+    }
+
+    [Fact]
+    public void PublishTopic_TooLong_IsRejected()
+    {
+        var result = ConfigValidator.ValidateConfig(WithPublish(new string('é', 32_768)), Mk2);  // 65 536 bytes
+        Assert.Contains(result.Errors, e => e.Contains("longer than 65 535 bytes"));
+    }
+
+    private static DeviceConfig WithGesture(string gesture) =>
+        new(1, "SN001", [
+            new ButtonGridPage("main", [
+                Btn("b1", 0, "main") with
+                {
+                    Gestures = new Dictionary<string, IReadOnlyList<ButtonAction>> { [gesture] = [new PublishAction("a/b", "1")] },
+                },
+            ])
+        ]);
+
+    [Fact]
+    public void Gesture_Tap_IsValid() =>
+        Assert.True(ConfigValidator.ValidateConfig(WithGesture("Tap"), Mk2).IsValid);
+
+    // Gestures are looked up by exact name at press time: anything else would be stored and never fire.
+    [Theory]
+    [InlineData("tap", "must be written 'Tap'")]
+    [InlineData("TAP", "must be written 'Tap'")]
+    [InlineData("LongPress", "not supported (supported: Tap)")]   // reserved, not implemented yet
+    [InlineData("DoublePress", "not supported (supported: Tap)")]
+    [InlineData("", "not supported (supported: Tap)")]
+    public void Gesture_Unsupported_ReportsButtonAndName(string gesture, string expectedFragment)
+    {
+        var result = ConfigValidator.ValidateConfig(WithGesture(gesture), Mk2);
+        Assert.False(result.IsValid);
+        var error = Assert.Single(result.Errors);
+        Assert.Contains("'b1'", error);
+        Assert.Contains($"gesture '{gesture}'", error);
+        Assert.Contains(expectedFragment, error);
+    }
+
     private static DeviceConfig WithRules(params string[] conditions) =>
         new(1, "SN001", [
             new ButtonGridPage("main", [

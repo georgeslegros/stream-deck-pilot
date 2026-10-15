@@ -54,7 +54,7 @@ public static class InboundPipeline
     public static string FormatValue(string? valueStr, int? precision = null)
     {
         if (valueStr is null) return string.Empty;
-        if (!double.TryParse(valueStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var d))
+        if (!RuleCondition.TryParseNumber(valueStr, out var d))
             return valueStr;
 
         // An explicit precision always shows that many decimals ("1.20" kW stays the same width

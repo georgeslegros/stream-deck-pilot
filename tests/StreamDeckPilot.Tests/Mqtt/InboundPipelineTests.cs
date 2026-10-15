@@ -188,6 +188,21 @@ public class InboundPipelineTests
         Assert.Equal(expected, InboundPipeline.FormatValue(input));
     }
 
+    // Only strictly parsed, finite numbers are reformatted (#71); anything else is shown as received.
+    [Theory]
+    [InlineData("1,5", "1,5")]
+    [InlineData("1,2,3", "1,2,3")]
+    [InlineData("(5)", "(5)")]
+    [InlineData("5-", "5-")]
+    [InlineData("NaN", "NaN")]
+    [InlineData("Infinity", "Infinity")]
+    [InlineData("1e400", "1e400")]
+    [InlineData("1e3", "1000")]
+    public void FormatValue_OnlyFormatsStrictFiniteNumbers(string input, string expected)
+    {
+        Assert.Equal(expected, InboundPipeline.FormatValue(input));
+    }
+
     // An explicit precision always shows exactly that many decimals.
     [Theory]
     [InlineData("45.3", 0, "45")]
