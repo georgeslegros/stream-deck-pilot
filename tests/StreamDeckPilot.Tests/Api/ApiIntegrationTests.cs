@@ -43,16 +43,29 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
 
     // --- GET /openapi.json ---
 
+    // The README and API guide promise the document without a key; the exemption used to target a
+    // "/openapi" segment that never matched "/openapi.json", so this needed a key (#80).
     [Fact]
-    public async Task OpenApiDocument_DescribesTheApi()
+    public async Task OpenApiDocument_DescribesTheApi_WithoutAKey()
     {
-        var client = _factory.CreateAuthenticatedClient();
+        var client = _factory.CreateClient();
         var response = await client.GetAsync("/openapi.json");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Assert.StartsWith("3.", doc.RootElement.GetProperty("openapi").GetString());
         Assert.True(doc.RootElement.GetProperty("paths").TryGetProperty("/devices", out _));
+    }
+
+    // Only the exact document path is exempt, not anything that merely starts with it.
+    [Theory]
+    [InlineData("/openapi")]
+    [InlineData("/openapi/v1.json")]
+    [InlineData("/openapi.json.bak")]
+    public async Task OpenApiExemption_IsExactPathOnly(string path)
+    {
+        var response = await _factory.CreateClient().GetAsync(path);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     // --- GET /devices ---
@@ -197,6 +210,51 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
         Assert.Contains("Button 'power'", json);
         Assert.Contains(expectedError, json);
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/devices/{serial}/config")).StatusCode);
+    }
+
+    // A custom: reference names a file in the device's images directory; anything that isn't a bare
+    // file name could resolve outside it (#76). Unknown prefixes never rendered anything.
+    [Theory]
+    [InlineData("SN040", "\"display\":{\"baseIcon\":\"custom:/abs/icon.png\"},\"rules\":[]", "display.baseIcon")]
+    [InlineData("SN041", "\"display\":{\"baseIcon\":\"custom:../../catalog.json\"},\"rules\":[]", "display.baseIcon")]
+    [InlineData("SN042", "\"display\":{\"baseIcon\":\"custom:a/b.png\"},\"rules\":[]", "display.baseIcon")]
+    [InlineData("SN043", "\"display\":{\"baseIcon\":\"custom:\"},\"rules\":[]", "display.baseIcon")]
+    [InlineData("SN044", "\"display\":{\"baseIcon\":\"mdi:lightbulb\"},\"rules\":[]", "must start with builtin: or custom:")]
+    [InlineData("SN045", "\"display\":{},\"rules\":[{\"condition\":\"any\",\"backgroundColour\":\"#222222\",\"icon\":\"custom:..\\\\x.png\"}]", "rule 1: icon")]
+    public async Task PutConfig_InvalidIconReference_Returns400NamingTheButton(string serial, string fields, string expectedError)
+    {
+        await _factory.SeedDeviceAsync(serial);
+        var client = _factory.CreateAuthenticatedClient();
+        var body = new StringContent($$"""
+            {"schemaVersion":2,"serial":"{{serial}}","pages":[{"pageType":"ButtonGrid","pageId":"main","buttons":[
+              {"buttonId":"power","keyIndex":0,"pageId":"main","gestures":{},{{fields}}}]}]}
+            """, Encoding.UTF8, "application/json");
+
+        var response = await client.PutAsync($"/devices/{serial}/config", body);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var json = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Button 'power'", json);
+        Assert.Contains(expectedError, json);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/devices/{serial}/config")).StatusCode);
+    }
+
+    [Theory]
+    [InlineData("SN046", "custom:my-icon.png")]
+    [InlineData("SN047", "builtin:lightbulb")]
+    public async Task PutConfig_ValidIconReference_Returns204(string serial, string icon)
+    {
+        await _factory.SeedDeviceAsync(serial);
+        var client = _factory.CreateAuthenticatedClient();
+        var body = new StringContent($$"""
+            {"schemaVersion":2,"serial":"{{serial}}","pages":[{"pageType":"ButtonGrid","pageId":"main","buttons":[
+              {"buttonId":"power","keyIndex":0,"pageId":"main","gestures":{},"display":{"baseIcon":"{{icon}}"},
+               "rules":[{"condition":"any","backgroundColour":"#222222","icon":"{{icon}}"}]}]}]}
+            """, Encoding.UTF8, "application/json");
+
+        var response = await client.PutAsync($"/devices/{serial}/config", body);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
     }
 
     [Fact]
@@ -345,6 +403,7 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
     [InlineData("jpeg", "icon.jpg")]
     public async Task UploadImage_PngOrJpegContent_IsStored(string format, string fileName)
     {
+        await _factory.SeedDeviceAsync("SN020"); // image endpoints only serve catalogued devices
         var client = _factory.CreateAuthenticatedClient();
         var response = await client.PostAsync("/devices/SN020/images",
             ImageUpload(Icons.TestImages.Encode(format), fileName));
@@ -361,6 +420,7 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
     [InlineData("webp")]
     public async Task UploadImage_OtherFormatNamedPng_Returns400(string format)
     {
+        await _factory.SeedDeviceAsync("SN020"); // image endpoints only serve catalogued devices
         var client = _factory.CreateAuthenticatedClient();
         var response = await client.PostAsync("/devices/SN020/images",
             ImageUpload(Icons.TestImages.Encode(format), "icon.png"));
@@ -374,6 +434,7 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
     [Fact]
     public async Task UploadImage_NonImageContent_Returns400()
     {
+        await _factory.SeedDeviceAsync("SN020"); // image endpoints only serve catalogued devices
         var client = _factory.CreateAuthenticatedClient();
         var response = await client.PostAsync("/devices/SN020/images",
             ImageUpload("definitely not an image"u8.ToArray(), "icon.jpg"));
@@ -381,9 +442,50 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    // A few dozen bytes can declare a canvas that takes gigabytes to decode: the header's
+    // dimensions are checked before anything is stored (#77).
+    [Fact]
+    public async Task UploadImage_HugeDeclaredDimensions_Returns400()
+    {
+        await _factory.SeedDeviceAsync("SN021"); // image endpoints only serve catalogued devices
+        var client = _factory.CreateAuthenticatedClient();
+        var response = await client.PostAsync("/devices/SN021/images",
+            ImageUpload(Icons.TestImages.PngDeclaring(20000, 20000), "bomb.png"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("20000x20000", await response.Content.ReadAsStringAsync());
+        Assert.DoesNotContain("bomb.png", await client.GetStringAsync("/devices/SN021/images"));
+    }
+
+    [Fact]
+    public async Task UploadImage_AtTheDimensionLimit_IsStored()
+    {
+        await _factory.SeedDeviceAsync("SN021"); // image endpoints only serve catalogued devices
+        var client = _factory.CreateAuthenticatedClient();
+        var max = Infrastructure.Icons.IconImageFormats.MaxDimension;
+        var response = await client.PostAsync("/devices/SN021/images",
+            ImageUpload(Icons.TestImages.Png(max, 8, new SixLabors.ImageSharp.PixelFormats.Rgba32(1, 2, 3)), "wide.png"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    // Refused from Content-Length, before the form is buffered.
+    [Fact]
+    public async Task UploadImage_RequestOverSizeLimit_Returns413()
+    {
+        await _factory.SeedDeviceAsync("SN021"); // image endpoints only serve catalogued devices
+        var client = _factory.CreateAuthenticatedClient();
+        var response = await client.PostAsync("/devices/SN021/images",
+            ImageUpload(new byte[2 * 1024 * 1024], "huge.png"));
+
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+        Assert.DoesNotContain("huge.png", await client.GetStringAsync("/devices/SN021/images"));
+    }
+
     [Fact]
     public async Task UploadImage_DisallowedExtension_Returns400()
     {
+        await _factory.SeedDeviceAsync("SN020"); // image endpoints only serve catalogued devices
         var client = _factory.CreateAuthenticatedClient();
         var response = await client.PostAsync("/devices/SN020/images",
             ImageUpload(Icons.TestImages.Encode("png"), "icon.tiff"));
