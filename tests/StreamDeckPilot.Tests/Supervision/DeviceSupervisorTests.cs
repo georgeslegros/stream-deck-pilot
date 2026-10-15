@@ -515,4 +515,45 @@ public class DeviceSupervisorTests : IDisposable
 
         await svc.StopAsync(CancellationToken.None); // second stop: nothing left, no throw
     }
+
+    [Fact]
+    public async Task CatalogueWriteFailure_DeckStillWorks_AndEntryIsRetried()
+    {
+        // #68: a corrupt catalogue used to leave the board registered but never wired (blank,
+        // presses ignored) until a restart.
+        var catalogPath = Path.Combine(_storageDir, "catalog.json");
+        await File.WriteAllTextAsync(catalogPath, "{ not json");
+        var configStore = new ConfigStore(Options.Create(new StorageOptions { BaseDirectory = _storageDir }));
+        await configStore.SaveAsync(new DeviceConfig(1, "SN501", [
+            new ButtonGridPage("main", [Btn("b0", 0, "main")])
+        ]));
+
+        var board = new FakeMacroBoard { Serial = "SN501" };
+        var library = new FakeStreamDeckLibrary(board);
+        var svc = BuildSupervisor(library, FastPoll);
+        var presses = 0;
+        svc.ButtonPressed += (_, _) => Interlocked.Increment(ref presses);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await svc.StartAsync(cts.Token);
+
+        await WaitUntilAsync(() => board.RenderedKeyCount() == board.Keys.Count);
+        Assert.Equal(DeviceConnectionState.Connected, svc.GetState("SN501"));
+        Assert.Equal(board.Keys.Count, board.RenderedKeyCount());
+        board.SimulateKeyPress(0);
+        await WaitUntilAsync(() => Volatile.Read(ref presses) == 1);
+        Assert.Equal(1, Volatile.Read(ref presses));
+
+        // Once the file is fixed, a later scan records the device without a restart.
+        File.Delete(catalogPath);
+        var catalogue = new CatalogueStore(Options.Create(new StorageOptions { BaseDirectory = _storageDir }));
+        for (var i = 0; i < 200; i++)
+        {
+            try { if ((await catalogue.LoadAsync()).Devices.Any(d => d.Serial == "SN501")) break; }
+            catch (Exception) { /* mid-write */ }
+            await Task.Delay(20);
+        }
+        Assert.Contains((await catalogue.LoadAsync()).Devices, d => d.Serial == "SN501");
+
+        await svc.StopAsync(CancellationToken.None);
+    }
 }

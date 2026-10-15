@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using OpenMacroBoard.SDK;
 using StreamDeckPilot.Infrastructure.Brightness;
 using StreamDeckPilot.Core.DeviceState;
+using StreamDeckPilot.Core.Models.Catalogue;
 using StreamDeckPilot.Core.Models.Config;
 using StreamDeckPilot.Core.Rendering;
 using StreamDeckPilot.Infrastructure.Observability;
@@ -31,6 +32,8 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
     private readonly ConcurrentDictionary<string, IMacroBoard> _boards = new();
     private readonly ConcurrentDictionary<string, byte> _openedPaths = new();
     private readonly ConcurrentDictionary<string, string> _boardPaths = new(); // serial → hid path
+    // Devices whose catalogue entry could not be written yet; retried on every scan (#68).
+    private readonly ConcurrentDictionary<string, DeviceEntry> _pendingCatalogue = new();
 
     // Fired when a key is pressed (IsDown=true); subscribers handle the action
     public event Action<string, int>? ButtonPressed;
@@ -128,6 +131,7 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
     private async Task ScanAsync(CancellationToken ct)
     {
         ReleaseDisconnectedBoards();
+        await RetryPendingCatalogueAsync();
 
         IReadOnlyList<IStreamDeckDeviceRef> refs;
         try { refs = _library.Enumerate(); }
@@ -170,7 +174,9 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
             _boardPaths[serial] = deviceRef.Path;
             _logger.LogInformation("Device {Serial} discovered at {Path}", serial, deviceRef.Path);
 
-            await _catalogue.AppendDeviceAsync(new(
+            // A catalogue failure (corrupt file, full or read-only volume) must not leave the board
+            // registered but unwired: the deck still works, and the entry is retried on later scans.
+            await TryRecordInCatalogueAsync(new(
                 serial, deviceRef.DeviceName,
                 board.Keys.CountY, board.Keys.CountX,
                 DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
@@ -197,6 +203,30 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
 
             await HandleConnectionChangeAsync(serial, board, connected: true);
         }
+    }
+
+    private async Task TryRecordInCatalogueAsync(DeviceEntry entry)
+    {
+        try
+        {
+            await _catalogue.AppendDeviceAsync(entry);
+            if (_pendingCatalogue.TryRemove(entry.Serial, out _))
+                _logger.LogInformation("Device {Serial} recorded in the catalogue after an earlier failure", entry.Serial);
+        }
+        catch (Exception ex)
+        {
+            // Logged once per device until it succeeds, not on every scan.
+            if (_pendingCatalogue.TryAdd(entry.Serial, entry))
+                _logger.LogError(ex, "Failed to record device {Serial} in the catalogue — the deck stays usable; retrying on each scan", entry.Serial);
+            else
+                _pendingCatalogue[entry.Serial] = entry;
+        }
+    }
+
+    private async Task RetryPendingCatalogueAsync()
+    {
+        foreach (var entry in _pendingCatalogue.Values)
+            await TryRecordInCatalogueAsync(entry with { LastSeen = DateTimeOffset.UtcNow });
     }
 
     // A disconnected board is never reopened by StreamDeckSharp inside a container: it relies on udev

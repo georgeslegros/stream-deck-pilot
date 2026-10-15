@@ -1,18 +1,21 @@
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 
 namespace StreamDeckPilot.Api.Middleware;
 
 public sealed class ApiKeyMiddleware(RequestDelegate next, IConfiguration config)
 {
+    public const string OpenApiPath = "/openapi.json";
+
     private static readonly byte[] _invalid = Encoding.UTF8.GetBytes("__invalid__");
 
     public async Task InvokeAsync(HttpContext context)
     {
-        // Health and OpenAPI endpoints are exempt
+        // Health and the OpenAPI document are exempt. The document is mapped at the exact path
+        // /openapi.json (Program.cs); a "/openapi" segment prefix never matched it (#80). It only
+        // describes the public API surface, nothing configured or stored.
         if (context.Request.Path.StartsWithSegments("/health") ||
-            context.Request.Path.StartsWithSegments("/openapi"))
+            context.Request.Path.Equals(OpenApiPath, StringComparison.OrdinalIgnoreCase))
         {
             await next(context);
             return;
@@ -30,9 +33,12 @@ public sealed class ApiKeyMiddleware(RequestDelegate next, IConfiguration config
 
         if (!match)
         {
-            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "invalid_api_key" }));
+            // Same problem shape as every other error; `error` stays for clients that branch on it.
+            await Results.Problem(
+                    detail: "Missing or invalid X-Api-Key header.",
+                    statusCode: StatusCodes.Status401Unauthorized,
+                    extensions: new Dictionary<string, object?> { ["error"] = "invalid_api_key" })
+                .ExecuteAsync(context);
             return;
         }
 
