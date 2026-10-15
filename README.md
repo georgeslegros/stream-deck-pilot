@@ -359,7 +359,7 @@ Field reference (from the domain model in `src/StreamDeckPilot.Core/Models/Confi
   - **Text:** `"eq:on"`, `"ne:unavailable"`, `"in:heat,cool,auto"`. Values are trimmed and compared **case-insensitively** (`eq:on` matches `ON`). Numbers are compared as the text they arrived as, so `eq:1` does not match `1.0`; use `==1` for numbers. Everything after `eq:`/`ne:` is the value. `in:` values are comma-separated, so they can't contain a comma.
   - **`"any"`:** matches every value. Put it last as an "otherwise" rule.
   - Conditions are checked when the config is written. An unknown or malformed one (e.g. `">abc"`, or `"==on"` instead of `"eq:on"`) returns `400`.
-- **`gestures`** — map of gesture name to an ordered action list. `Tap` is the only gesture at launch; actions fire in order.
+- **`gestures`** — map of gesture name to an ordered action list. `Tap` is the only gesture at launch; actions fire in order. Names are case-sensitive: any other key (`tap`, `LongPress`, …) is rejected with `400`.
   - `{ "type": "Publish", "topic": "...", "payload": "..." }` — emit an MQTT message (payload sent verbatim).
   - `{ "type": "Navigate", "targetPageId": "..." }` — switch the active page on the device.
 
