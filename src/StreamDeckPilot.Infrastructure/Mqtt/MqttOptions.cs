@@ -28,4 +28,11 @@ public record MqttOptions
     /// where prolonged silence reliably indicates a lost subscription rather than no traffic.
     /// </summary>
     public int InboundSilenceReconnectSeconds { get; init; }
+
+    /// <summary>
+    /// How long the broker must be unreachable before broker-dependent keys are drawn offline
+    /// (dimmed, with a broken-link marker). Brief blips during a reconnect stay invisible.
+    /// 0 shows the indicator immediately.
+    /// </summary>
+    public int OfflineIndicatorDelaySeconds { get; init; } = 3;
 }

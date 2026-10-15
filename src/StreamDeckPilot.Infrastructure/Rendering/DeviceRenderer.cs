@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using OpenMacroBoard.SDK;
 using StreamDeckPilot.Core.Rendering;
 using StreamDeckPilot.Infrastructure.Icons;
+using StreamDeckPilot.Infrastructure.Mqtt;
 using StreamDeckPilot.Infrastructure.Observability;
 
 namespace StreamDeckPilot.Infrastructure.Rendering;
@@ -12,17 +13,26 @@ public sealed class DeviceRenderer : IDeviceRenderer
     private readonly StreamDeckMetrics? _metrics;
     private readonly ConcurrentDictionary<(string Serial, int KeyIndex), object> _keyLocks = new();
 
-    public DeviceRenderer() { }
+    private readonly BrokerIndicator? _broker;
 
-    public DeviceRenderer(KeyBitmapComposer composer, StreamDeckMetrics? metrics = null)
+    public DeviceRenderer(BrokerIndicator? broker = null) => _broker = broker;
+
+    public DeviceRenderer(KeyBitmapComposer composer, StreamDeckMetrics? metrics = null, BrokerIndicator? broker = null)
     {
         _composer = composer;
         _metrics = metrics;
+        _broker = broker;
     }
 
     public void RenderButton(IMacroBoard board, string serial, int keyIndex, ButtonRenderState state)
     {
         if (!board.IsConnected) return;
+
+        // Broker-offline overlay (#26), applied to a copy at paint time so desired state keeps the
+        // real value. Painting reads the flag here, under the per-key lock when called through
+        // RenderLatest/RenderAll, and every flip of the flag is followed by a repaint.
+        if (state.DependsOnBroker && _broker?.ShowOffline == true)
+            state = state with { IsOffline = true };
 
         try
         {
@@ -87,7 +97,7 @@ public sealed class DeviceRenderer : IDeviceRenderer
     // Colour-only fallback used when no composer is injected (tests)
     private static KeyBitmap FallbackBitmap(ButtonRenderState state)
     {
-        if (state.IsDimmed) return KeyBitmap.Create.FromRgb(30, 30, 30);
+        if (state.IsDimmed || state.IsOffline) return KeyBitmap.Create.FromRgb(30, 30, 30);
         return ParseColour(state.BackgroundColour);
     }
 

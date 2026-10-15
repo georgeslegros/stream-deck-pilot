@@ -205,6 +205,7 @@ read by `Program.cs`, `MqttOptions.cs` and `BrightnessOptions.cs`.
 | `Mqtt__TopicPrefix` | Single wildcard topic the service subscribes to. Per-button topics are matched in-process against this subscription. | `home/#` |
 | `Mqtt__MaxReconnectDelaySeconds` | Upper bound for reconnect backoff. The loop never gives up. | `30` |
 | `Mqtt__InboundSilenceReconnectSeconds` | Subscription-liveness watchdog: if no inbound message arrives within this window, force a reconnect + resubscribe. `0` disables it. | `0` (disabled) |
+| `Mqtt__OfflineIndicatorDelaySeconds` | How long the broker must be unreachable before broker-dependent keys show the offline look (see [Broker outages](#broker-outages)). `0` shows it immediately. | `3` |
 | `Brightness__SetTopic` | Topic the deck brightness is set from (see [Brightness](#brightness)). Subscribed explicitly if it falls outside `Mqtt__TopicPrefix`. | `home/streamdeck/brightness/set` |
 | `Brightness__StateTopic` | Topic the applied brightness is published to (retained). | `home/streamdeck/brightness/state` |
 | `Brightness__WakeTimeoutSeconds` | How long a key press lights up a deck whose brightness is 0. | `60` |
@@ -445,6 +446,24 @@ Bare numbers and the `{"value": …}` shape behave as before.
 - **`Publish`** action — emits an MQTT message to `topic` with `payload` sent verbatim. Choose a stable
   payload per button (`"true"`, `"toggle"`, or a JSON string).
 - **`Navigate`** action — changes the active page on that device to `targetPageId`.
+
+### Broker outages
+
+When the broker has been unreachable for `Mqtt__OfflineIndicatorDelaySeconds` (default 3 s), every
+key that **depends on the broker** is drawn offline: the background is drained of colour (like a
+stale tile) and a small broken-link marker sits top-right, where the stale clock would be. The last
+value stays readable. Shorter blips during a reconnect show nothing.
+
+- **Affected:** keys with an `inbound` binding (their values can't update) and keys whose `Tap`
+  publishes (the press can't be sent).
+- **Not affected:** navigation-only and static keys. They still work locally, so they keep their
+  normal look.
+- The offline look is applied while painting; stored values are untouched, so navigating between
+  pages during an outage shows it too.
+- When the session is back (connected and resubscribed), the broker resends retained values, which
+  are painted as they arrive, and every key on the current page is repainted without the marker.
+- The service logs a warning when the indicator appears and an info line when it clears. The
+  `streamdeck.broker.connected` gauge tracks the raw connection state.
 
 ### Brightness
 

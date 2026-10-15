@@ -63,8 +63,9 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver, ILogger<KeyBitm
         var bg = ParseColour(state.BackgroundColour) ?? DefaultBg;
         image.Mutate(ctx => ctx.Fill(bg));
 
-        // Stale tiles desaturate the background first so ink is computed on the drained colour.
-        if (state.IsDimmed)
+        // Stale and broker-offline tiles desaturate the background first so ink is computed on the
+        // drained colour.
+        if (state.IsDimmed || state.IsOffline)
         {
             Desaturate(image);
             bg = SampleBackground(image);
@@ -97,9 +98,12 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver, ILogger<KeyBitm
         if (hasBottom)
             DrawBottomCaption(image, state.BottomText!, ink);
 
-        // Staleness marker: small clock glyph, top-right.
-        if (state.IsDimmed)
-            DrawClockMarker(image, ink);
+        // Status marker, top-right: broker offline (#26) wins over stale, since an outage is the
+        // reason values stop updating.
+        if (state.IsOffline)
+            DrawStatusMarker(image, OfflineMarkerIcon, ink);
+        else if (state.IsDimmed)
+            DrawStatusMarker(image, ClockMarkerIcon, ink);
 
         return image;
     }
@@ -252,13 +256,15 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver, ILogger<KeyBitm
         });
     }
 
-    private const int ClockMarkerSize = 14;
+    private const int MarkerSize = 14;
+    private const string ClockMarkerIcon = "builtin:clock-outline";
+    private const string OfflineMarkerIcon = "builtin:link-variant-off";
 
-    private void DrawClockMarker(Image<Rgba32> image, Color ink)
+    private void DrawStatusMarker(Image<Rgba32> image, string reference, Color ink)
     {
         // Resolve the glyph at full canvas size: icons come back as a 72x72 canvas that is then
         // resized to the marker size, so asking for a 14 px glyph shrank it to about 3 px (#47).
-        var icon = iconResolver.ResolveImage("builtin:clock-outline", "", Size);
+        var icon = iconResolver.ResolveImage(reference, "", Size);
         if (icon is null) return;
         try
         {
@@ -266,14 +272,14 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver, ILogger<KeyBitm
             {
                 icon.Mutate(i => i.Resize(new ResizeOptions
                 {
-                    Size = new Size(ClockMarkerSize, ClockMarkerSize),
+                    Size = new Size(MarkerSize, MarkerSize),
                     Sampler = KnownResamplers.Lanczos3,
                 }));
                 Tint(icon, ink);
-                image.Mutate(ctx => ctx.DrawImage(icon, new Point(Size - ClockMarkerSize - 4, 4), 1f));
+                image.Mutate(ctx => ctx.DrawImage(icon, new Point(Size - MarkerSize - 4, 4), 1f));
             }
         }
-        catch (Exception ex) { IconFailed("builtin:clock-outline", ex); }
+        catch (Exception ex) { IconFailed(reference, ex); }
     }
 
     private static void DrawCentredText(Image<Rgba32> image, string text, Font font, Color colour, float x, float baseline)

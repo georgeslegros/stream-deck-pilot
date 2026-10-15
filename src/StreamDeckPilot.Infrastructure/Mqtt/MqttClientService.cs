@@ -32,6 +32,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
     private readonly IMqttClient _client;
     private readonly BrightnessController _brightness;
     private readonly TimeProvider _time;
+    private readonly BrokerIndicator? _brokerIndicator;
 
     // A bound topic whose payloads carry no usable value would otherwise log a warning per message.
     // Warn on the first one, then at most once per interval per topic; the rest go to Debug.
@@ -84,7 +85,8 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         ILogger<MqttClientService> logger,
         StreamDeckMetrics? metrics = null,
         BrightnessController? brightness = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        BrokerIndicator? brokerIndicator = null)
     {
         _opts = opts.Value;
         _configStore = configStore;
@@ -96,6 +98,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         _metrics = metrics;
         _logger = logger;
         _time = timeProvider ?? TimeProvider.System;
+        _brokerIndicator = brokerIndicator;
         _client = new MqttClientFactory().CreateMqttClient();
         _brightness = brightness ?? new BrightnessController(Options.Create(new BrightnessOptions()));
         _brightness.EffectiveChanged += level => _ = Task.Run(PublishBrightnessStateAsync);
@@ -112,6 +115,10 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _stoppingToken = stoppingToken;
+
+        // Not connected yet: arm the offline indicator. A normal startup connects well inside its
+        // delay, so nothing shows; a broker that is down at startup is signalled on the deck.
+        _brokerIndicator?.ReportDisconnected();
 
         // Subscribed only here, with the stopping token captured, so a press can't reach the queues
         // before the service has started, and every press consumer runs under the service's token.
@@ -211,6 +218,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
                 // is the documented trigger for the "connect/disconnect is pending" wedge (#2031/#1934).
                 if (!await _client.TryPingAsync(ct))
                 {
+                    _brokerIndicator?.ReportDisconnected();
                     await ConnectAndSubscribeAsync(ct);
                     attempt = 0;
                 }
@@ -240,6 +248,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
             }
             catch (Exception ex)
             {
+                _brokerIndicator?.ReportDisconnected();
                 var delay = BackoffWithJitter(attempt++);
                 _logger.LogWarning("MQTT connect/session failed ({Error}), retrying in {Delay:0.0}s (attempt {Attempt})",
                     ex.Message, delay.TotalSeconds, attempt);
@@ -266,6 +275,10 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         // Re-assert the applied level so HA's view is correct after a broker restart, or after a
         // change made while we were disconnected.
         await PublishBrightnessStateAsync();
+
+        // Connected and subscribed: the fresh wildcard subscription makes the broker resend every
+        // retained value, which the pipeline paints; clearing the indicator repaints the rest.
+        _brokerIndicator?.ReportConnected();
 
         _logger.LogInformation("MQTT session established and subscribed; entering keep-alive poll");
     }
@@ -320,6 +333,9 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
     // this handler just records WHY a disconnect happened so future drops are diagnosable.
     private Task OnDisconnectedAsync(MqttClientDisconnectedEventArgs e)
     {
+        // Starts the offline indicator's delay straight away rather than at the next ping.
+        if (e.ClientWasConnected) _brokerIndicator?.ReportDisconnected();
+
         if (e.Exception is not null)
             _logger.LogWarning(e.Exception, "MQTT disconnected (reason={Reason}, wasConnected={WasConnected}) — {Message}",
                 e.Reason, e.ClientWasConnected, e.Exception.Message);
@@ -515,7 +531,8 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
             icon ?? button.Display.BaseIcon,
             button.Display.IconPlacement,
             center,
-            bottom);
+            bottom,
+            DependsOnBroker: true);
 
         _desiredState.Set(serial, pageId, button.KeyIndex, renderState);
         _lastUpdated.RecordUpdate(serial, pageId, button.KeyIndex);

@@ -37,8 +37,8 @@ public sealed class KeyBitmapComposerTests : IDisposable
 
     private static ButtonRenderState State(string? bg = null, string? icon = null,
         IconPlacement placement = IconPlacement.Corner, string? center = null, string? bottom = null,
-        bool dimmed = false) =>
-        new("b", bg, icon, placement, center, bottom, dimmed);
+        bool dimmed = false, bool offline = false) =>
+        new("b", bg, icon, placement, center, bottom, dimmed, IsOffline: offline);
 
     // Pixels in a band that differ from the background by more than `threshold` on any channel.
     private static int InkPixels(Image<Rgba32> image, Rgba32 background, int yFrom, int yTo, int xFrom = 0, int xTo = Size,
@@ -198,6 +198,25 @@ public sealed class KeyBitmapComposerTests : IDisposable
         Assert.True(corner.B - corner.R < 0xAA / 2);
     }
 
+    // #26: broker offline dims like stale but carries its own marker, so the two read differently.
+    [Fact]
+    public void Offline_DesaturatesTheBackground_WithAMarkerDistinctFromTheClock()
+    {
+        using var offline = _composer.ComposeImage(State("#0066AA", offline: true), "SN1");
+        using var stale = _composer.ComposeImage(State("#0066AA", dimmed: true), "SN1");
+        var corner = offline[1, 1];
+
+        Assert.True(corner.B - corner.R < 0xAA / 2);
+        Assert.True(InkPixels(offline, corner, 4, 18, Size - 18, Size - 4) > 15);
+        Assert.Equal(0, InkPixels(offline, corner, 20, Size));
+
+        var differing = 0;
+        for (var y = 4; y < 18; y++)
+        for (var x = Size - 18; x < Size - 4; x++)
+            if (!offline[x, y].Equals(stale[x, y])) differing++;
+        Assert.True(differing > 10, $"offline marker looks like the clock ({differing} px differ)");
+    }
+
     [Fact]
     public void UnknownIcons_DoNotThrow()
     {
@@ -281,6 +300,7 @@ public sealed class KeyBitmapComposerTests : IDisposable
         { "text-state", State("#FF8800", null, IconPlacement.Corner, "heat", "Mode") },
         { "value-7-chars", State("#33AA33", null, IconPlacement.Corner, "1234.56 kWh", "Energy") },
         { "value-negative", State("#0066AA", "builtin:thermometer", IconPlacement.Corner, "-12.35 °C", "Outside") },
+        { "offline", State("#0066AA", "builtin:thermometer", IconPlacement.Corner, "19.2 °C", "Salon", offline: true) },
     };
 
     [Theory]

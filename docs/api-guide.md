@@ -263,6 +263,8 @@ Full OpenAPI 3 schema (no auth required).
     "expectsRetained": true,         // shows a dimmed placeholder until first value arrives
     "stalenessTimeout": "00:00:30"   // TimeSpan; null = never goes stale
   },
+  // While the broker is down, keys with an inbound binding or a Publish tap are drawn
+  // drained of colour with a broken-link marker (README "Broker outages"); nothing to configure here.
 
   "rules": [                         // ordered, first-match-wins, over the extracted value
     { "condition": "eq:unavailable", "backgroundColour": "#555555", "icon": null },
