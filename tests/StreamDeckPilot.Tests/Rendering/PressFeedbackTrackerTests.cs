@@ -234,6 +234,45 @@ public sealed class PressFeedbackTrackerTests
         Assert.Equal(PressFeedback.None, store.Get(Serial, "main", 3)!.Feedback);
     }
 
+    // Precedence of the paint-time overlays: offline (#26) > press feedback (#22) > blink phase (#23).
+    [Fact]
+    public void Renderer_Precedence_OfflineThenFeedbackThenBlinkPhase()
+    {
+        var store = new DesiredStateStore();
+        store.Set(Serial, "main", 3, State() with { Blink = true });
+        var blinkTime = new ManualTimeProvider();
+        using var blink = new BlinkScheduler(store, Microsoft.Extensions.Options.Options.Create(new BlinkOptions()), blinkTime);
+        blink.Refresh(Serial);
+        blinkTime.Timers[^1].FireStale(); // into the "off" half
+        Assert.True(blink.IsOffPhase(Serial));
+
+        var broker = new BrokerIndicator(TimeSpan.FromSeconds(3), _time);
+        var tracker = Tracker();
+        var renderer = new DeviceRenderer(broker, blink, tracker);
+        var board = new FakeMacroBoard();
+        var dark = KeyBitmap.Create.FromRgb(30, 30, 30);
+
+        // Blink alone: the off phase shows.
+        renderer.RenderLatest(board, Serial, "main", 3, store);
+        // Feedback beats the blink phase: the ring shows on the full "on" look.
+        tracker.Pressed(Serial, "main", 3, "b3", awaitsState: true);
+        renderer.RenderLatest(board, Serial, "main", 3, store);
+        // Offline beats feedback (the indicator also clears it) and stops the blink.
+        broker.ReportDisconnected();
+        _time.Timers[^1].FireStale();
+        Assert.True(broker.ShowOffline);
+        renderer.RenderLatest(board, Serial, "main", 3, store);
+
+        Assert.Equal([dark, KeyBitmap.Create.FromRgb(255, 255, 255), dark], board.RenderCalls.Select(c => c.Bitmap));
+
+        // Offline wins even over feedback the tracker didn't clear (a tracker without the indicator).
+        var pending = new PressFeedbackTracker(new PressFeedbackOptions(), new ManualTimeProvider());
+        pending.Pressed(Serial, "main", 3, "b3", awaitsState: true);
+        var board2 = new FakeMacroBoard();
+        new DeviceRenderer(broker, blink, pending).RenderLatest(board2, Serial, "main", 3, store);
+        Assert.Equal(dark, Assert.Single(board2.RenderCalls).Bitmap);
+    }
+
     [Fact]
     public void Renderer_OfflineLookWinsOverFeedback()
     {
@@ -241,7 +280,7 @@ public sealed class PressFeedbackTrackerTests
         tracker.Pressed(Serial, "main", 3, "b3", awaitsState: true);
         var offline = new BrokerIndicator(TimeSpan.Zero);
         offline.ReportDisconnected();
-        var renderer = new DeviceRenderer(offline, tracker);
+        var renderer = new DeviceRenderer(offline, feedback: tracker);
         var board = new FakeMacroBoard();
 
         renderer.RenderButton(board, Serial, 3, State());

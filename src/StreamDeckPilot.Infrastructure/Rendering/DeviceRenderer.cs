@@ -14,20 +14,23 @@ public sealed class DeviceRenderer : IDeviceRenderer
     private readonly ConcurrentDictionary<(string Serial, int KeyIndex), object> _keyLocks = new();
 
     private readonly BrokerIndicator? _broker;
+    private readonly BlinkScheduler? _blink;
     private readonly PressFeedbackTracker? _feedback;
 
-    public DeviceRenderer(BrokerIndicator? broker = null, PressFeedbackTracker? feedback = null)
+    public DeviceRenderer(BrokerIndicator? broker = null, BlinkScheduler? blink = null, PressFeedbackTracker? feedback = null)
     {
         _broker = broker;
+        _blink = blink;
         _feedback = feedback;
     }
 
     public DeviceRenderer(KeyBitmapComposer composer, StreamDeckMetrics? metrics = null, BrokerIndicator? broker = null,
-        PressFeedbackTracker? feedback = null)
+        BlinkScheduler? blink = null, PressFeedbackTracker? feedback = null)
     {
         _composer = composer;
         _metrics = metrics;
         _broker = broker;
+        _blink = blink;
         _feedback = feedback;
     }
 
@@ -38,11 +41,20 @@ public sealed class DeviceRenderer : IDeviceRenderer
         // Broker-offline overlay (#26), applied to a copy at paint time so desired state keeps the
         // real value. Painting reads the flag here, under the per-key lock when called through
         // RenderLatest/RenderAll, and every flip of the flag is followed by a repaint.
+        // Paint-time overlays, in precedence order: offline (#26) > press feedback (#22) > blink
+        // phase (#23).
         if (state.DependsOnBroker && _broker?.ShowOffline == true)
             state = state with { IsOffline = true };
-        // Press feedback (#22), same render-time overlay. The offline look wins: no feedback then.
+        // Press feedback: the offline look wins, so no feedback then.
         else if (_feedback?.Get(serial, state.ButtonId) is { } feedback and not PressFeedback.None)
             state = state with { Feedback = feedback };
+
+        // Blink: the offline look wins (a blinking alert can't be trusted while its value has
+        // stopped updating, so it shows offline and stops blinking). Press feedback wins too: a
+        // blinking key that was just pressed shows its full "on" look under the ring or red wash,
+        // never the dimmed off phase, so the answer to the press is always readable.
+        if (state.BlinkActive && state.Feedback == PressFeedback.None && _blink?.IsOffPhase(serial) == true)
+            state = state with { IsBlinkOffPhase = true };
 
         try
         {
@@ -107,7 +119,7 @@ public sealed class DeviceRenderer : IDeviceRenderer
     // Colour-only fallback used when no composer is injected (tests)
     private static KeyBitmap FallbackBitmap(ButtonRenderState state)
     {
-        if (state.IsDimmed || state.IsOffline) return KeyBitmap.Create.FromRgb(30, 30, 30);
+        if (state.IsDimmed || state.IsOffline || state.IsBlinkOffPhase) return KeyBitmap.Create.FromRgb(30, 30, 30);
         if (state.Feedback == PressFeedback.Failed) return KeyBitmap.Create.FromRgb(200, 0, 0);
         if (state.Feedback == PressFeedback.Pending) return KeyBitmap.Create.FromRgb(255, 255, 255);
         return ParseColour(state.BackgroundColour);

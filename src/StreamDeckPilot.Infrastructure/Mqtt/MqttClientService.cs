@@ -528,7 +528,8 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         }
 
         // Step 3 — evaluate rules
-        var (colour, icon) = InboundPipeline.EvaluateRules(value, button.Rules);
+        var rule = InboundPipeline.MatchRule(value, button.Rules);
+        var (colour, icon) = (rule?.BackgroundColour, rule?.Icon);
 
         // Step 4 — format
         var formatted = InboundPipeline.FormatValue(value, button.Display.Precision);
@@ -544,7 +545,8 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
             button.Display.IconPlacement,
             center,
             bottom,
-            DependsOnBroker: true);
+            DependsOnBroker: true,
+            Blink: rule?.Blink == true);
 
         _desiredState.Set(serial, pageId, button.KeyIndex, renderState);
         _lastUpdated.RecordUpdate(serial, pageId, button.KeyIndex);

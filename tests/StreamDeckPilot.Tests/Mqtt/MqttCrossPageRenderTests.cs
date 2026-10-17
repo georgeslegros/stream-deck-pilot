@@ -164,6 +164,24 @@ public sealed class MqttCrossPageRenderTests : IDisposable
         Assert.Equal("#222222", desired.Get(Serial, "climate", 0)!.BackgroundColour);
     }
 
+    [Fact]
+    public async Task BlinkRule_MarksTheStateBlinking_UntilAnotherRuleMatches()
+    {
+        // #23: blink follows the first matching rule, so recovering clears it.
+        var (svc, _, desired) = await BuildAsync(activePage: "climate");
+        var button = ButtonOn("climate") with
+        {
+            Inbound = new InboundBinding("home/backup/state", null, null, true, null),
+            Rules = [new("eq:failed", "#CC0000", null, Blink: true), new("any", "#226622", null)],
+        };
+
+        svc.RunPipeline(Serial, "climate", button, "failed");
+        Assert.True(desired.Get(Serial, "climate", 0)!.Blink);
+
+        svc.RunPipeline(Serial, "climate", button, "ok");
+        Assert.False(desired.Get(Serial, "climate", 0)!.Blink);
+    }
+
     private static ButtonDefinition ButtonOn(string pageId) =>
         new("c0", 0, pageId,
             new DisplaySpec(null, IconPlacement.Corner,
