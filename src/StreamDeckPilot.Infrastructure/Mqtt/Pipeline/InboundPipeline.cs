@@ -39,15 +39,19 @@ public static class InboundPipeline
     // Step 3 — evaluate ordered conditional rules, first-match-wins. Numeric conditions only
     // match numeric values; text conditions (eq:/ne:/in:) and "any" match on the text. A rule
     // whose condition does not parse never matches (the validator rejects those on PUT).
-    public static (string? Colour, string? Icon) EvaluateRules(string? valueStr, IReadOnlyList<ConditionalRule> rules)
+    public static (string? Colour, string? Icon) EvaluateRules(string? valueStr, IReadOnlyList<ConditionalRule> rules) =>
+        MatchRule(valueStr, rules) is { } rule ? (rule.BackgroundColour, rule.Icon) : (null, null);
+
+    // The first rule that matches, or null. Callers that need more than colour and icon (blink) use this.
+    public static ConditionalRule? MatchRule(string? valueStr, IReadOnlyList<ConditionalRule> rules)
     {
-        if (valueStr is null) return (null, null);
+        if (valueStr is null) return null;
 
         foreach (var rule in rules)
             if (RuleCondition.TryParse(rule.Condition, out var condition, out _) && condition!.Matches(valueStr))
-                return (rule.BackgroundColour, rule.Icon);
+                return rule;
 
-        return (null, null);
+        return null;
     }
 
     // Step 4 — format numeric value to string with the button's precision

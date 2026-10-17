@@ -105,6 +105,11 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver, ILogger<KeyBitm
         else if (state.IsDimmed)
             DrawStatusMarker(image, ClockMarkerIcon, ink);
 
+        // Blink "off" half (#23): the whole key drops to a quarter of its brightness. The value stays
+        // faintly readable, and the alternation with the normal look is what catches the eye.
+        if (state.IsBlinkOffPhase)
+            Darken(image, BlinkOffBrightness);
+
         return image;
     }
 
@@ -232,6 +237,26 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver, ILogger<KeyBitm
                     ref Rgba32 p = ref row[xx];
                     if (p.A == 0) continue;
                     p.R = c.R; p.G = c.G; p.B = c.B;
+                }
+            }
+        });
+    }
+
+    private const float BlinkOffBrightness = 0.25f;
+
+    private static void Darken(Image<Rgba32> image, float factor)
+    {
+        image.ProcessPixelRows(accessor =>
+        {
+            for (int y = 0; y < accessor.Height; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (int x = 0; x < row.Length; x++)
+                {
+                    ref Rgba32 px = ref row[x];
+                    px.R = (byte)(px.R * factor);
+                    px.G = (byte)(px.G * factor);
+                    px.B = (byte)(px.B * factor);
                 }
             }
         });

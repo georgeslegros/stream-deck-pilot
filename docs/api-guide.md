@@ -270,12 +270,14 @@ Full OpenAPI 3 schema (no auth required).
 
   "rules": [                         // ordered, first-match-wins, over the extracted value
     { "condition": "eq:unavailable", "backgroundColour": "#555555", "icon": null },
-    { "condition": ">1000", "backgroundColour": "#FF0000", "icon": null },
+    { "condition": ">1000", "backgroundColour": "#FF0000", "icon": null, "blink": true },
     { "condition": ">800",  "backgroundColour": "#FF8800", "icon": null },
     { "condition": ">=0",   "backgroundColour": "#00AA00", "icon": null }
   ],
   // "backgroundColour" must be #RRGGBB (or null); other forms ("red", "#F00") are rejected on PUT.
   // A matched rule's "icon" overrides display.baseIcon for that render.
+  // "blink": true (optional, default false) makes the key blink while that rule matches
+  // (README "Blinking keys"). Stale and broker-offline keys don't blink.
 
   "gestures": {
     "Tap": [

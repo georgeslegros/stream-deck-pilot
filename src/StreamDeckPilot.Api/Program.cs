@@ -54,11 +54,19 @@ builder.Services.AddSingleton<BrokerIndicator>(sp =>
     new BrokerIndicator(
         TimeSpan.FromSeconds(sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<MqttOptions>>().Value.OfflineIndicatorDelaySeconds),
         logger: sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<BrokerIndicator>>()));
+// Blinking keys (#23): the scheduler times the phase, the renderer applies it, the supervisor repaints
+builder.Services.Configure<BlinkOptions>(builder.Configuration.GetSection("Blink"));
+builder.Services.AddSingleton<BlinkScheduler>(sp =>
+    new BlinkScheduler(
+        sp.GetRequiredService<DesiredStateStore>(),
+        sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<BlinkOptions>>(),
+        logger: sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<BlinkScheduler>>()));
 builder.Services.AddSingleton<IDeviceRenderer>(sp =>
     new DeviceRenderer(
         sp.GetRequiredService<KeyBitmapComposer>(),
         sp.GetRequiredService<StreamDeckMetrics>(),
-        sp.GetRequiredService<BrokerIndicator>()));
+        sp.GetRequiredService<BrokerIndicator>(),
+        sp.GetRequiredService<BlinkScheduler>()));
 
 // Brightness — desired level set over MQTT, applied by the supervisor, state published by MQTT
 builder.Services.Configure<BrightnessOptions>(builder.Configuration.GetSection("Brightness"));
@@ -80,7 +88,8 @@ builder.Services.AddSingleton<DeviceSupervisorService>(sp =>
         sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<DeviceSupervisorService>>(),
         metrics: sp.GetRequiredService<StreamDeckMetrics>(),
         brightness: sp.GetRequiredService<BrightnessController>(),
-        brokerIndicator: sp.GetRequiredService<BrokerIndicator>()));
+        brokerIndicator: sp.GetRequiredService<BrokerIndicator>(),
+        blink: sp.GetRequiredService<BlinkScheduler>()));
 builder.Services.AddSingleton<IDeviceStateProvider>(sp => sp.GetRequiredService<DeviceSupervisorService>());
 // Registration order matters: the host stops hosted services in reverse order, so the supervisor
 // must be registered BEFORE every service that renders to the boards (MQTT, staleness). Those then

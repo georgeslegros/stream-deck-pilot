@@ -11,8 +11,13 @@ public sealed record ButtonRenderState(
     string? BottomText,         // small caption along the bottom
     bool IsDimmed = false,
     bool DependsOnBroker = false, // MQTT-bound or publishes on tap: affected by a broker outage (#26)
-    bool IsOffline = false)       // render-time only: set on a copy while painting, never stored
+    bool IsOffline = false,       // render-time only: set on a copy while painting, never stored
+    bool Blink = false,           // the matching rule asks for attention (#23)
+    bool IsBlinkOffPhase = false) // render-time only: the "off" half of a blink, set while painting
 {
+    /// <summary>True when the key should actually blink: stale and broker-offline keys don't.</summary>
+    public bool BlinkActive => Blink && !IsDimmed && !IsOffline;
+
     /// <summary>
     /// True when the button needs the broker: its value comes from MQTT, or a tap publishes.
     /// Navigate-only and static keys still work locally while the broker is down.

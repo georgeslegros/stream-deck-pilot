@@ -206,6 +206,7 @@ read by `Program.cs`, `MqttOptions.cs` and `BrightnessOptions.cs`.
 | `Mqtt__MaxReconnectDelaySeconds` | Upper bound for reconnect backoff. The loop never gives up. | `30` |
 | `Mqtt__InboundSilenceReconnectSeconds` | Subscription-liveness watchdog: if no inbound message arrives within this window, force a reconnect + resubscribe. `0` disables it. | `0` (disabled) |
 | `Mqtt__OfflineIndicatorDelaySeconds` | How long the broker must be unreachable before broker-dependent keys show the offline look (see [Broker outages](#broker-outages)). `0` shows it immediately. | `3` |
+| `Blink__IntervalMilliseconds` | Length of each half of a blinking key's cycle (see [Blinking keys](#blinking-keys)). Values under `200` are raised to `200`. | `500` |
 | `Brightness__SetTopic` | Topic the deck brightness is set from (see [Brightness](#brightness)). Subscribed explicitly if it falls outside `Mqtt__TopicPrefix`. | `home/streamdeck/brightness/set` |
 | `Brightness__StateTopic` | Topic the applied brightness is published to (retained). | `home/streamdeck/brightness/state` |
 | `Brightness__WakeTimeoutSeconds` | How long a key press lights up a deck whose brightness is 0. | `60` |
@@ -361,6 +362,7 @@ Field reference (from the domain model in `src/StreamDeckPilot.Core/Models/Confi
   - **Numeric:** `">N"`, `">=N"`, `"<N"`, `"<=N"`, `"==N"`, `"between:A:B"` (inclusive). These only match when the value is a number (`.` decimal point, no commas, finite; `1,5` and `NaN` are text). Text such as `unavailable` skips them.
   - **Text:** `"eq:on"`, `"ne:unavailable"`, `"in:heat,cool,auto"`. Values are trimmed and compared **case-insensitively** (`eq:on` matches `ON`). Numbers are compared as the text they arrived as, so `eq:1` does not match `1.0`; use `==1` for numbers. Everything after `eq:`/`ne:` is the value. `in:` values are comma-separated, so they can't contain a comma.
   - **`"any"`:** matches every value. Put it last as an "otherwise" rule.
+  - **`blink`** — optional, default `false`. While this rule is the first match the key blinks to draw attention (see [Blinking keys](#blinking-keys)).
   - Conditions are checked when the config is written. An unknown or malformed one (e.g. `">abc"`, or `"==on"` instead of `"eq:on"`) returns `400`.
 - **`gestures`** — map of gesture name to an ordered action list; actions fire in order. Supported names are `Tap`, `LongPress` and `DoubleTap`, all optional. Names are case-sensitive: any other key (`tap`, `DoublePress`, …) is rejected with `400`.
   - A key that defines only `Tap` fires the moment it goes down, with no delay.
@@ -469,6 +471,29 @@ value stays readable. Shorter blips during a reconnect show nothing.
   are painted as they arrive, and every key on the current page is repainted without the marker.
 - The service logs a warning when the indicator appears and an info line when it clears. The
   `streamdeck.broker.connected` gauge tracks the raw connection state.
+
+### Blinking keys
+
+A rule with `"blink": true` makes its key blink while that rule is the first match: a failed
+backup, a finished appliance, a doorbell. The key alternates every `Blink__IntervalMilliseconds`
+(default 500 ms) between its normal look and the same image at a quarter of the brightness, so the
+value stays readable. It stops as soon as a value arrives that matches a different rule.
+
+```json
+"rules": [
+  { "condition": "eq:failed", "backgroundColour": "#CC0000", "icon": null, "blink": true },
+  { "condition": "any",       "backgroundColour": "#226622", "icon": null }
+]
+```
+
+- **Cost:** one timer per deck, running only while one of its keys blinks; each tick repaints only
+  the blinking keys on the page on screen. A deck with nothing blinking does no extra work.
+- **Stale or broker offline:** a stale key, or a key showing the [offline look](#broker-outages),
+  doesn't blink. Its value isn't current, so it shouldn't demand attention. Blinking resumes when it is.
+- **Brightness 0:** a dark deck isn't repainted for blinking and isn't woken by it. Blinking shows
+  again when the deck lights up (a press or a new level).
+- Blinking is applied while painting; stored values are untouched. Existing configs need no change:
+  `blink` is omitted from the JSON when `false`.
 
 ### Brightness
 
