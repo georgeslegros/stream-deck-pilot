@@ -27,6 +27,7 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
     private readonly ILogger<DeviceSupervisorService> _logger;
     private readonly TimeSpan _pollInterval;
     private readonly BrightnessController _brightness;
+    private readonly BrokerIndicator? _brokerIndicator;
     private StreamDeckMetrics? _metrics;
 
     private readonly ConcurrentDictionary<string, DeviceConnectionState> _states = new();
@@ -39,6 +40,9 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
     // Fired when a key is pressed (IsDown=true); subscribers handle the action
     public event Action<string, int>? ButtonPressed;
 
+    // Fired when a key is released (IsDown=false); needed to tell a tap from a long press
+    public event Action<string, int>? ButtonReleased;
+
     public DeviceSupervisorService(
         IStreamDeckLibrary library,
         CatalogueStore catalogue,
@@ -50,7 +54,8 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
         TimeSpan? pollInterval = null,
         StreamDeckMetrics? metrics = null,
         BrightnessController? brightness = null,
-        BrokerIndicator? brokerIndicator = null)
+        BrokerIndicator? brokerIndicator = null,
+        BlinkScheduler? blink = null)
     {
         _library = library;
         _catalogue = catalogue;
@@ -65,6 +70,28 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
         _brightness.EffectiveChanged += ApplyBrightnessToAll;
         if (brokerIndicator is not null)
             brokerIndicator.Changed += _ => RepaintActivePages();
+        _brokerIndicator = brokerIndicator;
+        if (blink is not null)
+            blink.Toggled += RepaintBlinkingKeys;
+    }
+
+    // One blink half-period elapsed (#23): repaint only the keys that blink, on the page on screen.
+    // Nothing is painted while the deck is dark (brightness 0, not woken by a press) or for keys the
+    // broker-offline look has taken over, so a blink never turns into a stream of identical writes.
+    private void RepaintBlinkingKeys(string serial)
+    {
+        if (!_boards.TryGetValue(serial, out var board) || !board.IsConnected) return;
+        if (_brightness.Effective == 0) return;
+        var pageId = _activePages.GetActivePage(serial);
+        if (pageId is null) return;
+
+        var offline = _brokerIndicator?.ShowOffline == true;
+        foreach (var (keyIndex, state) in _desiredState.GetPage(serial, pageId))
+        {
+            if (!state.BlinkActive || (offline && state.DependsOnBroker)) continue;
+            try { _renderer.RenderLatest(board, serial, pageId, keyIndex, _desiredState); }
+            catch (Exception ex) { _logger.LogWarning(ex, "Blink repaint failed for {Serial} key {Key}", serial, keyIndex); }
+        }
     }
 
     // The broker-offline overlay is applied at paint time, so turning it on or off is a repaint of
@@ -208,7 +235,13 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
 
             board.KeyStateChanged += (_, e) =>
             {
-                if (!e.IsDown || !IsCurrentBoard(serial, board)) return;
+                if (!IsCurrentBoard(serial, board)) return;
+                if (!e.IsDown)
+                {
+                    // Releases always pass: one that ends a swallowed wake press matches no pending gesture.
+                    ButtonReleased?.Invoke(serial, e.Key);
+                    return;
+                }
                 // A press on a dark deck only wakes it; its gesture must not run, nor is it counted.
                 if (_brightness.OnKeyPressed())
                 {

@@ -37,8 +37,8 @@ public sealed class KeyBitmapComposerTests : IDisposable
 
     private static ButtonRenderState State(string? bg = null, string? icon = null,
         IconPlacement placement = IconPlacement.Corner, string? center = null, string? bottom = null,
-        bool dimmed = false, bool offline = false) =>
-        new("b", bg, icon, placement, center, bottom, dimmed, IsOffline: offline);
+        bool dimmed = false, bool offline = false, bool blinkOff = false) =>
+        new("b", bg, icon, placement, center, bottom, dimmed, IsOffline: offline, Blink: blinkOff, IsBlinkOffPhase: blinkOff);
 
     // Pixels in a band that differ from the background by more than `threshold` on any channel.
     private static int InkPixels(Image<Rgba32> image, Rgba32 background, int yFrom, int yTo, int xFrom = 0, int xTo = Size,
@@ -301,6 +301,8 @@ public sealed class KeyBitmapComposerTests : IDisposable
         { "value-7-chars", State("#33AA33", null, IconPlacement.Corner, "1234.56 kWh", "Energy") },
         { "value-negative", State("#0066AA", "builtin:thermometer", IconPlacement.Corner, "-12.35 °C", "Outside") },
         { "offline", State("#0066AA", "builtin:thermometer", IconPlacement.Corner, "19.2 °C", "Salon", offline: true) },
+        // #23: the dark half of a blink; the other half is "sensor-alert" itself.
+        { "sensor-alert-blink-off", State("#CC3300", "builtin:molecule-co2", IconPlacement.Corner, "1200 ppm", "CO2", blinkOff: true) },
         { "sparkline", State("#0066AA", "builtin:molecule-co2", IconPlacement.Corner, "850 ppm", "CO2") with { Sparkline = RisingTrend } },
         { "sparkline-light", State("#FFD54F", null, IconPlacement.Corner, "2.4 kW", "Solar") with { Sparkline = RisingTrend } },
     };

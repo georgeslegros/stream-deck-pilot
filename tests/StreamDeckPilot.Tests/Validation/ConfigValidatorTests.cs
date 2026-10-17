@@ -224,17 +224,42 @@ public class ConfigValidatorTests
             ])
         ]);
 
+    [Theory]
+    [InlineData("Tap")]
+    [InlineData("LongPress")]
+    [InlineData("DoubleTap")]
+    public void Gesture_Supported_IsValid(string gesture) =>
+        Assert.True(ConfigValidator.ValidateConfig(WithGesture(gesture), Mk2).IsValid);
+
     [Fact]
-    public void Gesture_Tap_IsValid() =>
-        Assert.True(ConfigValidator.ValidateConfig(WithGesture("Tap"), Mk2).IsValid);
+    public void Gesture_AllThreeOnOneButton_IsValid()
+    {
+        var config = new DeviceConfig(1, "SN001", [
+            new ButtonGridPage("main", [
+                Btn("b1", 0, "main") with
+                {
+                    Gestures = new Dictionary<string, IReadOnlyList<ButtonAction>>
+                    {
+                        ["Tap"] = [new PublishAction("a/tap", "1")],
+                        ["LongPress"] = [new PublishAction("a/long", "1")],
+                        ["DoubleTap"] = [new PublishAction("a/double", "1")],
+                    },
+                },
+            ])
+        ]);
+        var result = ConfigValidator.ValidateConfig(config, Mk2);
+        Assert.True(result.IsValid, string.Join("; ", result.Errors));
+    }
 
     // Gestures are looked up by exact name at press time: anything else would be stored and never fire.
     [Theory]
     [InlineData("tap", "must be written 'Tap'")]
     [InlineData("TAP", "must be written 'Tap'")]
-    [InlineData("LongPress", "not supported (supported: Tap)")]   // reserved, not implemented yet
-    [InlineData("DoublePress", "not supported (supported: Tap)")]
-    [InlineData("", "not supported (supported: Tap)")]
+    [InlineData("longpress", "must be written 'LongPress'")]
+    [InlineData("doubleTap", "must be written 'DoubleTap'")]
+    [InlineData("DoublePress", "not supported (supported: Tap, LongPress, DoubleTap)")]
+    [InlineData("Hold", "not supported (supported: Tap, LongPress, DoubleTap)")]
+    [InlineData("", "not supported (supported: Tap, LongPress, DoubleTap)")]
     public void Gesture_Unsupported_ReportsButtonAndName(string gesture, string expectedFragment)
     {
         var result = ConfigValidator.ValidateConfig(WithGesture(gesture), Mk2);

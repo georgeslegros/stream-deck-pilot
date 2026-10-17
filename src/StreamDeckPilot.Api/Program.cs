@@ -8,6 +8,7 @@ using StreamDeckPilot.Core.DeviceState;
 using StreamDeckPilot.Core.Json;
 using StreamDeckPilot.Core.Migration;
 using StreamDeckPilot.Infrastructure.Brightness;
+using StreamDeckPilot.Infrastructure.Gestures;
 using StreamDeckPilot.Infrastructure.Icons;
 using StreamDeckPilot.Infrastructure.Mqtt;
 using StreamDeckPilot.Infrastructure.Observability;
@@ -54,11 +55,19 @@ builder.Services.AddSingleton<BrokerIndicator>(sp =>
     new BrokerIndicator(
         TimeSpan.FromSeconds(sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<MqttOptions>>().Value.OfflineIndicatorDelaySeconds),
         logger: sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<BrokerIndicator>>()));
+// Blinking keys (#23): the scheduler times the phase, the renderer applies it, the supervisor repaints
+builder.Services.Configure<BlinkOptions>(builder.Configuration.GetSection("Blink"));
+builder.Services.AddSingleton<BlinkScheduler>(sp =>
+    new BlinkScheduler(
+        sp.GetRequiredService<DesiredStateStore>(),
+        sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<BlinkOptions>>(),
+        logger: sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<BlinkScheduler>>()));
 builder.Services.AddSingleton<IDeviceRenderer>(sp =>
     new DeviceRenderer(
         sp.GetRequiredService<KeyBitmapComposer>(),
         sp.GetRequiredService<StreamDeckMetrics>(),
-        sp.GetRequiredService<BrokerIndicator>()));
+        sp.GetRequiredService<BrokerIndicator>(),
+        sp.GetRequiredService<BlinkScheduler>()));
 
 // Brightness — desired level set over MQTT, applied by the supervisor, state published by MQTT
 builder.Services.Configure<BrightnessOptions>(builder.Configuration.GetSection("Brightness"));
@@ -80,7 +89,8 @@ builder.Services.AddSingleton<DeviceSupervisorService>(sp =>
         sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<DeviceSupervisorService>>(),
         metrics: sp.GetRequiredService<StreamDeckMetrics>(),
         brightness: sp.GetRequiredService<BrightnessController>(),
-        brokerIndicator: sp.GetRequiredService<BrokerIndicator>()));
+        brokerIndicator: sp.GetRequiredService<BrokerIndicator>(),
+        blink: sp.GetRequiredService<BlinkScheduler>()));
 builder.Services.AddSingleton<IDeviceStateProvider>(sp => sp.GetRequiredService<DeviceSupervisorService>());
 // Registration order matters: the host stops hosted services in reverse order, so the supervisor
 // must be registered BEFORE every service that renders to the boards (MQTT, staleness). Those then
@@ -90,6 +100,10 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<DeviceSupervisorSe
 
 // MQTT
 builder.Services.Configure<MqttOptions>(builder.Configuration.GetSection("Mqtt"));
+builder.Services.AddOptions<GestureOptions>()
+    .Bind(builder.Configuration.GetSection("Gestures"))
+    .Validate(o => o.LongPressMs > 0 && o.DoubleTapMs > 0, "Gestures:LongPressMs and Gestures:DoubleTapMs must be positive.")
+    .ValidateOnStart();
 builder.Services.AddSingleton<ButtonTopicIndex>();
 builder.Services.Configure<SparklineOptions>(builder.Configuration.GetSection("Sparkline"));
 builder.Services.AddSingleton<SparklineHistory>();
@@ -106,6 +120,7 @@ builder.Services.AddSingleton<MqttClientService>(sp =>
         sp.GetRequiredService<StreamDeckMetrics>(),
         sp.GetRequiredService<BrightnessController>(),
         brokerIndicator: sp.GetRequiredService<BrokerIndicator>(),
+        gestureOptions: sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<GestureOptions>>(),
         sparklines: sp.GetRequiredService<SparklineHistory>()));
 builder.Services.AddSingleton<IConfigChangeNotifier>(sp => sp.GetRequiredService<MqttClientService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<MqttClientService>());

@@ -10,6 +10,7 @@ using MQTTnet.Protocol;
 using StreamDeckPilot.Core.Models.Config;
 using StreamDeckPilot.Core.Rendering;
 using StreamDeckPilot.Infrastructure.Brightness;
+using StreamDeckPilot.Infrastructure.Gestures;
 using StreamDeckPilot.Infrastructure.Mqtt.Pipeline;
 using StreamDeckPilot.Infrastructure.Observability;
 using StreamDeckPilot.Infrastructure.Persistence;
@@ -51,9 +52,13 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
 
     // Key presses, one ordered queue per device, each drained by a single consumer (#74). A press
     // runs its actions only after the previous press on that device has finished, and against the
-    // page captured when the key went down. Devices don't wait on each other.
-    private readonly record struct KeyPress(string Serial, int KeyIndex, string? PageId);
+    // page captured when the key went down. Devices don't wait on each other. Releases and gesture
+    // timer ticks go through the same queue, so the device's GestureDetector sees them in order (#19).
+    private enum KeyEventKind { Down, Up, GestureTimer }
+    private readonly record struct KeyPress(string Serial, int KeyIndex, string? PageId,
+        KeyEventKind Kind = KeyEventKind.Down, long TimerGeneration = 0);
     private readonly Dictionary<string, Channel<KeyPress>> _pressQueues = new();
+    private readonly GestureOptions _gestureOptions;
 
     /// <summary>Test seam: awaited by a device's press consumer before it handles each press.</summary>
     internal Func<string, Task>? BeforePressHandled { get; set; }
@@ -88,8 +93,10 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         BrightnessController? brightness = null,
         TimeProvider? timeProvider = null,
         BrokerIndicator? brokerIndicator = null,
+        IOptions<GestureOptions>? gestureOptions = null,
         Sparkline.SparklineHistory? sparklines = null)
     {
+        _gestureOptions = gestureOptions?.Value ?? new GestureOptions();
         _opts = opts.Value;
         _configStore = configStore;
         _desiredState = desiredState;
@@ -126,6 +133,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         // Subscribed only here, with the stopping token captured, so a press can't reach the queues
         // before the service has started, and every press consumer runs under the service's token.
         _supervisor.ButtonPressed += (serial, keyIndex) => OnButtonPressed(serial, keyIndex, stoppingToken);
+        _supervisor.ButtonReleased += (serial, keyIndex) => OnButtonReleased(serial, keyIndex, stoppingToken);
 
         // Every background loop (these two, and one press consumer per device) is SUPERVISED: if it
         // throws unexpectedly it is logged at Critical and restarted, so a single fault can never
@@ -519,7 +527,8 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         }
 
         // Step 3 — evaluate rules
-        var (colour, icon) = InboundPipeline.EvaluateRules(value, button.Rules);
+        var rule = InboundPipeline.MatchRule(value, button.Rules);
+        var (colour, icon) = (rule?.BackgroundColour, rule?.Icon);
 
         // Step 4 — format
         var formatted = InboundPipeline.FormatValue(value, button.Display.Precision);
@@ -536,6 +545,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
             center,
             bottom,
             DependsOnBroker: true,
+            Blink: rule?.Blink == true,
             Sparkline: _sparklines?.Record(serial, button, value));
 
         _desiredState.Set(serial, pageId, button.KeyIndex, renderState);
@@ -644,6 +654,12 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         GetPressQueue(serial, stoppingToken).Writer.TryWrite(new KeyPress(serial, keyIndex, _supervisor.GetActivePage(serial)));
     }
 
+    private void OnButtonReleased(string serial, int keyIndex, CancellationToken stoppingToken)
+    {
+        if (stoppingToken.IsCancellationRequested) return;
+        GetPressQueue(serial, stoppingToken).Writer.TryWrite(new KeyPress(serial, keyIndex, null, KeyEventKind.Up));
+    }
+
     private Channel<KeyPress> GetPressQueue(string serial, CancellationToken stoppingToken)
     {
         lock (_pressQueues)
@@ -652,20 +668,23 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
             {
                 queue = Channel.CreateUnbounded<KeyPress>(new UnboundedChannelOptions { SingleReader = true });
                 _pressQueues[serial] = queue;
-                _ = Task.Run(() => SuperviseAsync($"presses-{serial}", ct => DrainPressesAsync(queue, ct), stoppingToken));
+                _ = Task.Run(() => SuperviseAsync($"presses-{serial}", ct => DrainPressesAsync(serial, queue, ct), stoppingToken));
             }
             return queue;
         }
     }
 
-    private async Task DrainPressesAsync(Channel<KeyPress> queue, CancellationToken ct)
+    private async Task DrainPressesAsync(string serial, Channel<KeyPress> queue, CancellationToken ct)
     {
+        using var gestures = new GestureDetector(_gestureOptions, _time, (keyIndex, generation) =>
+            queue.Writer.TryWrite(new KeyPress(serial, keyIndex, null, KeyEventKind.GestureTimer, generation)));
+
         await foreach (var press in queue.Reader.ReadAllAsync(ct))
         {
             try
             {
                 if (BeforePressHandled is { } hook) await hook(press.Serial);
-                await HandleButtonPressAsync(press);
+                await HandleKeyEventAsync(press, gestures);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
@@ -675,21 +694,45 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         }
     }
 
-    private async Task HandleButtonPressAsync(KeyPress press)
+    private async Task HandleKeyEventAsync(KeyPress press, GestureDetector gestures)
     {
-        var (serial, keyIndex, pageId) = press;
-        if (pageId is null) return;
+        ButtonDefinition? pressed = null;
+        IReadOnlyList<GestureEvent> recognised;
+        switch (press.Kind)
+        {
+            case KeyEventKind.Down:
+                if (press.PageId is null) return;
+                pressed = await FindButtonAsync(press.Serial, press.PageId, press.KeyIndex);
+                recognised = gestures.KeyDown(press.KeyIndex, press.PageId, pressed?.Gestures.Keys ?? []);
+                break;
+            case KeyEventKind.Up:
+                recognised = gestures.KeyUp(press.KeyIndex);
+                break;
+            default:
+                recognised = gestures.TimerElapsed(press.KeyIndex, press.TimerGeneration);
+                break;
+        }
 
+        foreach (var gesture in recognised)
+        {
+            var button = pressed is not null && gesture.KeyIndex == press.KeyIndex && gesture.PageId == press.PageId
+                ? pressed
+                : await FindButtonAsync(press.Serial, gesture.PageId, gesture.KeyIndex);
+            if (button is not null) await RunGestureAsync(press.Serial, button, gesture.Gesture);
+        }
+    }
+
+    private async Task<ButtonDefinition?> FindButtonAsync(string serial, string pageId, int keyIndex)
+    {
         var config = await _configStore.LoadAsync(serial);
-        if (config is null) return;
+        return config?.Pages.FirstOrDefault(p => p.PageId == pageId) is ButtonGridPage grid
+            ? grid.Buttons.FirstOrDefault(b => b.KeyIndex == keyIndex)
+            : null;
+    }
 
-        var page = config.Pages.FirstOrDefault(p => p.PageId == pageId);
-        if (page is not ButtonGridPage grid) return;
-
-        var button = grid.Buttons.FirstOrDefault(b => b.KeyIndex == keyIndex);
-        if (button is null) return;
-
-        if (!button.Gestures.TryGetValue(GestureNames.Tap, out var actions)) return;
+    private async Task RunGestureAsync(string serial, ButtonDefinition button, string gesture)
+    {
+        if (!button.Gestures.TryGetValue(gesture, out var actions)) return;
 
         foreach (var action in actions)
         {

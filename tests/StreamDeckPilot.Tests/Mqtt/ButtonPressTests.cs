@@ -5,6 +5,7 @@ using MQTTnet;
 using MQTTnet.Protocol;
 using StreamDeckPilot.Core.Models.Config;
 using StreamDeckPilot.Infrastructure.Brightness;
+using StreamDeckPilot.Infrastructure.Gestures;
 using StreamDeckPilot.Infrastructure.Mqtt;
 using StreamDeckPilot.Infrastructure.Persistence;
 using StreamDeckPilot.Infrastructure.Rendering;
@@ -62,9 +63,14 @@ public sealed class ButtonPressTests : IAsyncLifetime
     private sealed record Harness(
         MqttClientService Service, DeviceSupervisorService Supervisor, Dictionary<string, FakeMacroBoard> Boards);
 
-    private async Task<Harness> StartAsync(
+    private Task<Harness> StartAsync(
         IReadOnlyList<ButtonGridPage> pages, BrightnessController? brightness = null, bool startService = true,
-        params string[] serials)
+        params string[] serials) =>
+        StartAsync(pages, new GestureOptions(), brightness, startService, serials);
+
+    private async Task<Harness> StartAsync(
+        IReadOnlyList<ButtonGridPage> pages, GestureOptions gestures, BrightnessController? brightness = null,
+        bool startService = true, params string[] serials)
     {
         if (serials.Length == 0) serials = [SerialA];
         var opts = Options.Create(new StorageOptions { BaseDirectory = _storageDir });
@@ -87,7 +93,7 @@ public sealed class ButtonPressTests : IAsyncLifetime
             }),
             configStore, desired, new ButtonTopicIndex(), new DeviceRenderer(), supervisor,
             new Infrastructure.Staleness.LastUpdatedStore(), NullLogger<MqttClientService>.Instance,
-            brightness: brightness);
+            brightness: brightness, gestureOptions: Options.Create(gestures));
 
         var subscriber = new MqttClientFactory().CreateMqttClient();
         subscriber.ApplicationMessageReceivedAsync += e =>
@@ -281,5 +287,83 @@ public sealed class ButtonPressTests : IAsyncLifetime
         // Presses are handled in order, so once "second" arrives "first" would already have.
         Assert.True(await WaitForAsync(() => Payloads("cmd/dark").Length == 1));
         Assert.Equal(["second"], Payloads("cmd/dark"));
+    }
+
+    // ── Gestures (#19) ────────────────────────────────────────────────────────
+
+    private static ButtonDefinition GestureKey(int keyIndex, params string[] gestures) =>
+        new($"g{keyIndex}", keyIndex, "main",
+            new DisplaySpec(null, IconPlacement.Corner, Center: new TextZone($"G{keyIndex}", null)),
+            null, [],
+            gestures.ToDictionary(g => g, g => (IReadOnlyList<ButtonAction>)[new PublishAction("cmd/gesture", g)]));
+
+    [Fact]
+    public async Task LongPress_FiresWhileTheKeyIsStillHeld_AndTheReleaseDoesNotTap()
+    {
+        var h = await StartAsync([new ButtonGridPage("main", [GestureKey(0, "Tap", "LongPress")])],
+            new GestureOptions { LongPressMs = 200 });
+
+        h.Boards[SerialA].SimulateKeyPress(0); // held, never released before the check
+
+        Assert.True(await WaitForAsync(() => Payloads("cmd/gesture").Length == 1), "long press didn't fire while held");
+        h.Boards[SerialA].SimulateKeyRelease(0);
+        await Task.Delay(500, CancellationToken.None);
+        Assert.Equal(["LongPress"], Payloads("cmd/gesture"));
+    }
+
+    [Fact]
+    public async Task ShortPress_OnALongPressKey_IsATap()
+    {
+        var h = await StartAsync([new ButtonGridPage("main", [GestureKey(0, "Tap", "LongPress")])],
+            new GestureOptions { LongPressMs = 5_000 });
+
+        h.Boards[SerialA].SimulateKeyPress(0);
+        h.Boards[SerialA].SimulateKeyRelease(0);
+
+        Assert.True(await WaitForAsync(() => Payloads("cmd/gesture").Length == 1));
+        Assert.Equal(["Tap"], Payloads("cmd/gesture"));
+    }
+
+    [Fact]
+    public async Task TwoQuickPresses_OnADoubleTapKey_AreOneDoubleTap()
+    {
+        var h = await StartAsync([new ButtonGridPage("main", [GestureKey(0, "Tap", "DoubleTap")])],
+            new GestureOptions { DoubleTapMs = 2_000 });
+        var board = h.Boards[SerialA];
+
+        board.SimulateKeyPress(0);
+        board.SimulateKeyRelease(0);
+        board.SimulateKeyPress(0);
+        board.SimulateKeyRelease(0);
+
+        Assert.True(await WaitForAsync(() => Payloads("cmd/gesture").Length == 1));
+        await Task.Delay(2_500, CancellationToken.None); // past the window: no trailing Tap
+        Assert.Equal(["DoubleTap"], Payloads("cmd/gesture"));
+    }
+
+    [Fact]
+    public async Task SinglePress_OnADoubleTapKey_TapsOnceTheWindowCloses()
+    {
+        var h = await StartAsync([new ButtonGridPage("main", [GestureKey(0, "Tap", "DoubleTap")])],
+            new GestureOptions { DoubleTapMs = 200 });
+
+        h.Boards[SerialA].SimulateKeyPress(0);
+        h.Boards[SerialA].SimulateKeyRelease(0);
+
+        Assert.True(await WaitForAsync(() => Payloads("cmd/gesture").Length == 1));
+        Assert.Equal(["Tap"], Payloads("cmd/gesture"));
+    }
+
+    [Fact]
+    public async Task TapOnlyKey_FiresOnKeyDown_EvenWithLongGestureTimings()
+    {
+        // Timings this long would be noticed if a Tap-only key ever waited on them.
+        var h = await StartAsync([new ButtonGridPage("main", [GestureKey(0, "Tap")])],
+            new GestureOptions { LongPressMs = 30_000, DoubleTapMs = 30_000 });
+
+        h.Boards[SerialA].SimulateKeyPress(0); // no release
+
+        Assert.True(await WaitForAsync(() => Payloads("cmd/gesture").Length == 1, seconds: 5));
+        Assert.Equal(["Tap"], Payloads("cmd/gesture"));
     }
 }
