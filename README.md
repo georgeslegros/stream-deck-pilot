@@ -215,6 +215,7 @@ read by `Program.cs`, `MqttOptions.cs` and `BrightnessOptions.cs`.
 | `PressFeedback__FlashMilliseconds` | How long the red flash lasts; also how long the pending look shows on a key with no `inbound` binding. | `600` |
 | `Gestures__LongPressMs` | How long a key must be held for its `LongPress` gesture. | `500` |
 | `Gestures__DoubleTapMs` | How long after a release a second press counts as a `DoubleTap`. Only keys that define `DoubleTap` wait this long. | `300` |
+| `Navigation__HomeAfterInactivitySeconds` | After this many seconds without a key press or page change, a deck goes back to its first page (see [Return to the home page](#return-to-the-home-page)). `0` disables it. A device config can override it. | `0` (disabled) |
 | `Sparkline__MaxPoints` | Points kept per button for a `display.sparkline` trend (see the API guide). The window is split into this many buckets; values in the same bucket replace each other. | `240` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP gRPC endpoint for metrics and traces (standard OpenTelemetry variable). | `http://localhost:4317` |
 
@@ -348,6 +349,7 @@ Field reference (from the domain model in `src/StreamDeckPilot.Core/Models/Confi
 - **`serial`** — must match a serial already present in `catalog.json`.
 - **`pages[].pageType`** — type discriminator. `ButtonGrid` is the only type at launch.
 - **`pages[].pageId`** — stable page identifier; targeted by `Navigate` actions.
+- **`homeAfterInactivitySeconds`** — optional. The deck returns to `pages[0]` (the home page) after this many idle seconds. Overrides `Navigation__HomeAfterInactivitySeconds` for this deck (see [Return to the home page](#return-to-the-home-page)): `0` turns it off, `1`–`86400` sets the timeout. Omit it to use the service default.
 - **`buttonId`** — stable, human-readable button identifier.
 - **`keyIndex`** — 0-based key position, left-to-right, top-to-bottom. Range depends on the device grid (e.g. 0–14 for a 5×3, 0–31 for a 4×8 XL).
 - **`display`**, **`rules`** and **`gestures`** are required on every button; use `{}`, `[]` and `{}` for "none". A button that omits one is rejected with `400`.
@@ -483,6 +485,20 @@ Per key, `display.pressFeedback` overrides the behaviour, and `display.pressFeed
 | `"auto"` (or unset) | As above: ring, then red flash if the state doesn't come back in time. |
 | `"ring"` | Ring until the state comes back or the timeout passes, never red. For slow devices, or a key whose press may not change its value (a setpoint already at its limit). |
 | `"off"` | No feedback on this key. |
+
+### Return to the home page
+
+Set `Navigation__HomeAfterInactivitySeconds` (or `homeAfterInactivitySeconds` in a device's config)
+to send an idle deck back to its **home page**, which is always **`pages[0]`**, the first page of its
+config. Reordering the pages changes the home page. It is off by default.
+
+- Every key press and every page change (a `Navigate` action or `POST /devices/{serial}/navigate`)
+  restarts the countdown. So does the press that only wakes a dark deck.
+- When it runs out on any other page, the deck switches to the home page and redraws it. On the
+  home page nothing happens.
+- It never changes brightness. A deck dimmed to `0` stays dark: the page switch happens anyway, so
+  the next wake already shows the home page.
+- The timer is per deck. A config change restarts it with the config's own override, if any.
 
 ### Broker outages
 
