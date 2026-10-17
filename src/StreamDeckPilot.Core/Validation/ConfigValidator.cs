@@ -6,15 +6,21 @@ namespace StreamDeckPilot.Core.Validation;
 
 public static class ConfigValidator
 {
+    public const int MaxHomeAfterInactivitySeconds = 86_400; // one day
+
     public static ValidationResult ValidateConfig(DeviceConfig config, DeviceEntry device)
     {
         var errors = new List<string>();
         var warnings = new List<string>();
 
+        // Checked before the structural early returns below, so it is reported alongside them.
+        if (config.HomeAfterInactivitySeconds is < 0 or > MaxHomeAfterInactivitySeconds)
+            errors.Add($"homeAfterInactivitySeconds must be between 0 (off) and {MaxHomeAfterInactivitySeconds} (got {config.HomeAfterInactivitySeconds}); omit it to use the service default.");
+
         // JSON doesn't enforce the model's nullability: an omitted list or a null entry deserialises
         // as null, and the checks below (and everything downstream) would dereference it (#61, #78).
         if (config.Pages is null)
-            return new ValidationResult(["pages is required (use [] for none)."], warnings);
+            return new ValidationResult([.. errors, "pages is required (use [] for none)."], warnings);
 
         for (var i = 0; i < config.Pages.Count; i++)
         {

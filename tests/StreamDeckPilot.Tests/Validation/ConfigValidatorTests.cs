@@ -294,4 +294,33 @@ public class ConfigValidatorTests
         Assert.Contains("'b1' rule 2", error);
         Assert.Contains("eq:on", error);
     }
+
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData(0, true)]
+    [InlineData(120, true)]
+    [InlineData(86_400, true)]
+    [InlineData(-1, false)]
+    [InlineData(86_401, false)]
+    public void HomeAfterInactivitySeconds_IsOptional_AndBounded(int? seconds, bool valid)
+    {
+        var config = new DeviceConfig(2, "SN001", [new ButtonGridPage("main", [Btn("b1", 0, "main")])], seconds);
+
+        var result = ConfigValidator.ValidateConfig(config, Mk2);
+
+        Assert.Equal(valid, result.IsValid);
+        if (!valid) Assert.Contains("homeAfterInactivitySeconds", Assert.Single(result.Errors));
+    }
+
+    [Fact]
+    public void HomeAfterInactivitySeconds_IsReportedAlongsideStructuralErrors()
+    {
+        var config = new DeviceConfig(2, "SN001", null!, -5);
+
+        var result = ConfigValidator.ValidateConfig(config, Mk2);
+
+        Assert.Equal(2, result.Errors.Count);
+        Assert.Contains(result.Errors, e => e.Contains("homeAfterInactivitySeconds"));
+        Assert.Contains(result.Errors, e => e.Contains("pages is required"));
+    }
 }
