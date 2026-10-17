@@ -70,6 +70,11 @@ public static class ConfigValidator
                 if (button.Display.Precision is < 0 or > DisplaySpec.MaxPrecision)
                     errors.Add($"Button '{button.ButtonId}': display.precision must be between 0 and {DisplaySpec.MaxPrecision} (got {button.Display.Precision}).");
 
+                if (button.Display.Sparkline is { } sparkline && !(sparkline.Hours > 0 && sparkline.Hours <= SparklineSpec.MaxHours))
+                    errors.Add($"Button '{button.ButtonId}': display.sparkline.hours must be greater than 0 and at most {SparklineSpec.MaxHours} (got {sparkline.Hours}).");
+                if (button.Display.Sparkline is not null && button.Inbound is null)
+                    warnings.Add($"Button '{button.ButtonId}': display.sparkline has no effect without an inbound binding.");
+
                 if (IconReference.Validate(button.Display.BaseIcon) is { } baseIconError)
                     errors.Add($"Button '{button.ButtonId}': display.baseIcon '{button.Display.BaseIcon}' {baseIconError}.");
 
