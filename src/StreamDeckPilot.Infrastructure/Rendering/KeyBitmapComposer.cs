@@ -92,6 +92,10 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver, ILogger<KeyBitm
             }
         }
 
+        // Trend (#25) sits under the text, like the watermark, so the value always reads on top.
+        if (state.Sparkline is { Points.Count: > 0 } sparkline)
+            DrawSparkline(image, sparkline, ink);
+
         if (hasCenter)
             DrawCenterValue(image, state.CenterText!, ink, hasBottom);
 
@@ -214,6 +218,44 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver, ILogger<KeyBitm
             }
         }
         catch (Exception ex) { IconFailed(reference, ex); }
+    }
+
+    // ── Sparkline (tunable) ──────────────────────────────────────────────────────
+    // A faint step line with a fainter area under it, in the lower part of the tile. Ink-coloured
+    // so it follows the rule background (dark ink on light backgrounds, white on dark ones).
+    private const float SparklineTop = 38f;       // highest point of the line (max value)
+    private const float SparklineBottom = 64f;    // lowest point of the line (min value)
+    private const float SparklineLineOpacity = 0.45f;
+    private const float SparklineAreaOpacity = 0.14f;
+
+    // Step line: each value holds until the next point. Values are scaled between the series'
+    // min and max; a flat series (one value) draws across the middle of the band.
+    private static void DrawSparkline(Image<Rgba32> image, SparklineSeries series, Color ink)
+    {
+        var range = series.Max - series.Min;
+        float Y(double v) => range > 0
+            ? SparklineBottom - (float)((v - series.Min) / range) * (SparklineBottom - SparklineTop)
+            : (SparklineTop + SparklineBottom) / 2;
+        float X(double x) => (float)(Math.Clamp(x, 0, 1) * (Size - 1));
+
+        var line = new List<PointF>(series.Points.Count * 2);
+        for (var i = 0; i < series.Points.Count; i++)
+        {
+            var p = series.Points[i];
+            if (i > 0)
+                line.Add(new PointF(X(p.X), Y(series.Points[i - 1].Value)));   // hold the previous value
+            line.Add(new PointF(X(p.X), Y(p.Value)));
+        }
+        if (line.Count == 1)
+            line.Add(new PointF(X(1), line[0].Y));
+
+        var area = new List<PointF>(line.Count + 2) { new(line[0].X, Size) };
+        area.AddRange(line);
+        area.Add(new PointF(line[^1].X, Size));
+
+        image.Mutate(ctx => ctx
+            .FillPolygon(WithAlpha(ink, SparklineAreaOpacity), area.ToArray())
+            .DrawLine(WithAlpha(ink, SparklineLineOpacity), 1.5f, line.ToArray()));
     }
 
     // Non-fatal: the key keeps its background and text, only the icon is missing.

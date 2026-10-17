@@ -4,6 +4,7 @@ using StreamDeckPilot.Core.Models.Config;
 using StreamDeckPilot.Core.Rendering;
 using StreamDeckPilot.Infrastructure.Persistence;
 using StreamDeckPilot.Infrastructure.Rendering;
+using StreamDeckPilot.Infrastructure.Sparkline;
 using StreamDeckPilot.Infrastructure.Supervision;
 
 namespace StreamDeckPilot.Infrastructure.Staleness;
@@ -14,7 +15,8 @@ public sealed class StalenessMonitor(
     DesiredStateStore desiredState,
     IDeviceRenderer renderer,
     DeviceSupervisorService supervisor,
-    ILogger<StalenessMonitor> logger) : BackgroundService
+    ILogger<StalenessMonitor> logger,
+    SparklineHistory? sparklines = null) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -39,6 +41,8 @@ public sealed class StalenessMonitor(
         {
             var config = await configStore.LoadAsync(serial);
             if (config is null) continue;
+
+            RefreshSparklines(serial, config);
 
             foreach (var page in config.Pages)
             {
@@ -92,6 +96,34 @@ public sealed class StalenessMonitor(
                     }
                 }
             }
+        }
+    }
+
+    // Sparkline keys (#25) on the page on screen slide their time window even when no value
+    // arrives (on-change topics). SparklineHistory.Refresh rate-limits each key to once per bucket,
+    // at least a minute apart, so most ticks repaint nothing; pages with no sparkline cost nothing.
+    private void RefreshSparklines(string serial, DeviceConfig config)
+    {
+        if (sparklines is null) return;
+        sparklines.Retain(serial, config.Pages.OfType<ButtonGridPage>()
+            .SelectMany(p => p.Buttons).Select(b => b.ButtonId).ToHashSet(StringComparer.Ordinal));
+
+        var activePage = supervisor.GetActivePage(serial);
+        if (config.Pages.FirstOrDefault(p => p.PageId == activePage) is not ButtonGridPage grid) return;
+
+        foreach (var button in grid.Buttons)
+        {
+            if (button.Display?.Sparkline is null) continue;
+            var current = desiredState.Get(serial, grid.PageId, button.KeyIndex);
+            if (current?.Sparkline is null) continue;   // no value yet: nothing to slide
+            if (sparklines.Refresh(serial, button) is not { } series) continue;
+
+            // Compare-and-set like the staleness writes below: a value arriving meanwhile wins.
+            if (!desiredState.TryUpdate(serial, grid.PageId, button.KeyIndex, current, current with { Sparkline = series }))
+                continue;
+            var board = supervisor.GetBoard(serial);
+            if (board?.IsConnected == true)
+                renderer.RenderLatest(board, serial, grid.PageId, button.KeyIndex, desiredState);
         }
     }
 }

@@ -53,7 +53,8 @@ A tile is composed from an optional icon plus two **text zones**. You decide wha
   "iconPlacement": "corner",           // "corner" | "center"   (see below)
   "center": { "label": null,  "template": "{value} {unit}" },   // large hero text
   "bottom": { "label": "Bureau", "template": null },            // small bottom caption
-  "precision": 1                       // optional: decimals for numeric {value}, 0–3
+  "precision": 1,                      // optional: decimals for numeric {value}, 0–3
+  "sparkline": { "hours": 6 }          // optional: faint trend of the last N hours behind the value
 }
 ```
 
@@ -64,6 +65,26 @@ rejected on `PUT`). When set, the value always shows exactly that many decimals:
 shows `1.23` and `1.2` shows `1.20`. With `0`, `45.3` shows `45`. Rounding is half away from zero.
 When omitted or `null`, whole numbers show no decimal (`45`) and others show one (`21.6`). Text
 values are never changed.
+
+### `sparkline`
+
+Optional. `{ "hours": N }` draws a faint trend of the button's numeric values over the last `N`
+hours (greater than 0, at most 48) in the lower part of the tile, behind the value. It is a step
+line: each value holds until the next one, so a topic that only publishes when its value changes
+still draws correctly, and the last value is carried to the right edge. The line is scaled between
+the lowest and highest value in the window and uses the same ink as the text, so it follows the
+rule background colour.
+
+- Only buttons with a `sparkline` keep history, and only numeric values are recorded (text values
+  such as `unavailable` leave the trend as it is). It needs an `inbound` binding; without one the
+  `PUT` succeeds with a warning.
+- History is kept in memory only: after a restart the trend starts empty and fills as values arrive.
+- At most `Sparkline__MaxPoints` points (default 240) are kept per button. The window is split into
+  that many buckets, and a value arriving in the same bucket as the previous one replaces it, so a
+  spike shorter than a bucket (90 s for a 6 h window) may not show.
+- The trend is redrawn when a value arrives. Between values, sparkline keys on the page on screen
+  are repainted once per bucket (at least a minute apart) so the window keeps sliding even for a
+  topic that rarely publishes. Pages without a sparkline are never repainted for this.
 
 ### Text zones — `center` and `bottom`
 
@@ -257,7 +278,8 @@ Full OpenAPI 3 schema (no auth required).
     "iconPlacement": "corner",           // "corner" (faint watermark behind the text) | "center" (large hero)
     "center": { "label": null,  "template": "{value} {unit}" },  // large hero text
     "bottom": { "label": "CO₂",  "template": null },             // small caption
-    "precision": 0                       // optional: decimals for numeric {value} (0–3); null = default
+    "precision": 0,                      // optional: decimals for numeric {value} (0–3); null = default
+    "sparkline": null                    // optional: { "hours": 6 } draws a trend behind the value
   },
 
   "inbound": {                       // null for press-only buttons

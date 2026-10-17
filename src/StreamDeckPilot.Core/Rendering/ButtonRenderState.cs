@@ -13,7 +13,8 @@ public sealed record ButtonRenderState(
     bool DependsOnBroker = false, // MQTT-bound or publishes on tap: affected by a broker outage (#26)
     bool IsOffline = false,       // render-time only: set on a copy while painting, never stored
     bool Blink = false,           // the matching rule asks for attention (#23)
-    bool IsBlinkOffPhase = false) // render-time only: the "off" half of a blink, set while painting
+    bool IsBlinkOffPhase = false, // render-time only: the "off" half of a blink, set while painting
+    SparklineSeries? Sparkline = null) // trend drawn behind the text (#25), null when not opted in
 {
     /// <summary>True when the key should actually blink: stale and broker-offline keys don't.</summary>
     public bool BlinkActive => Blink && !IsDimmed && !IsOffline;
