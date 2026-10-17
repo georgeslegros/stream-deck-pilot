@@ -695,7 +695,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         // Pending look until the key's state comes back (#22). Not when the publish can't go out:
         // the offline indicator covers that.
         if (_client.IsConnected && actions.Any(a => a is PublishAction))
-            _pressFeedback?.Pressed(serial, pageId, keyIndex, button.ButtonId, awaitsState: button.Inbound is not null);
+            _pressFeedback?.Pressed(serial, pageId, button);
 
         foreach (var action in actions)
         {

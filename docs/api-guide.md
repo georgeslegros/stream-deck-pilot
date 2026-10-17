@@ -51,9 +51,25 @@ A tile is composed from an optional icon plus two **text zones**. You decide wha
   "iconPlacement": "corner",           // "corner" | "center"   (see below)
   "center": { "label": null,  "template": "{value} {unit}" },   // large hero text
   "bottom": { "label": "Bureau", "template": null },            // small bottom caption
-  "precision": 1                       // optional: decimals for numeric {value}, 0–3
+  "precision": 1,                      // optional: decimals for numeric {value}, 0–3
+  "pressFeedback": "ring",             // optional: "auto" | "ring" | "off"; unset = "auto"
+  "pressFeedbackTimeoutSeconds": 15    // optional: 1–120; unset = PressFeedback:TimeoutSeconds
 }
 ```
+
+### `pressFeedback` and `pressFeedbackTimeoutSeconds`
+
+A press that publishes draws a ring around the key until the key's next `inbound` value arrives
+(see the README, *Press feedback*). These optional fields tune it per key:
+
+- `"auto"` (or omitted): ring, then a red flash if no value arrives within the timeout.
+- `"ring"`: ring until a value arrives or the timeout passes, never red. Use it for slow devices or
+  keys whose press may not change the value.
+- `"off"`: no feedback.
+
+`pressFeedbackTimeoutSeconds` (1–120) replaces the global `PressFeedback:TimeoutSeconds` for this
+key. A key with no `inbound` binding always shows a short ring only. Any other mode spelling, or a
+timeout outside 1–120, is rejected on `PUT`. Both fields are left out of the stored JSON when unset.
 
 ### `precision`
 

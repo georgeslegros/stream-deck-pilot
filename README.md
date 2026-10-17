@@ -466,6 +466,15 @@ brings the new state:
 - While the broker is offline (see below) there is no feedback: the offline look already explains
   why nothing happens.
 
+Per key, `display.pressFeedback` overrides the behaviour, and `display.pressFeedbackTimeoutSeconds`
+(1–120) overrides the global timeout. Both are optional; leave them out for the defaults.
+
+| `pressFeedback` | Behaviour |
+|---|---|
+| `"auto"` (or unset) | As above: ring, then red flash if the state doesn't come back in time. |
+| `"ring"` | Ring until the state comes back or the timeout passes, never red. For slow devices, or a key whose press may not change its value (a setpoint already at its limit). |
+| `"off"` | No feedback on this key. |
+
 ### Broker outages
 
 When the broker has been unreachable for `Mqtt__OfflineIndicatorDelaySeconds` (default 3 s), every

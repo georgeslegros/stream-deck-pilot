@@ -352,6 +352,26 @@ public sealed class ButtonPressTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task PressThatOnlyWakesADarkDeck_HasNoFeedback()
+    {
+        var feedback = UseFeedback();
+        var pressed = new ConcurrentQueue<string>();
+        feedback.Changed += (_, _, key) => pressed.Enqueue($"k{key}");
+        using var brightness = new BrightnessController(Options.Create(new BrightnessOptions()));
+        var h = await StartAsync([new ButtonGridPage("main", [LampKey(0, "home/lamp0/state"), LampKey(1, "home/lamp1/state")])],
+            brightness);
+        brightness.SetDesired(0);
+
+        h.Boards[SerialA].SimulateKeyPress(0); // wakes the deck only: no action, so no feedback
+        h.Boards[SerialA].SimulateKeyPress(1); // awake now: runs, with feedback
+
+        Assert.True(await WaitForAsync(() => Payloads("cmd/lamp1").Length == 1));
+        Assert.True(await WaitForAsync(() => !pressed.IsEmpty));
+        Assert.Equal(PressFeedback.None, feedback.Get(SerialA, "lamp0"));
+        Assert.DoesNotContain("k0", pressed);
+    }
+
+    [Fact]
     public async Task Press_OnNavigateOnlyKey_HasNoPendingLook()
     {
         var feedback = UseFeedback();

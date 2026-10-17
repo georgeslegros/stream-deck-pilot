@@ -135,6 +135,78 @@ public sealed class PressFeedbackTrackerTests
         Assert.Equal(PressFeedback.None, Feedback(tracker));
     }
 
+    // ── Per-button mode and timeout ──────────────────────────────────────────
+
+    private static ButtonDefinition Button(string? mode = null, double? timeoutSeconds = null, bool inbound = true) =>
+        new("b3", 3, "main", new DisplaySpec(PressFeedback: mode, PressFeedbackTimeoutSeconds: timeoutSeconds),
+            inbound ? new InboundBinding("home/b3", "value", null, false, null) : null, [],
+            new Dictionary<string, IReadOnlyList<ButtonAction>> { ["Tap"] = [new PublishAction("cmd/b3", "1")] });
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("auto")]
+    public void AutoMode_FlashesRedAtTheTimeout(string? mode)
+    {
+        var tracker = Tracker();
+        tracker.Pressed(Serial, "main", Button(mode));
+        Assert.Equal(PressFeedback.Pending, Feedback(tracker));
+
+        _time.FireAll();
+        Assert.Equal(PressFeedback.Failed, Feedback(tracker));
+    }
+
+    [Fact]
+    public void RingMode_EndsAtTheTimeout_WithoutTheRedFlash()
+    {
+        var tracker = Tracker();
+        tracker.Pressed(Serial, "main", Button("ring"));
+        Assert.Equal(PressFeedback.Pending, Feedback(tracker));
+        Assert.Equal(TimeSpan.FromSeconds(3), _time.Timers[^1].DueTime);
+
+        _time.FireAll();
+        Assert.Equal(PressFeedback.None, Feedback(tracker));
+        Assert.Equal(2, _changes.Count); // ring on, ring off: never red
+        _time.FireAll();
+        Assert.Equal(PressFeedback.None, Feedback(tracker));
+    }
+
+    [Fact]
+    public void RingMode_IsClearedByTheKeysState()
+    {
+        var tracker = Tracker();
+        tracker.Pressed(Serial, "main", Button("ring"));
+        tracker.StateReceived(Serial, "b3");
+        Assert.Equal(PressFeedback.None, Feedback(tracker));
+    }
+
+    [Fact]
+    public void OffMode_NoFeedback()
+    {
+        var tracker = Tracker();
+        tracker.Pressed(Serial, "main", Button("off"));
+        Assert.Equal(PressFeedback.None, Feedback(tracker));
+        Assert.Empty(_time.Timers);
+        Assert.Empty(_changes);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("ring")]
+    public void PerButtonTimeout_OverridesTheGlobalOne(string? mode)
+    {
+        var tracker = Tracker();
+        tracker.Pressed(Serial, "main", Button(mode, timeoutSeconds: 15));
+        Assert.Equal(TimeSpan.FromSeconds(15), _time.Timers[^1].DueTime);
+    }
+
+    [Fact]
+    public void ButtonWithoutInbound_ShowsTheShortRing_WhateverTheTimeout()
+    {
+        var tracker = Tracker();
+        tracker.Pressed(Serial, "main", Button(timeoutSeconds: 15, inbound: false));
+        Assert.Equal(TimeSpan.FromMilliseconds(600), _time.Timers[^1].DueTime);
+    }
+
     // ── Renderer overlay ─────────────────────────────────────────────────────
 
     private static ButtonRenderState State(bool dependsOnBroker = true) =>

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using StreamDeckPilot.Core.Models.Config;
 using StreamDeckPilot.Core.Rendering;
 using StreamDeckPilot.Infrastructure.Mqtt;
 
@@ -21,6 +22,7 @@ public sealed class PressFeedbackTracker : IDisposable
         public required string PageId { get; init; }
         public required int KeyIndex { get; init; }
         public required int Generation { get; init; }
+        public required bool CanFail { get; init; }
         public PressFeedback State { get; set; } = PressFeedback.Pending;
         public ITimer? Timer { get; set; }
     }
@@ -54,10 +56,25 @@ public sealed class PressFeedbackTracker : IDisposable
     }
 
     /// <summary>
-    /// A press on this button published something. <paramref name="awaitsState"/> is true when the
-    /// button has an inbound topic whose next value confirms the press.
+    /// A press on this button published something. Applies the button's own
+    /// <see cref="DisplaySpec.PressFeedback"/> mode and timeout over the global options.
     /// </summary>
-    public void Pressed(string serial, string pageId, int keyIndex, string buttonId, bool awaitsState)
+    public void Pressed(string serial, string pageId, ButtonDefinition button)
+    {
+        var mode = button.Display?.PressFeedback ?? PressFeedbackModes.Auto;
+        if (mode == PressFeedbackModes.Off) return;
+        var timeout = button.Display?.PressFeedbackTimeoutSeconds is { } seconds ? TimeSpan.FromSeconds(seconds) : (TimeSpan?)null;
+        Pressed(serial, pageId, button.KeyIndex, button.ButtonId,
+            awaitsState: button.Inbound is not null, canFail: mode == PressFeedbackModes.Auto, timeout);
+    }
+
+    /// <summary>
+    /// A press on this button published something. <paramref name="awaitsState"/> is true when the
+    /// button has an inbound topic whose next value confirms the press; <paramref name="canFail"/>
+    /// false ends the wait at the timeout without the red flash ("ring" mode).
+    /// </summary>
+    public void Pressed(string serial, string pageId, int keyIndex, string buttonId, bool awaitsState,
+        bool canFail = true, TimeSpan? timeout = null)
     {
         if (!_opts.Enabled || _broker?.ShowOffline == true) return;
 
@@ -65,9 +82,9 @@ public sealed class PressFeedbackTracker : IDisposable
         lock (_entries)
         {
             if (_entries.Remove(key, out var old)) old.Timer?.Dispose();
-            var entry = new Entry { PageId = pageId, KeyIndex = keyIndex, Generation = ++_generation };
+            var entry = new Entry { PageId = pageId, KeyIndex = keyIndex, Generation = ++_generation, CanFail = canFail };
             entry.Timer = awaitsState
-                ? _time.CreateTimer(_ => OnTimeout(key, entry.Generation), null, Timeout(), System.Threading.Timeout.InfiniteTimeSpan)
+                ? _time.CreateTimer(_ => OnTimeout(key, entry.Generation), null, timeout ?? Timeout(), System.Threading.Timeout.InfiniteTimeSpan)
                 : _time.CreateTimer(_ => Clear(key, entry.Generation), null, Flash(), System.Threading.Timeout.InfiniteTimeSpan);
             _entries[key] = entry;
         }
@@ -91,9 +108,10 @@ public sealed class PressFeedbackTracker : IDisposable
         {
             if (!_entries.TryGetValue(key, out entry!) || entry.Generation != generation) return;
             entry.Timer?.Dispose();
-            if (_broker?.ShowOffline == true)
+            if (!entry.CanFail || _broker?.ShowOffline == true)
             {
-                // The broker went away while waiting: that's not this key's failure.
+                // "ring" mode just stops waiting. And if the broker went away while waiting, that's
+                // not this key's failure.
                 _entries.Remove(key);
             }
             else
@@ -103,8 +121,8 @@ public sealed class PressFeedbackTracker : IDisposable
             }
         }
         if (entry.State == PressFeedback.Failed)
-            _logger?.LogWarning("No state for button {ButtonId} on {Serial} within {Timeout:0.#}s of a press",
-                key.ButtonId, key.Serial, _opts.TimeoutSeconds);
+            _logger?.LogWarning("No state for button {ButtonId} on {Serial} within the press feedback timeout",
+                key.ButtonId, key.Serial);
         Changed?.Invoke(key.Serial, entry.PageId, entry.KeyIndex);
     }
 
