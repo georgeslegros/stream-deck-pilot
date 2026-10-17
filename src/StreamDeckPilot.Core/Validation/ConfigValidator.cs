@@ -82,6 +82,11 @@ public static class ConfigValidator
                     && !(timeout >= DisplaySpec.MinPressFeedbackTimeoutSeconds && timeout <= DisplaySpec.MaxPressFeedbackTimeoutSeconds))
                     errors.Add($"Button '{button.ButtonId}': display.pressFeedbackTimeoutSeconds must be between {DisplaySpec.MinPressFeedbackTimeoutSeconds} and {DisplaySpec.MaxPressFeedbackTimeoutSeconds} (got {timeout.ToString(System.Globalization.CultureInfo.InvariantCulture)}).");
 
+                if (button.Display.Sparkline is { } sparkline && !(sparkline.Hours > 0 && sparkline.Hours <= SparklineSpec.MaxHours))
+                    errors.Add($"Button '{button.ButtonId}': display.sparkline.hours must be greater than 0 and at most {SparklineSpec.MaxHours} (got {sparkline.Hours}).");
+                if (button.Display.Sparkline is not null && button.Inbound is null)
+                    warnings.Add($"Button '{button.ButtonId}': display.sparkline has no effect without an inbound binding.");
+
                 if (IconReference.Validate(button.Display.BaseIcon) is { } baseIconError)
                     errors.Add($"Button '{button.ButtonId}': display.baseIcon '{button.Display.BaseIcon}' {baseIconError}.");
 

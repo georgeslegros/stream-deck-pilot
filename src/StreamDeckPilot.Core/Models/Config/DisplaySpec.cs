@@ -7,6 +7,7 @@ namespace StreamDeckPilot.Core.Models.Config;
 //   Center → large hero text;  Bottom → small caption;  icon → per IconPlacement.
 // Precision is the number of decimals {value} shows for numbers (0–3); null keeps the
 // default: whole numbers without a decimal, other numbers with one.
+// Sparkline, when set, draws a faint trend of the recent numeric values behind the text.
 // PressFeedback overrides the press feedback for this key (#22): "auto" | "ring" | "off";
 // null means "auto". PressFeedbackTimeoutSeconds overrides the global wait for the key's
 // state (null = global). Both are left out of the JSON when unset, so existing configs
@@ -17,6 +18,7 @@ public record DisplaySpec(
     TextZone? Center = null,
     TextZone? Bottom = null,
     int? Precision = null,
+    SparklineSpec? Sparkline = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PressFeedback = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] double? PressFeedbackTimeoutSeconds = null)
 {

@@ -305,7 +305,53 @@ public sealed class KeyBitmapComposerTests : IDisposable
         { "press-failed", State("#FFB300", "builtin:lightbulb", IconPlacement.Center, null, "Lamp") with { Feedback = PressFeedback.Failed } },
         // #23: the dark half of a blink; the other half is "sensor-alert" itself.
         { "sensor-alert-blink-off", State("#CC3300", "builtin:molecule-co2", IconPlacement.Corner, "1200 ppm", "CO2", blinkOff: true) },
+        { "sparkline", State("#0066AA", "builtin:molecule-co2", IconPlacement.Corner, "850 ppm", "CO2") with { Sparkline = RisingTrend } },
+        { "sparkline-light", State("#FFD54F", null, IconPlacement.Corner, "2.4 kW", "Solar") with { Sparkline = RisingTrend } },
     };
+
+    // ── Sparkline (#25) ──────────────────────────────────────────────────────
+
+    private static readonly SparklineSeries RisingTrend = new([
+        new(0, 420), new(0.2, 480), new(0.35, 650), new(0.6, 600), new(0.8, 850), new(1, 850),
+    ], 420, 850);
+
+    [Fact]
+    public void Sparkline_StaysOutOfTheTopOfTheTile()
+    {
+        using var plain = _composer.ComposeImage(State("#0066AA", center: "850 ppm", bottom: "CO2"), "SN1");
+        using var trend = _composer.ComposeImage(
+            State("#0066AA", center: "850 ppm", bottom: "CO2") with { Sparkline = RisingTrend }, "SN1");
+
+        for (var y = 0; y < 36; y++)
+        for (var x = 0; x < Size; x++)
+            Assert.Equal(plain[x, y], trend[x, y]);
+        Assert.True(InkPixels(trend, new Rgba32(0, 102, 170), 38, Size, threshold: 20) >
+                    InkPixels(plain, new Rgba32(0, 102, 170), 38, Size, threshold: 20));
+    }
+
+    [Fact]
+    public void Sparkline_FlatSeries_DrawsAHorizontalLineAcrossTheBand()
+    {
+        // One value carried forward (a topic that published once): flat across the middle.
+        var flat = new SparklineSeries([new(0, 500), new(1, 500)], 500, 500);
+        using var image = _composer.ComposeImage(State("#0066AA") with { Sparkline = flat }, "SN1");
+
+        var bg = new Rgba32(0, 102, 170);
+        Assert.True(InkPixels(image, bg, 50, 52, threshold: 20) > 60);   // the line at y ≈ 51
+        Assert.True(InkPixels(image, bg, 40, 48, threshold: 20) == 0);   // nothing above it
+    }
+
+    [Fact]
+    public void Sparkline_StepStartsWhereTheDataStarts()
+    {
+        // A single point halfway through the window: nothing is drawn to its left.
+        var half = new SparklineSeries([new(0.5, 500), new(1, 500)], 500, 500);
+        using var image = _composer.ComposeImage(State("#0066AA") with { Sparkline = half }, "SN1");
+
+        var bg = new Rgba32(0, 102, 170);
+        Assert.Equal(0, InkPixels(image, bg, 38, Size, xFrom: 0, xTo: 33, threshold: 20));
+        Assert.True(InkPixels(image, bg, 50, 52, xFrom: 38, xTo: Size, threshold: 20) > 25);
+    }
 
     [Theory]
     [MemberData(nameof(GoldenCases))]

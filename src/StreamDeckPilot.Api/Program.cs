@@ -14,6 +14,7 @@ using StreamDeckPilot.Infrastructure.Mqtt;
 using StreamDeckPilot.Infrastructure.Observability;
 using StreamDeckPilot.Infrastructure.Persistence;
 using StreamDeckPilot.Infrastructure.Rendering;
+using StreamDeckPilot.Infrastructure.Sparkline;
 using StreamDeckPilot.Infrastructure.Staleness;
 using StreamDeckPilot.Infrastructure.StreamDeck;
 using StreamDeckPilot.Infrastructure.Supervision;
@@ -112,6 +113,8 @@ builder.Services.AddOptions<GestureOptions>()
     .Validate(o => o.LongPressMs > 0 && o.DoubleTapMs > 0, "Gestures:LongPressMs and Gestures:DoubleTapMs must be positive.")
     .ValidateOnStart();
 builder.Services.AddSingleton<ButtonTopicIndex>();
+builder.Services.Configure<SparklineOptions>(builder.Configuration.GetSection("Sparkline"));
+builder.Services.AddSingleton<SparklineHistory>();
 builder.Services.AddSingleton<MqttClientService>(sp =>
     new MqttClientService(
         sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<MqttOptions>>(),
@@ -126,7 +129,8 @@ builder.Services.AddSingleton<MqttClientService>(sp =>
         sp.GetRequiredService<BrightnessController>(),
         brokerIndicator: sp.GetRequiredService<BrokerIndicator>(),
         pressFeedback: sp.GetRequiredService<PressFeedbackTracker>(),
-        gestureOptions: sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<GestureOptions>>()));
+        gestureOptions: sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<GestureOptions>>(),
+        sparklines: sp.GetRequiredService<SparklineHistory>()));
 builder.Services.AddSingleton<IConfigChangeNotifier>(sp => sp.GetRequiredService<MqttClientService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<MqttClientService>());
 builder.Services.AddHostedService<StalenessMonitor>();
