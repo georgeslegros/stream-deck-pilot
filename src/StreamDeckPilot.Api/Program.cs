@@ -13,6 +13,7 @@ using StreamDeckPilot.Infrastructure.Mqtt;
 using StreamDeckPilot.Infrastructure.Observability;
 using StreamDeckPilot.Infrastructure.Persistence;
 using StreamDeckPilot.Infrastructure.Rendering;
+using StreamDeckPilot.Infrastructure.Sparkline;
 using StreamDeckPilot.Infrastructure.Staleness;
 using StreamDeckPilot.Infrastructure.StreamDeck;
 using StreamDeckPilot.Infrastructure.Supervision;
@@ -90,6 +91,8 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<DeviceSupervisorSe
 // MQTT
 builder.Services.Configure<MqttOptions>(builder.Configuration.GetSection("Mqtt"));
 builder.Services.AddSingleton<ButtonTopicIndex>();
+builder.Services.Configure<SparklineOptions>(builder.Configuration.GetSection("Sparkline"));
+builder.Services.AddSingleton<SparklineHistory>();
 builder.Services.AddSingleton<MqttClientService>(sp =>
     new MqttClientService(
         sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<MqttOptions>>(),
@@ -102,7 +105,8 @@ builder.Services.AddSingleton<MqttClientService>(sp =>
         sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<MqttClientService>>(),
         sp.GetRequiredService<StreamDeckMetrics>(),
         sp.GetRequiredService<BrightnessController>(),
-        brokerIndicator: sp.GetRequiredService<BrokerIndicator>()));
+        brokerIndicator: sp.GetRequiredService<BrokerIndicator>(),
+        sparklines: sp.GetRequiredService<SparklineHistory>()));
 builder.Services.AddSingleton<IConfigChangeNotifier>(sp => sp.GetRequiredService<MqttClientService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<MqttClientService>());
 builder.Services.AddHostedService<StalenessMonitor>();

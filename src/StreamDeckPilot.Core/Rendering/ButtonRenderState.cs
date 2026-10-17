@@ -11,7 +11,8 @@ public sealed record ButtonRenderState(
     string? BottomText,         // small caption along the bottom
     bool IsDimmed = false,
     bool DependsOnBroker = false, // MQTT-bound or publishes on tap: affected by a broker outage (#26)
-    bool IsOffline = false)       // render-time only: set on a copy while painting, never stored
+    bool IsOffline = false,       // render-time only: set on a copy while painting, never stored
+    SparklineSeries? Sparkline = null) // trend drawn behind the text (#25), null when not opted in
 {
     /// <summary>
     /// True when the button needs the broker: its value comes from MQTT, or a tap publishes.

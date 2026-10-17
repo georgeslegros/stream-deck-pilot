@@ -32,6 +32,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
     private readonly IMqttClient _client;
     private readonly BrightnessController _brightness;
     private readonly TimeProvider _time;
+    private readonly Sparkline.SparklineHistory? _sparklines;
     private readonly BrokerIndicator? _brokerIndicator;
 
     // A bound topic whose payloads carry no usable value would otherwise log a warning per message.
@@ -86,7 +87,8 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         StreamDeckMetrics? metrics = null,
         BrightnessController? brightness = null,
         TimeProvider? timeProvider = null,
-        BrokerIndicator? brokerIndicator = null)
+        BrokerIndicator? brokerIndicator = null,
+        Sparkline.SparklineHistory? sparklines = null)
     {
         _opts = opts.Value;
         _configStore = configStore;
@@ -99,6 +101,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         _logger = logger;
         _time = timeProvider ?? TimeProvider.System;
         _brokerIndicator = brokerIndicator;
+        _sparklines = sparklines;
         _client = new MqttClientFactory().CreateMqttClient();
         _brightness = brightness ?? new BrightnessController(Options.Create(new BrightnessOptions()));
         _brightness.EffectiveChanged += level => _ = Task.Run(PublishBrightnessStateAsync);
@@ -532,7 +535,8 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
             button.Display.IconPlacement,
             center,
             bottom,
-            DependsOnBroker: true);
+            DependsOnBroker: true,
+            Sparkline: _sparklines?.Record(serial, button, value));
 
         _desiredState.Set(serial, pageId, button.KeyIndex, renderState);
         _lastUpdated.RecordUpdate(serial, pageId, button.KeyIndex);

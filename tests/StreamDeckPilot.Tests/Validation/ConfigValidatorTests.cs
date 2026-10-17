@@ -29,6 +29,51 @@ public class ConfigValidatorTests
     }
 
     [Theory]
+    [InlineData(0.5, true)]
+    [InlineData(6, true)]
+    [InlineData(48, true)]
+    [InlineData(0, false)]
+    [InlineData(-1, false)]
+    [InlineData(48.5, false)]
+    public void SparklineHours_MustBeAboveZeroAndAtMost48(double hours, bool valid)
+    {
+        var config = new DeviceConfig(1, "SN001", [
+            new ButtonGridPage("main", [Btn("b1", 0, "main") with
+            {
+                Display = new DisplaySpec(Sparkline: new SparklineSpec(hours)),
+                Inbound = new InboundBinding("sensors/co2", null, null, false, null),
+            }])
+        ]);
+        var result = ConfigValidator.ValidateConfig(config, Mk2);
+        Assert.Equal(valid, result.IsValid);
+        if (!valid) Assert.Contains(result.Errors, e => e.Contains("display.sparkline.hours"));
+    }
+
+    [Fact]
+    public void Sparkline_WithoutInbound_Warns()
+    {
+        var config = new DeviceConfig(1, "SN001", [
+            new ButtonGridPage("main", [Btn("b1", 0, "main") with { Display = new DisplaySpec(Sparkline: new SparklineSpec(6)) }])
+        ]);
+        var result = ConfigValidator.ValidateConfig(config, Mk2);
+        Assert.True(result.IsValid);
+        Assert.Contains(result.Warnings, w => w.Contains("display.sparkline"));
+    }
+
+    [Fact]
+    public void Sparkline_IsOptional_InJson()
+    {
+        // Existing configs have no "sparkline" key: it deserialises as null and validates unchanged.
+        const string json = """{"baseIcon":null,"center":{"label":null,"template":"{value}"}}""";
+        var display = System.Text.Json.JsonSerializer.Deserialize<DisplaySpec>(json, StreamDeckPilot.Core.Json.JsonOptions.Default)!;
+        Assert.Null(display.Sparkline);
+
+        var withTrend = System.Text.Json.JsonSerializer.Deserialize<DisplaySpec>(
+            """{"sparkline":{"hours":6}}""", StreamDeckPilot.Core.Json.JsonOptions.Default)!;
+        Assert.Equal(6, withTrend.Sparkline?.Hours);
+    }
+
+    [Theory]
     [InlineData(null, true)]
     [InlineData(0, true)]
     [InlineData(3, true)]
