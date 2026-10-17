@@ -11,12 +11,15 @@ public record ButtonDefinition(
 
 /// <summary>
 /// Gesture names accepted as keys of <see cref="ButtonDefinition.Gestures"/>. Names are exact
-/// (case-sensitive): the press handler looks them up as written. LongPress/DoublePress are reserved
-/// by the spec but not handled yet, so the validator rejects them until they are.
+/// (case-sensitive): the press handler looks them up as written. A button may define any subset;
+/// defining <see cref="LongPress"/> or <see cref="DoubleTap"/> also changes when that key's
+/// <see cref="Tap"/> runs (on release, or after the double-tap window) — see GestureDetector.
 /// </summary>
 public static class GestureNames
 {
     public const string Tap = "Tap";
+    public const string LongPress = "LongPress";
+    public const string DoubleTap = "DoubleTap";
 
-    public static IReadOnlyList<string> Supported { get; } = [Tap];
+    public static IReadOnlyList<string> Supported { get; } = [Tap, LongPress, DoubleTap];
 }

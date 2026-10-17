@@ -304,6 +304,7 @@ public class DeviceSupervisorTests : IDisposable
         var svc = BuildSupervisor(library, FastPoll);
         var presses = 0;
         svc.ButtonPressed += (_, _) => Interlocked.Increment(ref presses);
+        svc.ButtonReleased += (_, _) => Interlocked.Increment(ref presses);
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await svc.StartAsync(cts.Token);
         await WaitUntilAsync(() => svc.GetState("SN404") == DeviceConnectionState.Connected);
@@ -318,10 +319,30 @@ public class DeviceSupervisorTests : IDisposable
         // A late disconnect or key press from the stale handle must not leak into the live device.
         original.SimulateDisconnect();
         original.SimulateKeyPress(0);
+        original.SimulateKeyRelease(0);
         await Task.Delay(100, CancellationToken.None);
 
         Assert.Equal(DeviceConnectionState.Connected, svc.GetState("SN404"));
         Assert.Equal(0, presses);
+        await svc.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task KeyRelease_RaisesButtonReleased_NotButtonPressed()
+    {
+        var board = new FakeMacroBoard { Serial = "SN405" };
+        var svc = BuildSupervisor(new FakeStreamDeckLibrary(board), FastPoll);
+        var events = new List<string>();
+        svc.ButtonPressed += (_, key) => { lock (events) events.Add($"down{key}"); };
+        svc.ButtonReleased += (_, key) => { lock (events) events.Add($"up{key}"); };
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await svc.StartAsync(cts.Token);
+        await WaitUntilAsync(() => svc.GetState("SN405") == DeviceConnectionState.Connected);
+
+        board.SimulateKeyPress(2);
+        board.SimulateKeyRelease(2);
+
+        lock (events) Assert.Equal(["down2", "up2"], events);
         await svc.StopAsync(CancellationToken.None);
     }
 

@@ -7,6 +7,7 @@ using MQTTnet;
 using MQTTnet.Protocol;
 using StreamDeckPilot.Core.Models.Config;
 using StreamDeckPilot.Infrastructure.Brightness;
+using StreamDeckPilot.Infrastructure.Gestures;
 using StreamDeckPilot.Infrastructure.Mqtt;
 using StreamDeckPilot.Infrastructure.Persistence;
 using StreamDeckPilot.Infrastructure.Rendering;
@@ -65,9 +66,14 @@ public sealed class ButtonPressTests : IAsyncLifetime
     private sealed record Harness(
         MqttClientService Service, DeviceSupervisorService Supervisor, Dictionary<string, FakeMacroBoard> Boards);
 
-    private async Task<Harness> StartAsync(
+    private Task<Harness> StartAsync(
         IReadOnlyList<ButtonGridPage> pages, BrightnessController? brightness = null, bool startService = true,
-        params string[] serials)
+        params string[] serials) =>
+        StartAsync(pages, new GestureOptions(), brightness, startService, serials);
+
+    private async Task<Harness> StartAsync(
+        IReadOnlyList<ButtonGridPage> pages, GestureOptions gestures, BrightnessController? brightness = null,
+        bool startService = true, params string[] serials)
     {
         if (serials.Length == 0) serials = [SerialA];
         var opts = Options.Create(new StorageOptions { BaseDirectory = _storageDir });
@@ -90,7 +96,7 @@ public sealed class ButtonPressTests : IAsyncLifetime
             }),
             configStore, desired, new ButtonTopicIndex(), new DeviceRenderer(feedback: _feedback), supervisor,
             new Infrastructure.Staleness.LastUpdatedStore(), NullLogger<MqttClientService>.Instance,
-            brightness: brightness, pressFeedback: _feedback);
+            brightness: brightness, pressFeedback: _feedback, gestureOptions: Options.Create(gestures));
 
         var subscriber = new MqttClientFactory().CreateMqttClient();
         subscriber.ApplicationMessageReceivedAsync += e =>
@@ -387,5 +393,146 @@ public sealed class ButtonPressTests : IAsyncLifetime
         Assert.True(await WaitForAsync(() => h.Supervisor.GetActivePage(SerialA) == "two"));
         Assert.Equal(0, changes);
         Assert.False(Painted(h.Boards[SerialA], 0, PendingFallback));
+    }
+
+    // ── Gestures (#19) ────────────────────────────────────────────────────────
+
+    private static ButtonDefinition GestureKey(int keyIndex, params string[] gestures) =>
+        new($"g{keyIndex}", keyIndex, "main",
+            new DisplaySpec(null, IconPlacement.Corner, Center: new TextZone($"G{keyIndex}", null)),
+            null, [],
+            gestures.ToDictionary(g => g, g => (IReadOnlyList<ButtonAction>)[new PublishAction("cmd/gesture", g)]));
+
+    [Fact]
+    public async Task LongPress_FiresWhileTheKeyIsStillHeld_AndTheReleaseDoesNotTap()
+    {
+        var h = await StartAsync([new ButtonGridPage("main", [GestureKey(0, "Tap", "LongPress")])],
+            new GestureOptions { LongPressMs = 200 });
+
+        h.Boards[SerialA].SimulateKeyPress(0); // held, never released before the check
+
+        Assert.True(await WaitForAsync(() => Payloads("cmd/gesture").Length == 1), "long press didn't fire while held");
+        h.Boards[SerialA].SimulateKeyRelease(0);
+        await Task.Delay(500, CancellationToken.None);
+        Assert.Equal(["LongPress"], Payloads("cmd/gesture"));
+    }
+
+    [Fact]
+    public async Task ShortPress_OnALongPressKey_IsATap()
+    {
+        var h = await StartAsync([new ButtonGridPage("main", [GestureKey(0, "Tap", "LongPress")])],
+            new GestureOptions { LongPressMs = 5_000 });
+
+        h.Boards[SerialA].SimulateKeyPress(0);
+        h.Boards[SerialA].SimulateKeyRelease(0);
+
+        Assert.True(await WaitForAsync(() => Payloads("cmd/gesture").Length == 1));
+        Assert.Equal(["Tap"], Payloads("cmd/gesture"));
+    }
+
+    [Fact]
+    public async Task TwoQuickPresses_OnADoubleTapKey_AreOneDoubleTap()
+    {
+        var h = await StartAsync([new ButtonGridPage("main", [GestureKey(0, "Tap", "DoubleTap")])],
+            new GestureOptions { DoubleTapMs = 2_000 });
+        var board = h.Boards[SerialA];
+
+        board.SimulateKeyPress(0);
+        board.SimulateKeyRelease(0);
+        board.SimulateKeyPress(0);
+        board.SimulateKeyRelease(0);
+
+        Assert.True(await WaitForAsync(() => Payloads("cmd/gesture").Length == 1));
+        await Task.Delay(2_500, CancellationToken.None); // past the window: no trailing Tap
+        Assert.Equal(["DoubleTap"], Payloads("cmd/gesture"));
+    }
+
+    [Fact]
+    public async Task SinglePress_OnADoubleTapKey_TapsOnceTheWindowCloses()
+    {
+        var h = await StartAsync([new ButtonGridPage("main", [GestureKey(0, "Tap", "DoubleTap")])],
+            new GestureOptions { DoubleTapMs = 200 });
+
+        h.Boards[SerialA].SimulateKeyPress(0);
+        h.Boards[SerialA].SimulateKeyRelease(0);
+
+        Assert.True(await WaitForAsync(() => Payloads("cmd/gesture").Length == 1));
+        Assert.Equal(["Tap"], Payloads("cmd/gesture"));
+    }
+
+    [Fact]
+    public async Task TapOnlyKey_FiresOnKeyDown_EvenWithLongGestureTimings()
+    {
+        // Timings this long would be noticed if a Tap-only key ever waited on them.
+        var h = await StartAsync([new ButtonGridPage("main", [GestureKey(0, "Tap")])],
+            new GestureOptions { LongPressMs = 30_000, DoubleTapMs = 30_000 });
+
+        h.Boards[SerialA].SimulateKeyPress(0); // no release
+
+        Assert.True(await WaitForAsync(() => Payloads("cmd/gesture").Length == 1, seconds: 5));
+        Assert.Equal(["Tap"], Payloads("cmd/gesture"));
+    }
+
+    // ── Press feedback on other gestures (#22 + #19) ─────────────────────────
+
+    // A key whose LongPress/DoubleTap publishes and whose Tap only navigates: feedback must follow
+    // the gesture that actually fired.
+    private static ButtonDefinition GestureLampKey(string gesture) =>
+        new("glamp", 0, "main",
+            new DisplaySpec(null, IconPlacement.Corner, Center: new TextZone("Lamp", null)),
+            new InboundBinding("home/glamp/state", "value", null, false, null), [],
+            new Dictionary<string, IReadOnlyList<ButtonAction>>
+            {
+                ["Tap"] = [new NavigateAction("two")],
+                [gesture] = [new PublishAction("cmd/glamp", gesture)],
+            });
+
+    private static readonly ButtonGridPage PageTwo = new("two", [Key(1, "two", new NavigateAction("main"))]);
+
+    [Fact]
+    public async Task LongPress_ThatPublishes_ShowsPendingUntilTheStateComesBack()
+    {
+        var feedback = UseFeedback();
+        var h = await StartAsync([new ButtonGridPage("main", [GestureLampKey("LongPress")]), PageTwo],
+            new GestureOptions { LongPressMs = 200 });
+        var board = h.Boards[SerialA];
+
+        board.SimulateKeyPress(0); // held
+
+        Assert.True(await WaitForAsync(() => Payloads("cmd/glamp").Length == 1), "long press didn't fire");
+        Assert.True(await WaitForAsync(() => Painted(board, 0, PendingFallback)), "no pending look on long press");
+        board.SimulateKeyRelease(0);
+
+        await PublishStateAsync("home/glamp/state", """{"value": 1}""");
+        Assert.True(await WaitForAsync(() => feedback.Get(SerialA, "glamp") == PressFeedback.None), "the state didn't clear it");
+        Assert.Equal("main", h.Supervisor.GetActivePage(SerialA)); // the Tap (navigate) didn't run
+    }
+
+    [Fact]
+    public async Task DoubleTap_ThatPublishes_ShowsPending_AndANavigateOnlyTapShowsNothing()
+    {
+        var feedback = UseFeedback();
+        var changes = 0;
+        feedback.Changed += (_, _, _) => Interlocked.Increment(ref changes);
+        var h = await StartAsync([new ButtonGridPage("main", [GestureLampKey("DoubleTap")]), PageTwo],
+            new GestureOptions { DoubleTapMs = 2_000 });
+        var board = h.Boards[SerialA];
+
+        board.SimulateKeyPress(0);
+        board.SimulateKeyRelease(0);
+        board.SimulateKeyPress(0);
+        board.SimulateKeyRelease(0);
+
+        Assert.True(await WaitForAsync(() => Payloads("cmd/glamp").Length == 1), "double tap didn't fire");
+        Assert.True(await WaitForAsync(() => feedback.Get(SerialA, "glamp") == PressFeedback.Pending), "no pending look on double tap");
+        await PublishStateAsync("home/glamp/state", """{"value": 1}""");
+        Assert.True(await WaitForAsync(() => feedback.Get(SerialA, "glamp") == PressFeedback.None));
+
+        // A single press runs the navigate-only Tap once the window closes: no feedback.
+        var before = Volatile.Read(ref changes);
+        board.SimulateKeyPress(0);
+        board.SimulateKeyRelease(0);
+        Assert.True(await WaitForAsync(() => h.Supervisor.GetActivePage(SerialA) == "two"), "the tap didn't navigate");
+        Assert.Equal(before, Volatile.Read(ref changes));
     }
 }

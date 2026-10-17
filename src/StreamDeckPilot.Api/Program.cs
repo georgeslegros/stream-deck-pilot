@@ -8,6 +8,7 @@ using StreamDeckPilot.Core.DeviceState;
 using StreamDeckPilot.Core.Json;
 using StreamDeckPilot.Core.Migration;
 using StreamDeckPilot.Infrastructure.Brightness;
+using StreamDeckPilot.Infrastructure.Gestures;
 using StreamDeckPilot.Infrastructure.Icons;
 using StreamDeckPilot.Infrastructure.Mqtt;
 using StreamDeckPilot.Infrastructure.Observability;
@@ -97,6 +98,10 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<DeviceSupervisorSe
 
 // MQTT
 builder.Services.Configure<MqttOptions>(builder.Configuration.GetSection("Mqtt"));
+builder.Services.AddOptions<GestureOptions>()
+    .Bind(builder.Configuration.GetSection("Gestures"))
+    .Validate(o => o.LongPressMs > 0 && o.DoubleTapMs > 0, "Gestures:LongPressMs and Gestures:DoubleTapMs must be positive.")
+    .ValidateOnStart();
 builder.Services.AddSingleton<ButtonTopicIndex>();
 builder.Services.AddSingleton<MqttClientService>(sp =>
     new MqttClientService(
@@ -111,7 +116,8 @@ builder.Services.AddSingleton<MqttClientService>(sp =>
         sp.GetRequiredService<StreamDeckMetrics>(),
         sp.GetRequiredService<BrightnessController>(),
         brokerIndicator: sp.GetRequiredService<BrokerIndicator>(),
-        pressFeedback: sp.GetRequiredService<PressFeedbackTracker>()));
+        pressFeedback: sp.GetRequiredService<PressFeedbackTracker>(),
+        gestureOptions: sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<GestureOptions>>()));
 builder.Services.AddSingleton<IConfigChangeNotifier>(sp => sp.GetRequiredService<MqttClientService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<MqttClientService>());
 builder.Services.AddHostedService<StalenessMonitor>();

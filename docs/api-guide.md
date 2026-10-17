@@ -27,7 +27,7 @@ Device catalogue (app-owned, read-only via API)
                           ├─ Display      icon + iconPlacement + Center/Bottom text zones
                           ├─ Inbound      MQTT topic, field extraction, staleness
                           ├─ Rules[]      ordered conditions → colour/icon override
-                          └─ Gestures     "Tap" → [PublishAction | NavigateAction]
+                          └─ Gestures     "Tap" | "LongPress" | "DoubleTap" → [PublishAction | NavigateAction]
 ```
 
 **Key rules:**
@@ -35,7 +35,9 @@ Device catalogue (app-owned, read-only via API)
 - Key positions (`keyIndex`) are 0-based, left-to-right, top-to-bottom. MK.2 = 0–14 (5 cols × 3 rows).
 - All config writes are validated before persisting. Errors return `400` with an `errors` array.
 - Every button needs `display`, `rules` and `gestures`, even when empty (`{}`, `[]`, `{}`). Omitting one is a `400`.
-- Gesture names are case-sensitive and only `Tap` is supported today; `tap`, `LongPress` or `DoublePress` is a `400`.
+- Gesture names are case-sensitive: `Tap`, `LongPress` and `DoubleTap`, each optional. `tap` or `DoublePress` is a `400`.
+  A Tap-only key fires on key-down. `LongPress` fires while the key is held past `Gestures__LongPressMs` (default 500); a shorter press is a `Tap` on release.
+  On a key with `DoubleTap`, a second press within `Gestures__DoubleTapMs` (default 300) of the release is a `DoubleTap`; otherwise the `Tap` runs when that window closes.
 - A `Publish` action needs a `topic` without the wildcards `+` or `#`; an empty or wildcard topic is a `400`. A missing `payload` publishes an empty message.
 - **Rendering is what you declare, not what the data is.** The layout follows the zones you fill and the icon placement you choose — the service never infers a layout from the *kind* of data a tile carries.
 
