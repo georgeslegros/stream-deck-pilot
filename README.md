@@ -209,6 +209,8 @@ read by `Program.cs`, `MqttOptions.cs` and `BrightnessOptions.cs`.
 | `Brightness__SetTopic` | Topic the deck brightness is set from (see [Brightness](#brightness)). Subscribed explicitly if it falls outside `Mqtt__TopicPrefix`. | `home/streamdeck/brightness/set` |
 | `Brightness__StateTopic` | Topic the applied brightness is published to (retained). | `home/streamdeck/brightness/state` |
 | `Brightness__WakeTimeoutSeconds` | How long a key press lights up a deck whose brightness is 0. | `60` |
+| `Gestures__LongPressMs` | How long a key must be held for its `LongPress` gesture. | `500` |
+| `Gestures__DoubleTapMs` | How long after a release a second press counts as a `DoubleTap`. Only keys that define `DoubleTap` wait this long. | `300` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP gRPC endpoint for metrics and traces (standard OpenTelemetry variable). | `http://localhost:4317` |
 
 All secrets (API key, MQTT credentials, OTLP endpoint) come from environment variables / Docker
@@ -360,7 +362,10 @@ Field reference (from the domain model in `src/StreamDeckPilot.Core/Models/Confi
   - **Text:** `"eq:on"`, `"ne:unavailable"`, `"in:heat,cool,auto"`. Values are trimmed and compared **case-insensitively** (`eq:on` matches `ON`). Numbers are compared as the text they arrived as, so `eq:1` does not match `1.0`; use `==1` for numbers. Everything after `eq:`/`ne:` is the value. `in:` values are comma-separated, so they can't contain a comma.
   - **`"any"`:** matches every value. Put it last as an "otherwise" rule.
   - Conditions are checked when the config is written. An unknown or malformed one (e.g. `">abc"`, or `"==on"` instead of `"eq:on"`) returns `400`.
-- **`gestures`** — map of gesture name to an ordered action list. `Tap` is the only gesture at launch; actions fire in order. Names are case-sensitive: any other key (`tap`, `LongPress`, …) is rejected with `400`.
+- **`gestures`** — map of gesture name to an ordered action list; actions fire in order. Supported names are `Tap`, `LongPress` and `DoubleTap`, all optional. Names are case-sensitive: any other key (`tap`, `DoublePress`, …) is rejected with `400`.
+  - A key that defines only `Tap` fires the moment it goes down, with no delay.
+  - `LongPress` fires once the key has been held for `Gestures__LongPressMs`, while it is still down; releasing it then does nothing. A shorter press is a `Tap`, run on release. Handy for keys a stray tap shouldn't trigger: define `LongPress` only.
+  - `DoubleTap` fires on the second press within `Gestures__DoubleTapMs` of the first release. On such a key a single `Tap` runs once that window closes, or as soon as another key is pressed.
   - `{ "type": "Publish", "topic": "...", "payload": "..." }` — emit an MQTT message (QoS 1, not retained; payload sent verbatim, a missing payload sends an empty message). `topic` is required and must not contain the wildcards `+` or `#`; otherwise the `PUT` is a `400`.
   - `{ "type": "Navigate", "targetPageId": "..." }` — switch the active page on the device.
 
