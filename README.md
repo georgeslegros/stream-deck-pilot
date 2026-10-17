@@ -209,6 +209,9 @@ read by `Program.cs`, `MqttOptions.cs` and `BrightnessOptions.cs`.
 | `Brightness__SetTopic` | Topic the deck brightness is set from (see [Brightness](#brightness)). Subscribed explicitly if it falls outside `Mqtt__TopicPrefix`. | `home/streamdeck/brightness/set` |
 | `Brightness__StateTopic` | Topic the applied brightness is published to (retained). | `home/streamdeck/brightness/state` |
 | `Brightness__WakeTimeoutSeconds` | How long a key press lights up a deck whose brightness is 0. | `60` |
+| `PressFeedback__Enabled` | Show the pending look on a key whose press publishes (see [Press feedback](#press-feedback)). | `true` |
+| `PressFeedback__TimeoutSeconds` | How long a key with an `inbound` binding waits for a new value after a press before it flashes red. | `3` |
+| `PressFeedback__FlashMilliseconds` | How long the red flash lasts; also how long the pending look shows on a key with no `inbound` binding. | `600` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP gRPC endpoint for metrics and traces (standard OpenTelemetry variable). | `http://localhost:4317` |
 
 All secrets (API key, MQTT credentials, OTLP endpoint) come from environment variables / Docker
@@ -446,6 +449,22 @@ Bare numbers and the `{"value": …}` shape behave as before.
 - **`Publish`** action — emits an MQTT message to `topic` with `payload` sent verbatim. Choose a stable
   payload per button (`"true"`, `"toggle"`, or a JSON string).
 - **`Navigate`** action — changes the active page on that device to `targetPageId`.
+
+### Press feedback
+
+A press whose actions include a `Publish` gets an immediate answer on the key, before the round trip
+brings the new state:
+
+- **Pending:** a ring in the ink colour around the tile.
+- **Confirmed:** the key's next `inbound` value clears the ring and paints the new state.
+- **No answer:** if no value arrives within `PressFeedback__TimeoutSeconds` (default 3 s), the tile
+  flashes red for `PressFeedback__FlashMilliseconds`, then returns to normal and a warning is logged.
+  This surfaces broken automations and offline devices.
+- A key with no `inbound` binding has nothing to confirm it: the ring shows for the flash duration,
+  never red.
+- Navigate-only keys get no feedback; the page change is the answer.
+- While the broker is offline (see below) there is no feedback: the offline look already explains
+  why nothing happens.
 
 ### Broker outages
 

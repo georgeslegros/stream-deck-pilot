@@ -1,3 +1,5 @@
+using OpenMacroBoard.SDK;
+using StreamDeckPilot.Core.Rendering;
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -35,6 +37,7 @@ public sealed class ButtonPressTests : IAsyncLifetime
     private readonly string _storageDir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
     private readonly CancellationTokenSource _cts = new(TimeSpan.FromSeconds(60));
     private readonly List<Func<Task>> _cleanup = [];
+    private PressFeedbackTracker? _feedback; // set by a test before StartAsync to enable press feedback (#22)
 
     // Everything the subscriber saw under cmd/#, in arrival order.
     private readonly ConcurrentQueue<(string Topic, string Payload, MqttQualityOfServiceLevel Qos, bool Retain)> _received = new();
@@ -76,7 +79,7 @@ public sealed class ButtonPressTests : IAsyncLifetime
         var desired = new DesiredStateStore();
         var supervisor = new DeviceSupervisorService(
             new FakeStreamDeckLibrary([.. boards.Values]), new CatalogueStore(opts), configStore, desired,
-            new ActivePageStore(), new DeviceRenderer(), NullLogger<DeviceSupervisorService>.Instance,
+            new ActivePageStore(), new DeviceRenderer(feedback: _feedback), NullLogger<DeviceSupervisorService>.Instance,
             pollInterval: TimeSpan.FromMinutes(60), brightness: brightness);
         var service = new MqttClientService(
             Options.Create(new MqttOptions
@@ -85,9 +88,9 @@ public sealed class ButtonPressTests : IAsyncLifetime
                 Port = _broker.GetMappedPublicPort(MqttPort),
                 ClientId = "press-test",
             }),
-            configStore, desired, new ButtonTopicIndex(), new DeviceRenderer(), supervisor,
+            configStore, desired, new ButtonTopicIndex(), new DeviceRenderer(feedback: _feedback), supervisor,
             new Infrastructure.Staleness.LastUpdatedStore(), NullLogger<MqttClientService>.Instance,
-            brightness: brightness);
+            brightness: brightness, pressFeedback: _feedback);
 
         var subscriber = new MqttClientFactory().CreateMqttClient();
         subscriber.ApplicationMessageReceivedAsync += e =>
@@ -281,5 +284,88 @@ public sealed class ButtonPressTests : IAsyncLifetime
         // Presses are handled in order, so once "second" arrives "first" would already have.
         Assert.True(await WaitForAsync(() => Payloads("cmd/dark").Length == 1));
         Assert.Equal(["second"], Payloads("cmd/dark"));
+    }
+
+    // ── Press feedback (#22) ─────────────────────────────────────────────────
+
+    private static readonly KeyBitmap PendingFallback = KeyBitmap.Create.FromRgb(255, 255, 255);
+    private static readonly KeyBitmap FailedFallback = KeyBitmap.Create.FromRgb(200, 0, 0);
+
+    private static ButtonDefinition LampKey(int keyIndex, string? stateTopic) =>
+        new($"lamp{keyIndex}", keyIndex, "main",
+            new DisplaySpec(null, IconPlacement.Corner, Center: new TextZone("Lamp", null)),
+            stateTopic is null ? null : new InboundBinding(stateTopic, "value", null, false, null), [],
+            new Dictionary<string, IReadOnlyList<ButtonAction>> { ["Tap"] = [new PublishAction($"cmd/lamp{keyIndex}", "TOGGLE")] });
+
+    private PressFeedbackTracker UseFeedback(double timeoutSeconds = 10, int flashMilliseconds = 300)
+    {
+        _feedback = new PressFeedbackTracker(new PressFeedbackOptions { TimeoutSeconds = timeoutSeconds, FlashMilliseconds = flashMilliseconds });
+        _cleanup.Add(() => { _feedback.Dispose(); return Task.CompletedTask; });
+        return _feedback;
+    }
+
+    private async Task PublishStateAsync(string topic, string payload)
+    {
+        using var client = new MqttClientFactory().CreateMqttClient();
+        await client.ConnectAsync(new MqttClientOptionsBuilder()
+            .WithTcpServer(_broker.Hostname, _broker.GetMappedPublicPort(MqttPort))
+            .WithClientId("press-state").Build(), _cts.Token);
+        await client.PublishAsync(new MqttApplicationMessageBuilder().WithTopic(topic).WithPayload(payload).Build(), _cts.Token);
+        await client.DisconnectAsync();
+    }
+
+    private static bool Painted(FakeMacroBoard board, int keyIndex, KeyBitmap bitmap) =>
+        board.RenderCalls.Any(c => c.KeyIndex == keyIndex && c.Bitmap.Equals(bitmap));
+
+    [Fact]
+    public async Task Press_ShowsPending_UntilTheKeysStateComesBack()
+    {
+        var feedback = UseFeedback();
+        var h = await StartAsync([new ButtonGridPage("main", [LampKey(0, "home/lamp0/state")])]);
+        var board = h.Boards[SerialA];
+
+        board.SimulateKeyPress(0);
+        Assert.True(await WaitForAsync(() => Painted(board, 0, PendingFallback)), "the pending look wasn't painted");
+        Assert.Equal(PressFeedback.Pending, feedback.Get(SerialA, "lamp0"));
+
+        board.ClearRenderCalls();
+        await PublishStateAsync("home/lamp0/state", """{"value": 1}""");
+        Assert.True(await WaitForAsync(() => feedback.Get(SerialA, "lamp0") == PressFeedback.None), "the state didn't clear it");
+        Assert.True(await WaitForAsync(() => board.RenderCalls.Any(c => c.KeyIndex == 0)));
+        Assert.False(Painted(board, 0, PendingFallback));
+        Assert.False(Painted(board, 0, FailedFallback));
+    }
+
+    [Fact]
+    public async Task Press_WithNoAnswer_FlashesRed_ThenReturnsToNormal()
+    {
+        var feedback = UseFeedback(timeoutSeconds: 0.3);
+        var h = await StartAsync([new ButtonGridPage("main", [LampKey(0, "home/lamp0/state")])]);
+        var board = h.Boards[SerialA];
+
+        board.SimulateKeyPress(0);
+
+        Assert.True(await WaitForAsync(() => Painted(board, 0, FailedFallback)), "no red flash");
+        Assert.True(await WaitForAsync(() => feedback.Get(SerialA, "lamp0") == PressFeedback.None), "the flash didn't end");
+        Assert.True(await WaitForAsync(() => !board.RenderCalls.Last(c => c.KeyIndex == 0).Bitmap.Equals(FailedFallback)),
+            "the key wasn't repainted after the flash");
+    }
+
+    [Fact]
+    public async Task Press_OnNavigateOnlyKey_HasNoPendingLook()
+    {
+        var feedback = UseFeedback();
+        var changes = 0;
+        feedback.Changed += (_, _, _) => Interlocked.Increment(ref changes);
+        var h = await StartAsync([
+            new ButtonGridPage("main", [Key(0, "main", new NavigateAction("two"))]),
+            new ButtonGridPage("two", [Key(0, "two", new NavigateAction("main"))]),
+        ]);
+
+        h.Boards[SerialA].SimulateKeyPress(0);
+
+        Assert.True(await WaitForAsync(() => h.Supervisor.GetActivePage(SerialA) == "two"));
+        Assert.Equal(0, changes);
+        Assert.False(Painted(h.Boards[SerialA], 0, PendingFallback));
     }
 }

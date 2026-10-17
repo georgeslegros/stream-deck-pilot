@@ -301,6 +301,8 @@ public sealed class KeyBitmapComposerTests : IDisposable
         { "value-7-chars", State("#33AA33", null, IconPlacement.Corner, "1234.56 kWh", "Energy") },
         { "value-negative", State("#0066AA", "builtin:thermometer", IconPlacement.Corner, "-12.35 °C", "Outside") },
         { "offline", State("#0066AA", "builtin:thermometer", IconPlacement.Corner, "19.2 °C", "Salon", offline: true) },
+        { "press-pending", State("#FFB300", "builtin:lightbulb", IconPlacement.Center, null, "Lamp") with { Feedback = PressFeedback.Pending } },
+        { "press-failed", State("#FFB300", "builtin:lightbulb", IconPlacement.Center, null, "Lamp") with { Feedback = PressFeedback.Failed } },
     };
 
     [Theory]

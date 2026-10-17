@@ -14,14 +14,21 @@ public sealed class DeviceRenderer : IDeviceRenderer
     private readonly ConcurrentDictionary<(string Serial, int KeyIndex), object> _keyLocks = new();
 
     private readonly BrokerIndicator? _broker;
+    private readonly PressFeedbackTracker? _feedback;
 
-    public DeviceRenderer(BrokerIndicator? broker = null) => _broker = broker;
+    public DeviceRenderer(BrokerIndicator? broker = null, PressFeedbackTracker? feedback = null)
+    {
+        _broker = broker;
+        _feedback = feedback;
+    }
 
-    public DeviceRenderer(KeyBitmapComposer composer, StreamDeckMetrics? metrics = null, BrokerIndicator? broker = null)
+    public DeviceRenderer(KeyBitmapComposer composer, StreamDeckMetrics? metrics = null, BrokerIndicator? broker = null,
+        PressFeedbackTracker? feedback = null)
     {
         _composer = composer;
         _metrics = metrics;
         _broker = broker;
+        _feedback = feedback;
     }
 
     public void RenderButton(IMacroBoard board, string serial, int keyIndex, ButtonRenderState state)
@@ -33,6 +40,9 @@ public sealed class DeviceRenderer : IDeviceRenderer
         // RenderLatest/RenderAll, and every flip of the flag is followed by a repaint.
         if (state.DependsOnBroker && _broker?.ShowOffline == true)
             state = state with { IsOffline = true };
+        // Press feedback (#22), same render-time overlay. The offline look wins: no feedback then.
+        else if (_feedback?.Get(serial, state.ButtonId) is { } feedback and not PressFeedback.None)
+            state = state with { Feedback = feedback };
 
         try
         {
@@ -98,6 +108,8 @@ public sealed class DeviceRenderer : IDeviceRenderer
     private static KeyBitmap FallbackBitmap(ButtonRenderState state)
     {
         if (state.IsDimmed || state.IsOffline) return KeyBitmap.Create.FromRgb(30, 30, 30);
+        if (state.Feedback == PressFeedback.Failed) return KeyBitmap.Create.FromRgb(200, 0, 0);
+        if (state.Feedback == PressFeedback.Pending) return KeyBitmap.Create.FromRgb(255, 255, 255);
         return ParseColour(state.BackgroundColour);
     }
 

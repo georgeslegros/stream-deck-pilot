@@ -33,6 +33,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
     private readonly BrightnessController _brightness;
     private readonly TimeProvider _time;
     private readonly BrokerIndicator? _brokerIndicator;
+    private readonly PressFeedbackTracker? _pressFeedback;
 
     // A bound topic whose payloads carry no usable value would otherwise log a warning per message.
     // Warn on the first one, then at most once per interval per topic; the rest go to Debug.
@@ -86,7 +87,8 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         StreamDeckMetrics? metrics = null,
         BrightnessController? brightness = null,
         TimeProvider? timeProvider = null,
-        BrokerIndicator? brokerIndicator = null)
+        BrokerIndicator? brokerIndicator = null,
+        PressFeedbackTracker? pressFeedback = null)
     {
         _opts = opts.Value;
         _configStore = configStore;
@@ -99,6 +101,8 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         _logger = logger;
         _time = timeProvider ?? TimeProvider.System;
         _brokerIndicator = brokerIndicator;
+        _pressFeedback = pressFeedback;
+        if (pressFeedback is not null) pressFeedback.Changed += RepaintKey;
         _client = new MqttClientFactory().CreateMqttClient();
         _brightness = brightness ?? new BrightnessController(Options.Create(new BrightnessOptions()));
         _brightness.EffectiveChanged += level => _ = Task.Run(PublishBrightnessStateAsync);
@@ -536,6 +540,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
 
         _desiredState.Set(serial, pageId, button.KeyIndex, renderState);
         _lastUpdated.RecordUpdate(serial, pageId, button.KeyIndex);
+        _pressFeedback?.StateReceived(serial, button.ButtonId); // the press is answered; the paint below clears the look
 
         // Step 7 — render (best-effort)
         var board = _supervisor.GetBoard(serial);
@@ -687,6 +692,11 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
 
         if (!button.Gestures.TryGetValue(GestureNames.Tap, out var actions)) return;
 
+        // Pending look until the key's state comes back (#22). Not when the publish can't go out:
+        // the offline indicator covers that.
+        if (_client.IsConnected && actions.Any(a => a is PublishAction))
+            _pressFeedback?.Pressed(serial, pageId, keyIndex, button.ButtonId, awaitsState: button.Inbound is not null);
+
         foreach (var action in actions)
         {
             try { await ExecuteActionAsync(serial, action); }
@@ -695,6 +705,15 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
                 _logger.LogWarning(ex, "Action failed for button {ButtonId}", button.ButtonId);
             }
         }
+    }
+
+    // Press feedback changed on a key (#22): repaint it if its page is on screen.
+    private void RepaintKey(string serial, string pageId, int keyIndex)
+    {
+        var board = _supervisor.GetBoard(serial);
+        if (board is null || !board.IsConnected || _supervisor.GetActivePage(serial) != pageId) return;
+        try { _renderer.RenderLatest(board, serial, pageId, keyIndex, _desiredState); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Press feedback repaint failed for key {Key} on {Serial}", keyIndex, serial); }
     }
 
     private async Task ExecuteActionAsync(string serial, ButtonAction action)

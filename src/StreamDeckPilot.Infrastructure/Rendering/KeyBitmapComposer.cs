@@ -71,6 +71,13 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver, ILogger<KeyBitm
             bg = SampleBackground(image);
         }
 
+        // Press got no answer (#22): wash the tile red, under the content so the value stays readable.
+        if (state.Feedback == PressFeedback.Failed)
+        {
+            image.Mutate(ctx => ctx.Fill(FailedWash));
+            bg = SampleBackground(image);
+        }
+
         var ink = Ink(bg);
         var hasCenter = !string.IsNullOrEmpty(state.CenterText);
         var hasBottom = !string.IsNullOrEmpty(state.BottomText);
@@ -105,7 +112,21 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver, ILogger<KeyBitm
         else if (state.IsDimmed)
             DrawStatusMarker(image, ClockMarkerIcon, ink);
 
+        // Press feedback ring (#22), drawn last so nothing covers it.
+        if (state.Feedback != PressFeedback.None)
+            DrawFeedbackRing(image, ink);
+
         return image;
+    }
+
+    private static readonly Color FailedWash = new(new Rgba32(220, 20, 20, 190));
+    private const float FeedbackRingWidth = 4f;
+
+    // A ring just inside the tile edge, in the ink colour so it contrasts with any background.
+    private static void DrawFeedbackRing(Image<Rgba32> image, Color ink)
+    {
+        const float inset = FeedbackRingWidth / 2;
+        image.Mutate(ctx => ctx.Draw(ink, FeedbackRingWidth, new RectangleF(inset, inset, Size - FeedbackRingWidth, Size - FeedbackRingWidth)));
     }
 
     // Large hero value, centred. The value is split from its unit (first space) so the
