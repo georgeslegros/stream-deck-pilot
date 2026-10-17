@@ -35,6 +35,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
     private readonly TimeProvider _time;
     private readonly Sparkline.SparklineHistory? _sparklines;
     private readonly BrokerIndicator? _brokerIndicator;
+    private readonly PressFeedbackTracker? _pressFeedback;
 
     // A bound topic whose payloads carry no usable value would otherwise log a warning per message.
     // Warn on the first one, then at most once per interval per topic; the rest go to Debug.
@@ -93,6 +94,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         BrightnessController? brightness = null,
         TimeProvider? timeProvider = null,
         BrokerIndicator? brokerIndicator = null,
+        PressFeedbackTracker? pressFeedback = null,
         IOptions<GestureOptions>? gestureOptions = null,
         Sparkline.SparklineHistory? sparklines = null)
     {
@@ -108,6 +110,8 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         _logger = logger;
         _time = timeProvider ?? TimeProvider.System;
         _brokerIndicator = brokerIndicator;
+        _pressFeedback = pressFeedback;
+        if (pressFeedback is not null) pressFeedback.Changed += RepaintKey;
         _sparklines = sparklines;
         _client = new MqttClientFactory().CreateMqttClient();
         _brightness = brightness ?? new BrightnessController(Options.Create(new BrightnessOptions()));
@@ -550,6 +554,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
 
         _desiredState.Set(serial, pageId, button.KeyIndex, renderState);
         _lastUpdated.RecordUpdate(serial, pageId, button.KeyIndex);
+        _pressFeedback?.StateReceived(serial, button.ButtonId); // the press is answered; the paint below clears the look
 
         // Step 7 — render (best-effort)
         var board = _supervisor.GetBoard(serial);
@@ -718,7 +723,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
             var button = pressed is not null && gesture.KeyIndex == press.KeyIndex && gesture.PageId == press.PageId
                 ? pressed
                 : await FindButtonAsync(press.Serial, gesture.PageId, gesture.KeyIndex);
-            if (button is not null) await RunGestureAsync(press.Serial, button, gesture.Gesture);
+            if (button is not null) await RunGestureAsync(press.Serial, gesture.PageId, button, gesture.Gesture);
         }
     }
 
@@ -730,9 +735,15 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
             : null;
     }
 
-    private async Task RunGestureAsync(string serial, ButtonDefinition button, string gesture)
+    private async Task RunGestureAsync(string serial, string pageId, ButtonDefinition button, string gesture)
     {
         if (!button.Gestures.TryGetValue(gesture, out var actions)) return;
+
+        // Pending look until the key's state comes back (#22), for whichever gesture fired, when its
+        // actions publish (Navigate-only: none). Not when the publish can't go out:
+        // the offline indicator covers that.
+        if (_client.IsConnected && actions.Any(a => a is PublishAction))
+            _pressFeedback?.Pressed(serial, pageId, button);
 
         foreach (var action in actions)
         {
@@ -742,6 +753,15 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
                 _logger.LogWarning(ex, "Action failed for button {ButtonId}", button.ButtonId);
             }
         }
+    }
+
+    // Press feedback changed on a key (#22): repaint it if its page is on screen.
+    private void RepaintKey(string serial, string pageId, int keyIndex)
+    {
+        var board = _supervisor.GetBoard(serial);
+        if (board is null || !board.IsConnected || _supervisor.GetActivePage(serial) != pageId) return;
+        try { _renderer.RenderLatest(board, serial, pageId, keyIndex, _desiredState); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Press feedback repaint failed for key {Key} on {Serial}", keyIndex, serial); }
     }
 
     private async Task ExecuteActionAsync(string serial, ButtonAction action)

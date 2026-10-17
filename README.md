@@ -210,6 +210,9 @@ read by `Program.cs`, `MqttOptions.cs` and `BrightnessOptions.cs`.
 | `Brightness__SetTopic` | Topic the deck brightness is set from (see [Brightness](#brightness)). Subscribed explicitly if it falls outside `Mqtt__TopicPrefix`. | `home/streamdeck/brightness/set` |
 | `Brightness__StateTopic` | Topic the applied brightness is published to (retained). | `home/streamdeck/brightness/state` |
 | `Brightness__WakeTimeoutSeconds` | How long a key press lights up a deck whose brightness is 0. | `60` |
+| `PressFeedback__Enabled` | Show the pending look on a key whose press publishes (see [Press feedback](#press-feedback)). | `true` |
+| `PressFeedback__TimeoutSeconds` | How long a key with an `inbound` binding waits for a new value after a press before it flashes red. | `3` |
+| `PressFeedback__FlashMilliseconds` | How long the red flash lasts; also how long the pending look shows on a key with no `inbound` binding. | `600` |
 | `Gestures__LongPressMs` | How long a key must be held for its `LongPress` gesture. | `500` |
 | `Gestures__DoubleTapMs` | How long after a release a second press counts as a `DoubleTap`. Only keys that define `DoubleTap` wait this long. | `300` |
 | `Navigation__HomeAfterInactivitySeconds` | After this many seconds without a key press or page change, a deck goes back to its first page (see [Return to the home page](#return-to-the-home-page)). `0` disables it. A device config can override it. | `0` (disabled) |
@@ -457,6 +460,32 @@ Bare numbers and the `{"value": …}` shape behave as before.
   payload per button (`"true"`, `"toggle"`, or a JSON string).
 - **`Navigate`** action — changes the active page on that device to `targetPageId`.
 
+### Press feedback
+
+A gesture (`Tap`, `LongPress` or `DoubleTap`) whose actions include a `Publish` gets an immediate answer on the key, before the round trip
+brings the new state:
+
+- **Pending:** a ring in the ink colour around the tile.
+- **Confirmed:** the key's next `inbound` value clears the ring and paints the new state.
+- **No answer:** if no value arrives within `PressFeedback__TimeoutSeconds` (default 3 s), the tile
+  flashes red for `PressFeedback__FlashMilliseconds`, then returns to normal and a warning is logged.
+  This surfaces broken automations and offline devices.
+- A key with no `inbound` binding has nothing to confirm it: the ring shows for the flash duration,
+  never red.
+- Navigate-only keys get no feedback; the page change is the answer.
+- While the broker is offline (see below) there is no feedback: the offline look already explains
+  why nothing happens.
+- On a [blinking key](#blinking-keys) the feedback wins over the blink's dark half.
+
+Per key, `display.pressFeedback` overrides the behaviour, and `display.pressFeedbackTimeoutSeconds`
+(1–120) overrides the global timeout. Both are optional; leave them out for the defaults.
+
+| `pressFeedback` | Behaviour |
+|---|---|
+| `"auto"` (or unset) | As above: ring, then red flash if the state doesn't come back in time. |
+| `"ring"` | Ring until the state comes back or the timeout passes, never red. For slow devices, or a key whose press may not change its value (a setpoint already at its limit). |
+| `"off"` | No feedback on this key. |
+
 ### Return to the home page
 
 Set `Navigation__HomeAfterInactivitySeconds` (or `homeAfterInactivitySeconds` in a device's config)
@@ -509,8 +538,13 @@ value stays readable. It stops as soon as a value arrives that matches a differe
   doesn't blink. Its value isn't current, so it shouldn't demand attention. Blinking resumes when it is.
 - **Brightness 0:** a dark deck isn't repainted for blinking and isn't woken by it. Blinking shows
   again when the deck lights up (a press or a new level).
+- **Pressed while blinking:** [press feedback](#press-feedback) takes over: the key shows its full
+  "on" look with the ring (or red wash) and doesn't drop to the dark half until the feedback ends.
 - Blinking is applied while painting; stored values are untouched. Existing configs need no change:
   `blink` is omitted from the JSON when `false`.
+
+The paint-time looks combine in this order of precedence: **offline > press feedback > blink
+phase**. Stale (the clock marker) is part of the key's state, and a stale key doesn't blink.
 
 ### Brightness
 

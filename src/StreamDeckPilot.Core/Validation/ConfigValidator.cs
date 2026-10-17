@@ -76,6 +76,18 @@ public static class ConfigValidator
                 if (button.Display.Precision is < 0 or > DisplaySpec.MaxPrecision)
                     errors.Add($"Button '{button.ButtonId}': display.precision must be between 0 and {DisplaySpec.MaxPrecision} (got {button.Display.Precision}).");
 
+                if (button.Display.PressFeedback is { } mode && !PressFeedbackModes.Supported.Contains(mode))
+                {
+                    var hint = PressFeedbackModes.Supported.FirstOrDefault(m => string.Equals(m, mode, StringComparison.OrdinalIgnoreCase));
+                    errors.Add(hint is not null
+                        ? $"Button '{button.ButtonId}': display.pressFeedback '{mode}' must be written '{hint}'."
+                        : $"Button '{button.ButtonId}': display.pressFeedback '{mode}' is not supported (supported: {string.Join(", ", PressFeedbackModes.Supported)}).");
+                }
+
+                if (button.Display.PressFeedbackTimeoutSeconds is { } timeout
+                    && !(timeout >= DisplaySpec.MinPressFeedbackTimeoutSeconds && timeout <= DisplaySpec.MaxPressFeedbackTimeoutSeconds))
+                    errors.Add($"Button '{button.ButtonId}': display.pressFeedbackTimeoutSeconds must be between {DisplaySpec.MinPressFeedbackTimeoutSeconds} and {DisplaySpec.MaxPressFeedbackTimeoutSeconds} (got {timeout.ToString(System.Globalization.CultureInfo.InvariantCulture)}).");
+
                 if (button.Display.Sparkline is { } sparkline && !(sparkline.Hours > 0 && sparkline.Hours <= SparklineSpec.MaxHours))
                     errors.Add($"Button '{button.ButtonId}': display.sparkline.hours must be greater than 0 and at most {SparklineSpec.MaxHours} (got {sparkline.Hours}).");
                 if (button.Display.Sparkline is not null && button.Inbound is null)

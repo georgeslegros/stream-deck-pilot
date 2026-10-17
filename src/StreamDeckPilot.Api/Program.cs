@@ -56,6 +56,13 @@ builder.Services.AddSingleton<BrokerIndicator>(sp =>
     new BrokerIndicator(
         TimeSpan.FromSeconds(sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<MqttOptions>>().Value.OfflineIndicatorDelaySeconds),
         logger: sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<BrokerIndicator>>()));
+// Press feedback (#22): set by the MQTT service on a press, read by the renderer, repainted by the MQTT service
+builder.Services.Configure<PressFeedbackOptions>(builder.Configuration.GetSection("PressFeedback"));
+builder.Services.AddSingleton<PressFeedbackTracker>(sp =>
+    new PressFeedbackTracker(
+        sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<PressFeedbackOptions>>().Value,
+        broker: sp.GetRequiredService<BrokerIndicator>(),
+        logger: sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PressFeedbackTracker>>()));
 // Blinking keys (#23): the scheduler times the phase, the renderer applies it, the supervisor repaints
 builder.Services.Configure<BlinkOptions>(builder.Configuration.GetSection("Blink"));
 builder.Services.AddSingleton<BlinkScheduler>(sp =>
@@ -68,7 +75,8 @@ builder.Services.AddSingleton<IDeviceRenderer>(sp =>
         sp.GetRequiredService<KeyBitmapComposer>(),
         sp.GetRequiredService<StreamDeckMetrics>(),
         sp.GetRequiredService<BrokerIndicator>(),
-        sp.GetRequiredService<BlinkScheduler>()));
+        sp.GetRequiredService<BlinkScheduler>(),
+        sp.GetRequiredService<PressFeedbackTracker>()));
 
 // Brightness — desired level set over MQTT, applied by the supervisor, state published by MQTT
 builder.Services.Configure<BrightnessOptions>(builder.Configuration.GetSection("Brightness"));
@@ -129,6 +137,7 @@ builder.Services.AddSingleton<MqttClientService>(sp =>
         sp.GetRequiredService<StreamDeckMetrics>(),
         sp.GetRequiredService<BrightnessController>(),
         brokerIndicator: sp.GetRequiredService<BrokerIndicator>(),
+        pressFeedback: sp.GetRequiredService<PressFeedbackTracker>(),
         gestureOptions: sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<GestureOptions>>(),
         sparklines: sp.GetRequiredService<SparklineHistory>()));
 builder.Services.AddSingleton<IConfigChangeNotifier>(sp => sp.GetRequiredService<MqttClientService>());
