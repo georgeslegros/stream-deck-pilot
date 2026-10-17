@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using OpenMacroBoard.SDK;
 using StreamDeckPilot.Infrastructure.Brightness;
 using StreamDeckPilot.Infrastructure.Mqtt;
+using StreamDeckPilot.Infrastructure.Navigation;
 using StreamDeckPilot.Core.DeviceState;
 using StreamDeckPilot.Core.Models.Catalogue;
 using StreamDeckPilot.Core.Models.Config;
@@ -27,6 +28,7 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
     private readonly ILogger<DeviceSupervisorService> _logger;
     private readonly TimeSpan _pollInterval;
     private readonly BrightnessController _brightness;
+    private readonly InactivityMonitor _inactivity;
     private StreamDeckMetrics? _metrics;
 
     private readonly ConcurrentDictionary<string, DeviceConnectionState> _states = new();
@@ -35,6 +37,8 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
     private readonly ConcurrentDictionary<string, string> _boardPaths = new(); // serial → hid path
     // Devices whose catalogue entry could not be written yet; retried on every scan (#68).
     private readonly ConcurrentDictionary<string, DeviceEntry> _pendingCatalogue = new();
+    // serial → first page of its config, the page an idle deck returns to (#24).
+    private readonly ConcurrentDictionary<string, string> _homePages = new();
 
     // Fired when a key is pressed (IsDown=true); subscribers handle the action
     public event Action<string, int>? ButtonPressed;
@@ -50,7 +54,8 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
         TimeSpan? pollInterval = null,
         StreamDeckMetrics? metrics = null,
         BrightnessController? brightness = null,
-        BrokerIndicator? brokerIndicator = null)
+        BrokerIndicator? brokerIndicator = null,
+        InactivityMonitor? inactivity = null)
     {
         _library = library;
         _catalogue = catalogue;
@@ -65,6 +70,36 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
         _brightness.EffectiveChanged += ApplyBrightnessToAll;
         if (brokerIndicator is not null)
             brokerIndicator.Changed += _ => RepaintActivePages();
+        _inactivity = inactivity ?? new InactivityMonitor(Options.Create(new NavigationOptions()));
+        _inactivity.Expired += ReturnHome;
+    }
+
+    // The deck sat idle for its inactivity timeout: show the home page again (#24). This never
+    // touches brightness, so a dark deck stays dark; the render is invisible until the next wake,
+    // which then already shows the home page. Bypasses SetActivePage so it doesn't re-arm the timer.
+    private void ReturnHome(string serial)
+    {
+        if (!_homePages.TryGetValue(serial, out var home)) return;
+        var current = _activePages.GetActivePage(serial);
+        if (current is null || current == home) return;
+
+        _activePages.SetActivePage(serial, home);
+        _logger.LogInformation("Device {Serial} idle — back to home page {Page}", serial, home);
+        if (_boards.TryGetValue(serial, out var board) && board.IsConnected)
+        {
+            try { _renderer.RenderAll(board, serial, home, _desiredState); }
+            catch (Exception ex) { _logger.LogWarning(ex, "Render after returning home failed for {Serial}", serial); }
+        }
+    }
+
+    // Called wherever the deck's config is (re)loaded: remembers its home page and timeout override.
+    private void TrackHomePage(string serial, DeviceConfig? config)
+    {
+        if (config is null || config.Pages.Count == 0)
+            _homePages.TryRemove(serial, out _);
+        else
+            _homePages[serial] = config.Pages[0].PageId;
+        _inactivity.SetDeviceTimeout(serial, config?.HomeAfterInactivitySeconds);
     }
 
     // The broker-offline overlay is applied at paint time, so turning it on or off is a repaint of
@@ -96,6 +131,7 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
     public void SetActivePage(string serial, string pageId)
     {
         _activePages.SetActivePage(serial, pageId);
+        _inactivity.Touch(serial); // API navigate and Navigate actions both come through here
         if (_boards.TryGetValue(serial, out var board))
             _renderer.RenderAll(board, serial, pageId, _desiredState);
     }
@@ -209,6 +245,7 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
             board.KeyStateChanged += (_, e) =>
             {
                 if (!e.IsDown || !IsCurrentBoard(serial, board)) return;
+                _inactivity.Touch(serial); // any press is activity, including one that only wakes the deck
                 // A press on a dark deck only wakes it; its gesture must not run, nor is it counted.
                 if (_brightness.OnKeyPressed())
                 {
@@ -331,6 +368,7 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
     private async Task RenderFromDesiredStateAsync(string serial, IMacroBoard board)
     {
         var config = await _configStore.LoadAsync(serial);
+        TrackHomePage(serial, config);
         if (config is null || config.Pages.Count == 0) return;
 
         var pageId = _activePages.GetActivePage(serial);
@@ -383,6 +421,7 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
     {
         var board = _boards.TryGetValue(serial, out var b) ? b : null;
         var config = await _configStore.LoadAsync(serial);
+        TrackHomePage(serial, config);
 
         // Rebuild from scratch so a key removed/moved in the new layout leaves no stale image.
         _desiredState.Clear(serial);

@@ -6,6 +6,8 @@ namespace StreamDeckPilot.Core.Validation;
 
 public static class ConfigValidator
 {
+    public const int MaxHomeAfterInactivitySeconds = 86_400; // one day
+
     public static ValidationResult ValidateConfig(DeviceConfig config, DeviceEntry device)
     {
         var errors = new List<string>();
@@ -35,6 +37,9 @@ public static class ConfigValidator
         }
         if (errors.Count > 0)
             return new ValidationResult(errors, warnings);
+
+        if (config.HomeAfterInactivitySeconds is < 0 or > MaxHomeAfterInactivitySeconds)
+            errors.Add($"homeAfterInactivitySeconds must be between 0 (off) and {MaxHomeAfterInactivitySeconds} (got {config.HomeAfterInactivitySeconds}); omit it to use the service default.");
 
         var pageIds = config.Pages.Select(p => p.PageId).ToHashSet();
         var seenPositions = new HashSet<(string pageId, int keyIndex)>();

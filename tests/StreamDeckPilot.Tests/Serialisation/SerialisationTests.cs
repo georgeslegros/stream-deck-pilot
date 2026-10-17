@@ -119,4 +119,20 @@ public class SerialisationTests
         Assert.IsType<PublishAction>(result.Gestures["Tap"][0]);
         Assert.IsType<NavigateAction>(result.Gestures["Tap"][1]);
     }
+
+    [Fact]
+    public void DeviceConfig_HomeAfterInactivitySeconds_IsOptional_AndOmittedWhenUnset()
+    {
+        // An existing config (no such property) reads as "use the service default"...
+        var existing = JsonSerializer.Deserialize<DeviceConfig>(
+            """{ "schemaVersion": 2, "serial": "SN001", "pages": [] }""", JsonOptions.Default)!;
+        Assert.Null(existing.HomeAfterInactivitySeconds);
+
+        // ...and writes back without it, so stored configs round-trip unchanged.
+        Assert.DoesNotContain("homeAfterInactivitySeconds", JsonSerializer.Serialize(existing, JsonOptions.Default));
+
+        var withOverride = existing with { HomeAfterInactivitySeconds = 120 };
+        Assert.Contains("\"homeAfterInactivitySeconds\": 120", JsonSerializer.Serialize(withOverride, JsonOptions.Default));
+        Assert.Equal(120, RoundTrip(withOverride).HomeAfterInactivitySeconds);
+    }
 }

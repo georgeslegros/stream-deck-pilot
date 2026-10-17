@@ -150,7 +150,10 @@ Write (replace) the full config for a device. Validated before save. The body mu
       "pageId": "main",
       "buttons": [ /* ButtonDefinition[] — see below */ ]
     }
-  ]
+  ],
+  // Optional: return to the first page after this many idle seconds (0 = off for this deck).
+  // Omit to use Navigation__HomeAfterInactivitySeconds (default 0, off).
+  "homeAfterInactivitySeconds": 120
 }
 // Response 204 No Content on success
 // Response 400 problem with an "errors" list on validation failure, malformed JSON, or a

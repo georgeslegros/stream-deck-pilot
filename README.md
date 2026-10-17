@@ -209,6 +209,7 @@ read by `Program.cs`, `MqttOptions.cs` and `BrightnessOptions.cs`.
 | `Brightness__SetTopic` | Topic the deck brightness is set from (see [Brightness](#brightness)). Subscribed explicitly if it falls outside `Mqtt__TopicPrefix`. | `home/streamdeck/brightness/set` |
 | `Brightness__StateTopic` | Topic the applied brightness is published to (retained). | `home/streamdeck/brightness/state` |
 | `Brightness__WakeTimeoutSeconds` | How long a key press lights up a deck whose brightness is 0. | `60` |
+| `Navigation__HomeAfterInactivitySeconds` | After this many seconds without a key press or page change, a deck goes back to its first page (see [Return to the home page](#return-to-the-home-page)). `0` disables it. A device config can override it. | `0` (disabled) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP gRPC endpoint for metrics and traces (standard OpenTelemetry variable). | `http://localhost:4317` |
 
 All secrets (API key, MQTT credentials, OTLP endpoint) come from environment variables / Docker
@@ -341,6 +342,7 @@ Field reference (from the domain model in `src/StreamDeckPilot.Core/Models/Confi
 - **`serial`** — must match a serial already present in `catalog.json`.
 - **`pages[].pageType`** — type discriminator. `ButtonGrid` is the only type at launch.
 - **`pages[].pageId`** — stable page identifier; targeted by `Navigate` actions.
+- **`homeAfterInactivitySeconds`** — optional. Overrides `Navigation__HomeAfterInactivitySeconds` for this deck (see [Return to the home page](#return-to-the-home-page)): `0` turns it off, `1`–`86400` sets the timeout. Omit it to use the service default.
 - **`buttonId`** — stable, human-readable button identifier.
 - **`keyIndex`** — 0-based key position, left-to-right, top-to-bottom. Range depends on the device grid (e.g. 0–14 for a 5×3, 0–31 for a 4×8 XL).
 - **`display`**, **`rules`** and **`gestures`** are required on every button; use `{}`, `[]` and `{}` for "none". A button that omits one is rejected with `400`.
@@ -446,6 +448,19 @@ Bare numbers and the `{"value": …}` shape behave as before.
 - **`Publish`** action — emits an MQTT message to `topic` with `payload` sent verbatim. Choose a stable
   payload per button (`"true"`, `"toggle"`, or a JSON string).
 - **`Navigate`** action — changes the active page on that device to `targetPageId`.
+
+### Return to the home page
+
+Set `Navigation__HomeAfterInactivitySeconds` (or `homeAfterInactivitySeconds` in a device's config)
+to send an idle deck back to its **home page**, the first page of its config. It is off by default.
+
+- Every key press and every page change (a `Navigate` action or `POST /devices/{serial}/navigate`)
+  restarts the countdown. So does the press that only wakes a dark deck.
+- When it runs out on any other page, the deck switches to the home page and redraws it. On the
+  home page nothing happens.
+- It never changes brightness. A deck dimmed to `0` stays dark: the page switch happens anyway, so
+  the next wake already shows the home page.
+- The timer is per deck. A config change restarts it with the config's own override, if any.
 
 ### Broker outages
 

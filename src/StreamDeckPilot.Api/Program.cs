@@ -10,6 +10,7 @@ using StreamDeckPilot.Core.Migration;
 using StreamDeckPilot.Infrastructure.Brightness;
 using StreamDeckPilot.Infrastructure.Icons;
 using StreamDeckPilot.Infrastructure.Mqtt;
+using StreamDeckPilot.Infrastructure.Navigation;
 using StreamDeckPilot.Infrastructure.Observability;
 using StreamDeckPilot.Infrastructure.Persistence;
 using StreamDeckPilot.Infrastructure.Rendering;
@@ -66,6 +67,13 @@ builder.Services.AddSingleton<BrightnessController>(sp =>
         sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<BrightnessOptions>>(),
         sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<BrightnessController>>()));
 
+// Return to the home page after inactivity (off unless Navigation:HomeAfterInactivitySeconds > 0)
+builder.Services.Configure<NavigationOptions>(builder.Configuration.GetSection("Navigation"));
+builder.Services.AddSingleton<InactivityMonitor>(sp =>
+    new InactivityMonitor(
+        sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<NavigationOptions>>(),
+        logger: sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<InactivityMonitor>>()));
+
 // Device supervision
 builder.Services.AddSingleton<IStreamDeckLibrary, StreamDeckLibrary>();
 builder.Services.AddSingleton<DeviceSupervisorService>(sp =>
@@ -79,7 +87,8 @@ builder.Services.AddSingleton<DeviceSupervisorService>(sp =>
         sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<DeviceSupervisorService>>(),
         metrics: sp.GetRequiredService<StreamDeckMetrics>(),
         brightness: sp.GetRequiredService<BrightnessController>(),
-        brokerIndicator: sp.GetRequiredService<BrokerIndicator>()));
+        brokerIndicator: sp.GetRequiredService<BrokerIndicator>(),
+        inactivity: sp.GetRequiredService<InactivityMonitor>()));
 builder.Services.AddSingleton<IDeviceStateProvider>(sp => sp.GetRequiredService<DeviceSupervisorService>());
 // Registration order matters: the host stops hosted services in reverse order, so the supervisor
 // must be registered BEFORE every service that renders to the boards (MQTT, staleness). Those then
