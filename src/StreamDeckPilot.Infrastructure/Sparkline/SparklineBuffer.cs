@@ -10,6 +10,9 @@ internal sealed class SparklineBuffer(int capacity)
     private int _head;
 
     public int Count { get; private set; }
+
+    /// <summary>When the trend was last handed out to be drawn (see <see cref="SparklineHistory.Refresh"/>).</summary>
+    public DateTimeOffset LastSnapshot { get; set; }
     public int Capacity => _items.Length;
 
     public (DateTimeOffset At, double Value) this[int index] => _items[(_head + index) % _items.Length];

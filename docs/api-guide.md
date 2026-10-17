@@ -78,9 +78,11 @@ rule background colour.
   `PUT` succeeds with a warning.
 - History is kept in memory only: after a restart the trend starts empty and fills as values arrive.
 - At most `Sparkline__MaxPoints` points (default 240) are kept per button. The window is split into
-  that many buckets, and a value arriving in the same bucket as the previous one replaces it.
-- The trend is redrawn when a value arrives (no extra timer), so its right edge is the time of the
-  latest message.
+  that many buckets, and a value arriving in the same bucket as the previous one replaces it, so a
+  spike shorter than a bucket (90 s for a 6 h window) may not show.
+- The trend is redrawn when a value arrives. Between values, sparkline keys on the page on screen
+  are repainted once per bucket (at least a minute apart) so the window keeps sliding even for a
+  topic that rarely publishes. Pages without a sparkline are never repainted for this.
 
 ### Text zones — `center` and `bottom`
 
