@@ -39,6 +39,9 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
     // Fired when a key is pressed (IsDown=true); subscribers handle the action
     public event Action<string, int>? ButtonPressed;
 
+    // Fired when a key is released (IsDown=false); needed to tell a tap from a long press
+    public event Action<string, int>? ButtonReleased;
+
     public DeviceSupervisorService(
         IStreamDeckLibrary library,
         CatalogueStore catalogue,
@@ -208,7 +211,13 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
 
             board.KeyStateChanged += (_, e) =>
             {
-                if (!e.IsDown || !IsCurrentBoard(serial, board)) return;
+                if (!IsCurrentBoard(serial, board)) return;
+                if (!e.IsDown)
+                {
+                    // Releases always pass: one that ends a swallowed wake press matches no pending gesture.
+                    ButtonReleased?.Invoke(serial, e.Key);
+                    return;
+                }
                 // A press on a dark deck only wakes it; its gesture must not run, nor is it counted.
                 if (_brightness.OnKeyPressed())
                 {

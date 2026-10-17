@@ -43,6 +43,9 @@ public sealed class FakeMacroBoard : IMacroBoard
     public void SimulateKeyPress(int key) =>
         KeyStateChanged?.Invoke(this, new KeyEventArgs(key, true));
 
+    public void SimulateKeyRelease(int key) =>
+        KeyStateChanged?.Invoke(this, new KeyEventArgs(key, false));
+
     public void SetKeyBitmap(int keyIndex, KeyBitmap bitmap)
     {
         lock (_renderLock) _renderCalls.Add((keyIndex, bitmap));
