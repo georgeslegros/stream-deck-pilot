@@ -6,8 +6,9 @@ namespace StreamDeckPilot.Infrastructure.Navigation;
 
 /// <summary>
 /// One inactivity timer per deck (#24). Every <see cref="Touch"/> (a key press or a page change)
-/// restarts it; when it runs out, <see cref="Expired"/> is raised with the serial. What "go home"
-/// means is left to the subscriber. The timeout is the device config's override when it has one,
+/// restarts it; when it runs out, <see cref="Expired"/> is raised with the serial and the timer's
+/// generation. What "go home" means is left to the subscriber, which applies it through
+/// <see cref="RunIfCurrent"/> so a press that lands in between wins. The timeout is the device config's override when it has one,
 /// otherwise <see cref="NavigationOptions.HomeAfterInactivitySeconds"/>; 0 means off.
 /// </summary>
 public sealed class InactivityMonitor : IDisposable
@@ -27,8 +28,11 @@ public sealed class InactivityMonitor : IDisposable
         public long Generation;
     }
 
-    /// <summary>Raised (outside the lock) when a deck has been idle for its timeout.</summary>
-    public event Action<string>? Expired;
+    /// <summary>
+    /// Raised (outside the lock) when a deck has been idle for its timeout, with the generation to
+    /// hand back to <see cref="RunIfCurrent"/>.
+    /// </summary>
+    public event Action<string, long>? Expired;
 
     public InactivityMonitor(
         IOptions<NavigationOptions> options,
@@ -58,6 +62,22 @@ public sealed class InactivityMonitor : IDisposable
     public void Touch(string serial)
     {
         lock (_lock) Arm(serial, GetEntry(serial));
+    }
+
+    /// <summary>
+    /// Runs <paramref name="action"/> under the lock only if no activity happened since the timer
+    /// that raised <see cref="Expired"/> with <paramref name="generation"/>. A press or page change
+    /// takes the same lock to restart the timer, so it can never be undone by the expiry it raced.
+    /// Keep the action short (no rendering).
+    /// </summary>
+    public bool RunIfCurrent(string serial, long generation, Action action)
+    {
+        lock (_lock)
+        {
+            if (!_entries.TryGetValue(serial, out var entry) || entry.Generation != generation) return false;
+            action();
+            return true;
+        }
     }
 
     /// <summary>The timeout in effect for a deck, or null when it is off.</summary>
@@ -103,10 +123,13 @@ public sealed class InactivityMonitor : IDisposable
         lock (_lock)
         {
             if (!_entries.TryGetValue(serial, out var entry) || entry.Generation != generation) return;
-            Cancel(entry); // one-shot: the next press or page change arms it again
+            // One-shot: the next press or page change arms it again. The generation is left as is
+            // so RunIfCurrent can tell whether anything happened since.
+            entry.Timer?.Dispose();
+            entry.Timer = null;
         }
 
-        try { Expired?.Invoke(serial); }
+        try { Expired?.Invoke(serial, generation); }
         catch (Exception ex) { _logger.LogWarning(ex, "Inactivity handler failed for {Serial}", serial); }
     }
 

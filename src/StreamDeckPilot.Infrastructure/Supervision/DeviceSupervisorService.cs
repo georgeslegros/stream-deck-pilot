@@ -29,6 +29,7 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
     private readonly TimeSpan _pollInterval;
     private readonly BrightnessController _brightness;
     private readonly InactivityMonitor _inactivity;
+    private readonly BrokerIndicator? _brokerIndicator;
     private StreamDeckMetrics? _metrics;
 
     private readonly ConcurrentDictionary<string, DeviceConnectionState> _states = new();
@@ -43,6 +44,9 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
     // Fired when a key is pressed (IsDown=true); subscribers handle the action
     public event Action<string, int>? ButtonPressed;
 
+    // Fired when a key is released (IsDown=false); needed to tell a tap from a long press
+    public event Action<string, int>? ButtonReleased;
+
     public DeviceSupervisorService(
         IStreamDeckLibrary library,
         CatalogueStore catalogue,
@@ -55,6 +59,7 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
         StreamDeckMetrics? metrics = null,
         BrightnessController? brightness = null,
         BrokerIndicator? brokerIndicator = null,
+        BlinkScheduler? blink = null,
         InactivityMonitor? inactivity = null)
     {
         _library = library;
@@ -72,18 +77,30 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
             brokerIndicator.Changed += _ => RepaintActivePages();
         _inactivity = inactivity ?? new InactivityMonitor(Options.Create(new NavigationOptions()));
         _inactivity.Expired += ReturnHome;
+        _brokerIndicator = brokerIndicator;
+        if (blink is not null)
+            blink.Toggled += RepaintBlinkingKeys;
     }
 
     // The deck sat idle for its inactivity timeout: show the home page again (#24). This never
     // touches brightness, so a dark deck stays dark; the render is invisible until the next wake,
     // which then already shows the home page. Bypasses SetActivePage so it doesn't re-arm the timer.
-    private void ReturnHome(string serial)
+    // The switch runs under the monitor's lock and only if nothing happened since the timer fired:
+    // a press restarts the timer under that lock before its Navigate can run, so it always wins.
+    private void ReturnHome(string serial, long generation)
     {
         if (!_homePages.TryGetValue(serial, out var home)) return;
-        var current = _activePages.GetActivePage(serial);
-        if (current is null || current == home) return;
 
-        _activePages.SetActivePage(serial, home);
+        var switched = false;
+        _inactivity.RunIfCurrent(serial, generation, () =>
+        {
+            var current = _activePages.GetActivePage(serial);
+            if (current is null || current == home) return;
+            _activePages.SetActivePage(serial, home);
+            switched = true;
+        });
+        if (!switched) return;
+
         _logger.LogInformation("Device {Serial} idle — back to home page {Page}", serial, home);
         if (_boards.TryGetValue(serial, out var board) && board.IsConnected)
         {
@@ -100,6 +117,25 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
         else
             _homePages[serial] = config.Pages[0].PageId;
         _inactivity.SetDeviceTimeout(serial, config?.HomeAfterInactivitySeconds);
+    }
+
+    // One blink half-period elapsed (#23): repaint only the keys that blink, on the page on screen.
+    // Nothing is painted while the deck is dark (brightness 0, not woken by a press) or for keys the
+    // broker-offline look has taken over, so a blink never turns into a stream of identical writes.
+    private void RepaintBlinkingKeys(string serial)
+    {
+        if (!_boards.TryGetValue(serial, out var board) || !board.IsConnected) return;
+        if (_brightness.Effective == 0) return;
+        var pageId = _activePages.GetActivePage(serial);
+        if (pageId is null) return;
+
+        var offline = _brokerIndicator?.ShowOffline == true;
+        foreach (var (keyIndex, state) in _desiredState.GetPage(serial, pageId))
+        {
+            if (!state.BlinkActive || (offline && state.DependsOnBroker)) continue;
+            try { _renderer.RenderLatest(board, serial, pageId, keyIndex, _desiredState); }
+            catch (Exception ex) { _logger.LogWarning(ex, "Blink repaint failed for {Serial} key {Key}", serial, keyIndex); }
+        }
     }
 
     // The broker-offline overlay is applied at paint time, so turning it on or off is a repaint of
@@ -244,8 +280,14 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
 
             board.KeyStateChanged += (_, e) =>
             {
-                if (!e.IsDown || !IsCurrentBoard(serial, board)) return;
-                _inactivity.Touch(serial); // any press is activity, including one that only wakes the deck
+                if (!IsCurrentBoard(serial, board)) return;
+                if (!e.IsDown)
+                {
+                    // Releases always pass: one that ends a swallowed wake press matches no pending gesture.
+                    ButtonReleased?.Invoke(serial, e.Key);
+                    return;
+                }
+                _inactivity.Touch(serial); // any key-down is activity, including one that only wakes the deck
                 // A press on a dark deck only wakes it; its gesture must not run, nor is it counted.
                 if (_brightness.OnKeyPressed())
                 {

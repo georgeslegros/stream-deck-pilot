@@ -14,14 +14,21 @@ public sealed class DeviceRenderer : IDeviceRenderer
     private readonly ConcurrentDictionary<(string Serial, int KeyIndex), object> _keyLocks = new();
 
     private readonly BrokerIndicator? _broker;
+    private readonly BlinkScheduler? _blink;
 
-    public DeviceRenderer(BrokerIndicator? broker = null) => _broker = broker;
+    public DeviceRenderer(BrokerIndicator? broker = null, BlinkScheduler? blink = null)
+    {
+        _broker = broker;
+        _blink = blink;
+    }
 
-    public DeviceRenderer(KeyBitmapComposer composer, StreamDeckMetrics? metrics = null, BrokerIndicator? broker = null)
+    public DeviceRenderer(KeyBitmapComposer composer, StreamDeckMetrics? metrics = null, BrokerIndicator? broker = null,
+        BlinkScheduler? blink = null)
     {
         _composer = composer;
         _metrics = metrics;
         _broker = broker;
+        _blink = blink;
     }
 
     public void RenderButton(IMacroBoard board, string serial, int keyIndex, ButtonRenderState state)
@@ -33,6 +40,11 @@ public sealed class DeviceRenderer : IDeviceRenderer
         // RenderLatest/RenderAll, and every flip of the flag is followed by a repaint.
         if (state.DependsOnBroker && _broker?.ShowOffline == true)
             state = state with { IsOffline = true };
+
+        // Blink (#23), also a paint-time overlay. The offline look wins: a blinking alert can't be
+        // trusted while its value has stopped updating, so it shows offline and stops blinking.
+        if (state.BlinkActive && _blink?.IsOffPhase(serial) == true)
+            state = state with { IsBlinkOffPhase = true };
 
         try
         {
@@ -97,7 +109,7 @@ public sealed class DeviceRenderer : IDeviceRenderer
     // Colour-only fallback used when no composer is injected (tests)
     private static KeyBitmap FallbackBitmap(ButtonRenderState state)
     {
-        if (state.IsDimmed || state.IsOffline) return KeyBitmap.Create.FromRgb(30, 30, 30);
+        if (state.IsDimmed || state.IsOffline || state.IsBlinkOffPhase) return KeyBitmap.Create.FromRgb(30, 30, 30);
         return ParseColour(state.BackgroundColour);
     }
 

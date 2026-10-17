@@ -13,7 +13,7 @@ public class InactivityMonitorTests
     {
         var monitor = new InactivityMonitor(
             Options.Create(new NavigationOptions { HomeAfterInactivitySeconds = globalSeconds }), _time);
-        monitor.Expired += _expired.Add;
+        monitor.Expired += (serial, _) => _expired.Add(serial);
         return monitor;
     }
 
@@ -126,11 +126,28 @@ public class InactivityMonitorTests
     public void AThrowingHandler_DoesNotEscapeTheTimer()
     {
         using var monitor = Monitor(30);
-        monitor.Expired += _ => throw new InvalidOperationException("boom");
+        monitor.Expired += (_, _) => throw new InvalidOperationException("boom");
         monitor.Touch("SN1");
 
         _time.FireAll(); // must not throw
 
         Assert.Equal(["SN1"], _expired);
+    }
+
+    [Fact]
+    public void RunIfCurrent_RunsOnlyWhenNothingHappenedSinceExpiry()
+    {
+        using var monitor = Monitor(30);
+        long generation = -1;
+        monitor.Expired += (_, g) => generation = g;
+        monitor.Touch("SN1");
+        _time.FireAll();
+
+        var ran = 0;
+        Assert.True(monitor.RunIfCurrent("SN1", generation, () => ran++));
+
+        monitor.Touch("SN1"); // a press lands between the expiry and the switch
+        Assert.False(monitor.RunIfCurrent("SN1", generation, () => ran++));
+        Assert.Equal(1, ran);
     }
 }

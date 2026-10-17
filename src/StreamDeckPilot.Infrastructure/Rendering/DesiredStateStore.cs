@@ -10,9 +10,13 @@ public sealed class DesiredStateStore
     // Serialises writes so TryUpdate's check-then-set can't interleave with a Set. Reads stay lock-free.
     private readonly object _writeLock = new();
 
+    /// <summary>Raised (outside the lock) with the serial after any write; the blink scheduler listens (#23).</summary>
+    public event Action<string>? Changed;
+
     public void Set(string serial, string pageId, int keyIndex, ButtonRenderState state)
     {
         lock (_writeLock) _store[(serial, pageId, keyIndex)] = state;
+        Changed?.Invoke(serial);
     }
 
     /// <summary>
@@ -27,12 +31,17 @@ public sealed class DesiredStateStore
             if (!_store.TryGetValue((serial, pageId, keyIndex), out var current) || !ReferenceEquals(current, expected))
                 return false;
             _store[(serial, pageId, keyIndex)] = next;
-            return true;
         }
+        Changed?.Invoke(serial);
+        return true;
     }
 
     public ButtonRenderState? Get(string serial, string pageId, int keyIndex) =>
         _store.TryGetValue((serial, pageId, keyIndex), out var s) ? s : null;
+
+    /// <summary>True when any key of <paramref name="serial"/>, on any page, should be blinking.</summary>
+    public bool AnyBlinking(string serial) =>
+        _store.Any(kv => kv.Key.Serial == serial && kv.Value.BlinkActive);
 
     public IReadOnlyList<(int KeyIndex, ButtonRenderState State)> GetPage(string serial, string pageId) =>
         _store
@@ -47,5 +56,6 @@ public sealed class DesiredStateStore
             foreach (var key in _store.Keys.Where(k => k.Serial == serial).ToList())
                 _store.TryRemove(key, out _);
         }
+        Changed?.Invoke(serial);
     }
 }
