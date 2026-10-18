@@ -353,6 +353,26 @@ public sealed class KeyBitmapComposerTests : IDisposable
         Assert.True(InkPixels(image, bg, 50, 52, xFrom: 38, xTo: Size, threshold: 20) > 25);
     }
 
+    [Fact]
+    public void Sparkline_FirstValueOnly_DrawsFlatInsteadOfThrowing()
+    {
+        // #129: the first value is a lone point at the right edge; it used to become a
+        // zero-length line that the clipper rejected, and the key was not painted at all.
+        var first = new SparklineSeries([new(1, 500)], 500, 500);
+        using var image = _composer.ComposeImage(State("#0066AA", center: "500 ppm") with { Sparkline = first }, "SN1");
+
+        var bg = new Rgba32(0, 102, 170);
+        Assert.True(InkPixels(image, bg, 50, 52, threshold: 20) > 60);   // flat line across the band
+    }
+
+    [Fact]
+    public void Sparkline_RepeatedPoints_DoNotThrow()
+    {
+        var repeated = new SparklineSeries([new(1, 500), new(1, 500), new(1, 500)], 500, 500);
+        using var image = _composer.ComposeImage(State("#0066AA") with { Sparkline = repeated }, "SN1");
+        Assert.Equal(Size, image.Width);
+    }
+
     [Theory]
     [MemberData(nameof(GoldenCases))]
     public void Golden(string name, ButtonRenderState state)
