@@ -100,8 +100,12 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver, ILogger<KeyBitm
         }
 
         // Trend (#25) sits under the text, like the watermark, so the value always reads on top.
+        // A failed overlay must never cost the key its value (#129).
         if (state.Sparkline is { Points.Count: > 0 } sparkline)
-            DrawSparkline(image, sparkline, ink);
+        {
+            try { DrawSparkline(image, sparkline, ink); }
+            catch (Exception ex) { SparklineFailed(ex); }
+        }
 
         if (hasCenter)
             DrawCenterValue(image, state.CenterText!, ink, hasBottom);
@@ -261,15 +265,23 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver, ILogger<KeyBitm
         float X(double x) => (float)(Math.Clamp(x, 0, 1) * (Size - 1));
 
         var line = new List<PointF>(series.Points.Count * 2);
+        void Add(PointF pt)
+        {
+            // Repeated points make zero-length segments, which the line clipper rejects (#129).
+            if (line.Count == 0 || line[^1] != pt)
+                line.Add(pt);
+        }
         for (var i = 0; i < series.Points.Count; i++)
         {
             var p = series.Points[i];
             if (i > 0)
-                line.Add(new PointF(X(p.X), Y(series.Points[i - 1].Value)));   // hold the previous value
-            line.Add(new PointF(X(p.X), Y(p.Value)));
+                Add(new PointF(X(p.X), Y(series.Points[i - 1].Value)));   // hold the previous value
+            Add(new PointF(X(p.X), Y(p.Value)));
         }
+        // A lone point (typically the first value, at the right edge) has no extent to draw:
+        // show it as a flat line across the band.
         if (line.Count == 1)
-            line.Add(new PointF(X(1), line[0].Y));
+            line = [new PointF(X(0), line[0].Y), new PointF(X(1), line[0].Y)];
 
         var area = new List<PointF>(line.Count + 2) { new(line[0].X, Size) };
         area.AddRange(line);
@@ -278,6 +290,13 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver, ILogger<KeyBitm
         image.Mutate(ctx => ctx
             .FillPolygon(WithAlpha(ink, SparklineAreaOpacity), area.ToArray())
             .DrawLine(WithAlpha(ink, SparklineLineOpacity), 1.5f, line.ToArray()));
+    }
+
+    // Non-fatal: the key keeps its background and text, only the trend is missing.
+    private void SparklineFailed(Exception ex)
+    {
+        if (_loggedIconFailures.TryAdd($"sparkline|{ex.GetType().FullName}", 0))
+            logger?.LogWarning(ex, "Could not draw a sparkline; rendering the key without it");
     }
 
     // Non-fatal: the key keeps its background and text, only the icon is missing.

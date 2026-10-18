@@ -68,6 +68,7 @@ public class PressFeedbackValidationTests
     {
         var json = JsonSerializer.Serialize(With(new DisplaySpec("builtin:flash", Precision: 1)), JsonOptions.Default);
         Assert.DoesNotContain("pressFeedback", json);
+        Assert.DoesNotContain("sparkline", json);   // #129: was written as "sparkline": null
 
         var again = JsonSerializer.Serialize(JsonSerializer.Deserialize<DeviceConfig>(json, JsonOptions.Default), JsonOptions.Default);
         Assert.Equal(json, again);
