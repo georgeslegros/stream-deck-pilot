@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using OpenMacroBoard.SDK;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 using StreamDeckPilot.Core.Rendering;
 using StreamDeckPilot.Infrastructure.Icons;
 using StreamDeckPilot.Infrastructure.Mqtt;
@@ -53,14 +55,24 @@ public sealed class DeviceRenderer : IDeviceRenderer
         // stopped updating, so it shows offline and stops blinking). Press feedback wins too: a
         // blinking key that was just pressed shows its full "on" look under the ring or red wash,
         // never the dimmed off phase, so the answer to the press is always readable.
-        if (state.BlinkActive && state.Feedback == PressFeedback.None && _blink?.IsOffPhase(serial) == true)
-            state = state with { IsBlinkOffPhase = true };
+        var blinkFrame = false;
+        if (state.BlinkActive && _blink is not null)
+        {
+            // Always asked, so the scheduler knows which frame this key now shows (#131).
+            var level = _blink.PaintLevel(serial, keyIndex, state.Blink!);
+            if (state.Feedback == PressFeedback.None)
+            {
+                state = state with { BlinkLevel = level };
+                blinkFrame = true;
+            }
+        }
+        if (!blinkFrame) DropBlinkFrames(serial, keyIndex);
 
         try
         {
-            var bitmap = _composer is not null
-                ? _composer.Compose(state, serial)
-                : FallbackBitmap(state);
+            var bitmap = _composer is null ? FallbackBitmap(state)
+                : blinkFrame ? BlinkFrame(serial, keyIndex, state)
+                : _composer.Compose(state, serial);
             board.SetKeyBitmap(keyIndex, bitmap);
             _metrics?.RenderOperations.Add(1, [new("serial", serial)]);
         }
@@ -116,10 +128,64 @@ public sealed class DeviceRenderer : IDeviceRenderer
         }
     }
 
+    // Blink frames (#131): a pulse repaints a key up to 12 times a cycle, so the key is composed once
+    // at full brightness and every frame is derived from that image by dimming it, then kept per
+    // level. A new state for the key (value, colour, sparkline…) replaces the whole entry.
+    private sealed class BlinkFrames(ButtonRenderState baseState, Image<Rgba32> full)
+    {
+        public ButtonRenderState BaseState { get; } = baseState;
+        public Image<Rgba32> Full { get; } = full;
+        public Dictionary<float, KeyBitmap> ByLevel { get; } = new();
+    }
+
+    // Guarded by the key's entry in _keyLocks (re-entrant, and already held via RenderLatest).
+    private readonly ConcurrentDictionary<(string Serial, int KeyIndex), BlinkFrames> _blinkFrames = new();
+
+    /// <summary>Full compositions done for blink frames; tests use it to check the frame cache.</summary>
+    internal int BlinkFrameCompositions;
+
+    private KeyBitmap BlinkFrame(string serial, int keyIndex, ButtonRenderState state)
+    {
+        lock (KeyLock(serial, keyIndex))
+        {
+            var baseState = state with { BlinkLevel = 1f };
+            if (!_blinkFrames.TryGetValue((serial, keyIndex), out var frames) || frames.BaseState != baseState)
+            {
+                frames?.Full.Dispose();
+                Interlocked.Increment(ref BlinkFrameCompositions);
+                frames = new BlinkFrames(baseState, _composer!.ComposeImage(baseState, serial));
+                _blinkFrames[(serial, keyIndex)] = frames;
+            }
+
+            if (frames.ByLevel.TryGetValue(state.BlinkLevel, out var cached)) return cached;
+            KeyBitmap bitmap;
+            if (state.BlinkLevel >= 1f)
+                bitmap = KeyBitmap.Create.FromImageSharpImage(frames.Full);
+            else
+            {
+                using var dimmed = frames.Full.Clone();
+                KeyBitmapComposer.Darken(dimmed, state.BlinkLevel);
+                bitmap = KeyBitmap.Create.FromImageSharpImage(dimmed);
+            }
+            frames.ByLevel[state.BlinkLevel] = bitmap;
+            return bitmap;
+        }
+    }
+
+    private void DropBlinkFrames(string serial, int keyIndex)
+    {
+        if (_blinkFrames.IsEmpty) return;
+        lock (KeyLock(serial, keyIndex))
+            if (_blinkFrames.TryRemove((serial, keyIndex), out var frames))
+                frames.Full.Dispose();
+    }
+
+    private object KeyLock(string serial, int keyIndex) => _keyLocks.GetOrAdd((serial, keyIndex), _ => new object());
+
     // Colour-only fallback used when no composer is injected (tests)
     private static KeyBitmap FallbackBitmap(ButtonRenderState state)
     {
-        if (state.IsDimmed || state.IsOffline || state.IsBlinkOffPhase) return KeyBitmap.Create.FromRgb(30, 30, 30);
+        if (state.IsDimmed || state.IsOffline || state.BlinkLevel < 1f) return KeyBitmap.Create.FromRgb(30, 30, 30);
         if (state.Feedback == PressFeedback.Failed) return KeyBitmap.Create.FromRgb(200, 0, 0);
         if (state.Feedback == PressFeedback.Pending) return KeyBitmap.Create.FromRgb(255, 255, 255);
         return ParseColour(state.BackgroundColour);

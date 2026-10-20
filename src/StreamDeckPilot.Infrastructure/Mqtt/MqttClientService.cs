@@ -549,7 +549,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
             center,
             bottom,
             DependsOnBroker: true,
-            Blink: rule?.Blink == true,
+            Blink: rule?.Blink,
             Sparkline: _sparklines?.Record(serial, button, value));
 
         _desiredState.Set(serial, pageId, button.KeyIndex, renderState);

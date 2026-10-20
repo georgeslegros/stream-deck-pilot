@@ -120,11 +120,12 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver, ILogger<KeyBitm
         else if (state.IsDimmed)
             DrawStatusMarker(image, ClockMarkerIcon, ink);
 
-        // Blink "off" half (#23): the whole key drops to a quarter of its brightness. The value stays
-        // faintly readable, and the alternation with the normal look is what catches the eye.
-        // DeviceRenderer never sets it together with press feedback (feedback wins).
-        if (state.IsBlinkOffPhase)
-            Darken(image, BlinkOffBrightness);
+        // Blink frame (#23, #131): the whole key drops to BlinkLevel of its brightness (a flash's dim
+        // half, or a step of a pulse). The value stays readable, and the change against the normal
+        // look is what catches the eye. DeviceRenderer never sets it together with press feedback
+        // (feedback wins); it derives blink frames from a cached full-brightness image instead.
+        if (state.BlinkLevel < 1f)
+            Darken(image, state.BlinkLevel);
 
         // Press feedback ring (#22), drawn last so nothing covers it.
         if (state.Feedback != PressFeedback.None)
@@ -325,9 +326,8 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver, ILogger<KeyBitm
         });
     }
 
-    private const float BlinkOffBrightness = 0.25f;
 
-    private static void Darken(Image<Rgba32> image, float factor)
+    internal static void Darken(Image<Rgba32> image, float factor)
     {
         image.ProcessPixelRows(accessor =>
         {

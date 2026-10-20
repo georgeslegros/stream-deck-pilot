@@ -7,6 +7,7 @@ using StreamDeckPilot.Api.Middleware;
 using StreamDeckPilot.Core.DeviceState;
 using StreamDeckPilot.Core.Json;
 using StreamDeckPilot.Core.Migration;
+using StreamDeckPilot.Core.Models.Config;
 using StreamDeckPilot.Infrastructure.Brightness;
 using StreamDeckPilot.Infrastructure.Gestures;
 using StreamDeckPilot.Infrastructure.Icons;
@@ -63,8 +64,13 @@ builder.Services.AddSingleton<PressFeedbackTracker>(sp =>
         sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<PressFeedbackOptions>>().Value,
         broker: sp.GetRequiredService<BrokerIndicator>(),
         logger: sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PressFeedbackTracker>>()));
-// Blinking keys (#23): the scheduler times the phase, the renderer applies it, the supervisor repaints
-builder.Services.Configure<BlinkOptions>(builder.Configuration.GetSection("Blink"));
+// Blinking keys (#23, #131): the scheduler times the frames, the renderer applies them, the supervisor
+// repaints. Strengths and periods out of range are clamped; an unknown style is a startup error.
+builder.Services.AddOptions<BlinkOptions>()
+    .Bind(builder.Configuration.GetSection("Blink"))
+    .Validate(o => BlinkSpec.Styles.Contains(o.Style, StringComparer.OrdinalIgnoreCase),
+        $"Blink:Style must be one of: {string.Join(", ", BlinkSpec.Styles)}.")
+    .ValidateOnStart();
 builder.Services.AddSingleton<BlinkScheduler>(sp =>
     new BlinkScheduler(
         sp.GetRequiredService<DesiredStateStore>(),
