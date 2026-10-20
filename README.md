@@ -206,7 +206,12 @@ read by `Program.cs`, `MqttOptions.cs` and `BrightnessOptions.cs`.
 | `Mqtt__MaxReconnectDelaySeconds` | Upper bound for reconnect backoff. The loop never gives up. | `30` |
 | `Mqtt__InboundSilenceReconnectSeconds` | Subscription-liveness watchdog: if no inbound message arrives within this window, force a reconnect + resubscribe. `0` disables it. | `0` (disabled) |
 | `Mqtt__OfflineIndicatorDelaySeconds` | How long the broker must be unreachable before broker-dependent keys show the offline look (see [Broker outages](#broker-outages)). `0` shows it immediately. | `3` |
-| `Blink__IntervalMilliseconds` | Length of each half of a blinking key's cycle (see [Blinking keys](#blinking-keys)). Values under `200` are raised to `200`. | `500` |
+| `Blink__Style` | Default blink style: `flash` (hard switch) or `pulse` (smooth fade). See [Blinking keys](#blinking-keys). Any other value stops the service at startup. | `flash` |
+| `Blink__FlashStrength` | Brightness a `flash` keeps in its dim half, `0.1`–`0.9` (clamped). | `0.25` |
+| `Blink__PulseStrength` | Brightness a `pulse` keeps at its dimmest, `0.1`–`0.9` (clamped). | `0.6` |
+| `Blink__PeriodMilliseconds` | One full `flash` cycle, normal → dim → normal, `400`–`10000` (clamped). | `1000` |
+| `Blink__PulsePeriodMilliseconds` | One full `pulse` cycle, `400`–`10000` (clamped). Slower than a flash by default. | `2000` |
+| `Blink__IntervalMilliseconds` | Before v0.8.0: the length of each half of a flash. Still honoured when `Blink__PeriodMilliseconds` isn't set: the flash period is twice this value. It never affects `pulse`. | — |
 | `Brightness__SetTopic` | Topic the deck brightness is set from (see [Brightness](#brightness)). Subscribed explicitly if it falls outside `Mqtt__TopicPrefix`. | `home/streamdeck/brightness/set` |
 | `Brightness__StateTopic` | Topic the applied brightness is published to (retained). | `home/streamdeck/brightness/state` |
 | `Brightness__WakeTimeoutSeconds` | How long a key press lights up a deck whose brightness is 0. | `60` |
@@ -368,7 +373,7 @@ Field reference (from the domain model in `src/StreamDeckPilot.Core/Models/Confi
   - **Numeric:** `">N"`, `">=N"`, `"<N"`, `"<=N"`, `"==N"`, `"between:A:B"` (inclusive). These only match when the value is a number (`.` decimal point, no commas, finite; `1,5` and `NaN` are text). Text such as `unavailable` skips them.
   - **Text:** `"eq:on"`, `"ne:unavailable"`, `"in:heat,cool,auto"`. Values are trimmed and compared **case-insensitively** (`eq:on` matches `ON`). Numbers are compared as the text they arrived as, so `eq:1` does not match `1.0`; use `==1` for numbers. Everything after `eq:`/`ne:` is the value. `in:` values are comma-separated, so they can't contain a comma.
   - **`"any"`:** matches every value. Put it last as an "otherwise" rule.
-  - **`blink`** — optional, default `false`. While this rule is the first match the key blinks to draw attention (see [Blinking keys](#blinking-keys)).
+  - **`blink`** — optional, default `false`. While this rule is the first match the key blinks to draw attention: `true` uses the global defaults, an object `{ "style", "strength", "periodMs" }` overrides any of them (see [Blinking keys](#blinking-keys)).
   - Conditions are checked when the config is written. An unknown or malformed one (e.g. `">abc"`, or `"==on"` instead of `"eq:on"`) returns `400`.
 - **`gestures`** — map of gesture name to an ordered action list; actions fire in order. Supported names are `Tap`, `LongPress` and `DoubleTap`, all optional. Names are case-sensitive: any other key (`tap`, `DoublePress`, …) is rejected with `400`.
   - A key that defines only `Tap` fires the moment it goes down, with no delay.
@@ -475,7 +480,7 @@ brings the new state:
 - Navigate-only keys get no feedback; the page change is the answer.
 - While the broker is offline (see below) there is no feedback: the offline look already explains
   why nothing happens.
-- On a [blinking key](#blinking-keys) the feedback wins over the blink's dark half.
+- On a [blinking key](#blinking-keys) the feedback wins over the blink's dim frames.
 
 Per key, `display.pressFeedback` overrides the behaviour, and `display.pressFeedbackTimeoutSeconds`
 (1–120) overrides the global timeout. Both are optional; leave them out for the defaults.
@@ -521,30 +526,53 @@ value stays readable. Shorter blips during a reconnect show nothing.
 ### Blinking keys
 
 A rule with `"blink": true` makes its key blink while that rule is the first match: a failed
-backup, a finished appliance, a doorbell. The key alternates every `Blink__IntervalMilliseconds`
-(default 500 ms) between its normal look and the same image at a quarter of the brightness, so the
-value stays readable. It stops as soon as a value arrives that matches a different rule.
+backup, a finished appliance, a doorbell. It stops as soon as a value arrives that matches a
+different rule. The dim look is the same image at a lower brightness, so the value stays readable.
 
 ```json
 "rules": [
   { "condition": "eq:failed", "backgroundColour": "#CC0000", "icon": null, "blink": true },
+  { "condition": ">1200", "backgroundColour": "#CC6600", "icon": null,
+    "blink": { "style": "pulse", "strength": 0.6, "periodMs": 2000 } },
   { "condition": "any",       "backgroundColour": "#226622", "icon": null }
 ]
 ```
 
-- **Cost:** one timer per deck, running only while one of its keys blinks; each tick repaints only
-  the blinking keys on the page on screen. A deck with nothing blinking does no extra work.
+| Setting | Values | Default (`Blink__*`) |
+|---|---|---|
+| `style` | `flash`: hard switch between the normal and the dim look, half the period each. `pulse`: a smooth fade to the dim look and back. | `flash` (`Blink__Style`) |
+| `strength` | Brightness kept in the dimmest frame, `0.1`–`0.9`. Lower is more insistent. | `0.25` for flash, `0.6` for pulse (`Blink__FlashStrength`, `Blink__PulseStrength`) |
+| `periodMs` | One full cycle, `400`–`10000` ms. | `1000` for flash, `2000` for pulse (`Blink__PeriodMilliseconds`, `Blink__PulsePeriodMilliseconds`) |
+
+`"blink": true` uses every default; an object overrides only what it sets (`{ "style": "pulse" }`
+is a pulse at the default strength and period). An invalid value is rejected when the config is
+saved. A slow, mild pulse suits a key that may stay in alert for a long time (air quality); a
+fast flash suits a doorbell.
+
+`Blink__IntervalMilliseconds`, the setting before v0.8.0, still works: it is half a flash cycle, so
+when `Blink__PeriodMilliseconds` isn't set the flash period is twice the interval. It only ever
+applies to flash; a pulse without `periodMs` uses `Blink__PulsePeriodMilliseconds`.
+
+- **Cost:** one timer per deck, running only while one of its keys blinks. It ticks at the finest
+  frame any blinking key needs: a flash changes twice per cycle, a pulse 4 to 12 times (never more
+  often than every 100 ms). A tick repaints only blinking keys on the page on screen whose own frame
+  changed, so a flash next to a pulse isn't repainted on every pulse frame. Each blinking key is
+  drawn once at full brightness and its dim frames are derived from that image and cached, until
+  its value or look changes. A deck with nothing blinking does no extra work. Because the tick is
+  shared, starting, stopping or changing one key's blink can retune the deck's tick, and the other
+  blinking keys may shift phase once. That is harmless, just visible.
 - **Stale or broker offline:** a stale key, or a key showing the [offline look](#broker-outages),
   doesn't blink. Its value isn't current, so it shouldn't demand attention. Blinking resumes when it is.
 - **Brightness 0:** a dark deck isn't repainted for blinking and isn't woken by it. Blinking shows
   again when the deck lights up (a press or a new level).
 - **Pressed while blinking:** [press feedback](#press-feedback) takes over: the key shows its full
-  "on" look with the ring (or red wash) and doesn't drop to the dark half until the feedback ends.
+  "on" look with the ring (or red wash) and doesn't dim until the feedback ends.
 - Blinking is applied while painting; stored values are untouched. Existing configs need no change:
+  `"blink": true` still means the defaults (a 1 s flash at a quarter brightness, as before), and
   `blink` is omitted from the JSON when `false`.
 
 The paint-time looks combine in this order of precedence: **offline > press feedback > blink
-phase**. Stale (the clock marker) is part of the key's state, and a stale key doesn't blink.
+frame**. Stale (the clock marker) is part of the key's state, and a stale key doesn't blink.
 
 ### Brightness
 

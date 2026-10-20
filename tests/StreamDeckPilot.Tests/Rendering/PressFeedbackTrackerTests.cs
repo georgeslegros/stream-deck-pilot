@@ -239,7 +239,7 @@ public sealed class PressFeedbackTrackerTests
     public void Renderer_Precedence_OfflineThenFeedbackThenBlinkPhase()
     {
         var store = new DesiredStateStore();
-        store.Set(Serial, "main", 3, State() with { Blink = true });
+        store.Set(Serial, "main", 3, State() with { Blink = BlinkSpec.On });
         var blinkTime = new ManualTimeProvider();
         using var blink = new BlinkScheduler(store, Microsoft.Extensions.Options.Options.Create(new BlinkOptions()), blinkTime);
         blink.Refresh(Serial);

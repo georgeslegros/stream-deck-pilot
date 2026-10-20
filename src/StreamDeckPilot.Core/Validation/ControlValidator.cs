@@ -117,6 +117,9 @@ internal static class ControlValidator
                     errors.Add($"{name} rule {i + 1}: backgroundColour '{colour}' must be #RRGGBB (e.g. #CC3300).");
                 if (IconReference.Validate(rule.Icon) is { } iconError)
                     errors.Add($"{name} rule {i + 1}: icon '{rule.Icon}' {iconError}.");
+                if (rule.Blink is { } blink)
+                    foreach (var blinkError in ConfigValidator.BlinkErrors(blink))
+                        errors.Add($"{name} rule {i + 1}: {blinkError}.");
             }
         }
     }

@@ -376,7 +376,7 @@ public sealed class SetpointController : IDisposable
             BottomText: null,
             IsDimmed: state.Stale,
             DependsOnBroker: true,
-            Blink: rule?.Blink == true,
+            Blink: rule?.Blink,
             Feedback: state.Phase == Phase.Failed ? PressFeedback.Failed : PressFeedback.None,
             Setpoint: new SetpointFace(SetpointKeyRole.Value,
                 Current: state.Current is { } current ? Format(current, decimals) + c.Unit : null,

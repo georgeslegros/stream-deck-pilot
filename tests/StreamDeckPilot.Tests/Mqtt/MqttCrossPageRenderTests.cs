@@ -172,14 +172,14 @@ public sealed class MqttCrossPageRenderTests : IDisposable
         var button = ButtonOn("climate") with
         {
             Inbound = new InboundBinding("home/backup/state", null, null, true, null),
-            Rules = [new("eq:failed", "#CC0000", null, Blink: true), new("any", "#226622", null)],
+            Rules = [new("eq:failed", "#CC0000", null, Blink: BlinkSpec.On), new("any", "#226622", null)],
         };
 
         svc.RunPipeline(Serial, "climate", button, "failed");
-        Assert.True(desired.Get(Serial, "climate", 0)!.Blink);
+        Assert.NotNull(desired.Get(Serial, "climate", 0)!.Blink);
 
         svc.RunPipeline(Serial, "climate", button, "ok");
-        Assert.False(desired.Get(Serial, "climate", 0)!.Blink);
+        Assert.Null(desired.Get(Serial, "climate", 0)!.Blink);
     }
 
     private static ButtonDefinition ButtonOn(string pageId) =>
