@@ -412,12 +412,11 @@ public sealed class SetpointController : IDisposable
     private TimeSpan ConfirmTimeout(SetpointControl c) =>
         TimeSpan.FromSeconds(Math.Max(0, c.ConfirmTimeoutSeconds ?? _opts.DefaultConfirmTimeoutSeconds));
 
-    /// <summary>Clamps to min/max and snaps to the step grid that starts at min.</summary>
+    /// <summary>Snaps to the step grid that starts at min, then clamps to min/max.</summary>
     internal static double Snap(double value, SetpointControl c)
     {
-        var clamped = Math.Clamp(value, c.Min, c.Max);
-        var snapped = c.Min + Math.Round((clamped - c.Min) / c.Step, MidpointRounding.AwayFromZero) * c.Step;
-        // The top of a range the step doesn't divide is reached by clamping.
+        var snapped = c.Min + Math.Round((value - c.Min) / c.Step, MidpointRounding.AwayFromZero) * c.Step;
+        // Clamping last: the top of a range the step doesn't divide is still reachable.
         return Math.Round(Math.Clamp(snapped, c.Min, c.Max), 10);
     }
 

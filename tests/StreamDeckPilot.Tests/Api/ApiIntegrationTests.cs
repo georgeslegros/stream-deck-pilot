@@ -186,6 +186,36 @@ public sealed class ApiIntegrationTests : IAsyncDisposable
             Assert.Contains("display.precision", await response.Content.ReadAsStringAsync());
     }
 
+    // #132: a setpoint control is stored and returned; one that collides with a button is a 400.
+    [Theory]
+    [InlineData("SN060", 1, HttpStatusCode.NoContent)]
+    [InlineData("SN061", 0, HttpStatusCode.BadRequest)]
+    public async Task PutConfig_SetpointControl_IsValidatedAndStored(string serial, int anchorKey, HttpStatusCode expected)
+    {
+        await _factory.SeedDeviceAsync(serial);
+        var client = _factory.CreateAuthenticatedClient();
+        var body = new StringContent($$$"""
+            {"schemaVersion":2,"serial":"{{{serial}}}","pages":[{"pageType":"ButtonGrid","pageId":"main","buttons":[
+              {"buttonId":"power","keyIndex":0,"pageId":"main","display":{},"inbound":null,"rules":[],"gestures":{}}],
+             "controls":[{"type":"Setpoint","controlId":"room","anchorKey":{{{anchorKey}}},"orientation":"vertical",
+               "current":{"topic":"climate/room/current"},"target":{"topic":"climate/room/target"},
+               "commit":{"topic":"climate/room/set"},"step":0.5,"min":5,"max":30}]}]}
+            """, Encoding.UTF8, "application/json");
+
+        var response = await client.PutAsync($"/devices/{serial}/config", body);
+
+        Assert.Equal(expected, response.StatusCode);
+        if (expected == HttpStatusCode.NoContent)
+        {
+            var get = await client.GetFromJsonAsync<JsonElement>($"/devices/{serial}/config");
+            var control = get.GetProperty("pages")[0].GetProperty("controls")[0];
+            Assert.Equal("Setpoint", control.GetProperty("type").GetString());
+            Assert.Equal("vertical", control.GetProperty("orientation").GetString());
+        }
+        else
+            Assert.Contains("already used by button 'power'", await response.Content.ReadAsStringAsync());
+    }
+
     // Omitted fields deserialise as null despite the model's annotations; they used to reach
     // the validator and fail with a 500 (#61).
     [Theory]

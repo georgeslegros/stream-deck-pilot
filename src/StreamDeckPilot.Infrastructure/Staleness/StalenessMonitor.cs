@@ -16,7 +16,8 @@ public sealed class StalenessMonitor(
     IDeviceRenderer renderer,
     DeviceSupervisorService supervisor,
     ILogger<StalenessMonitor> logger,
-    SparklineHistory? sparklines = null) : BackgroundService
+    SparklineHistory? sparklines = null,
+    Controls.SetpointController? setpoints = null) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -36,6 +37,9 @@ public sealed class StalenessMonitor(
     {
         var serials = await configStore.ListSerialsAsync();
         var now = DateTime.UtcNow;
+
+        // Setpoint controls (#132) dim their value key when their current value goes stale.
+        setpoints?.CheckStaleness();
 
         foreach (var serial in serials)
         {

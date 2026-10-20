@@ -309,7 +309,52 @@ public sealed class KeyBitmapComposerTests : IDisposable
         { "sensor-alert-pulse-mid", State("#CC3300", "builtin:molecule-co2", IconPlacement.Corner, "1200 ppm", "CO2", blinkOff: true) with { BlinkLevel = 0.6f } },
         { "sparkline", State("#0066AA", "builtin:molecule-co2", IconPlacement.Corner, "850 ppm", "CO2") with { Sparkline = RisingTrend } },
         { "sparkline-light", State("#FFD54F", null, IconPlacement.Corner, "2.4 kW", "Solar") with { Sparkline = RisingTrend } },
+        // #132: a setpoint's three keys. The +/− keys look the same in either orientation.
+        { "setpoint-value", SetpointValue(pending: false) },
+        { "setpoint-value-no-label", SetpointValue(pending: false) with { Setpoint = new(SetpointKeyRole.Value, "21.5°", "21°") } },
+        { "setpoint-pending", SetpointValue(pending: true) },
+        { "setpoint-failed", SetpointValue(pending: false) with { Feedback = PressFeedback.Failed } },
+        { "setpoint-plus", SetpointArrow(SetpointKeyRole.Plus, disabled: false) },
+        { "setpoint-minus", SetpointArrow(SetpointKeyRole.Minus, disabled: false) },
+        { "setpoint-at-max", SetpointArrow(SetpointKeyRole.Plus, disabled: true) },
+        { "setpoint-at-min", SetpointArrow(SetpointKeyRole.Minus, disabled: true) },
     };
+
+    // ── Setpoint (#132) ──────────────────────────────────────────────────────
+
+    private static ButtonRenderState SetpointValue(bool pending) =>
+        State("#0066AA") with
+        {
+            Setpoint = new(SetpointKeyRole.Value, "21.5°", pending ? "22.5°" : "21°", "Office", pending, "#FFB300"),
+        };
+
+    private static ButtonRenderState SetpointArrow(SetpointKeyRole role, bool disabled) =>
+        State(null, role == SetpointKeyRole.Plus ? "builtin:plus-thick" : "builtin:minus-thick", IconPlacement.Center) with
+        {
+            Setpoint = new(role, Disabled: disabled),
+        };
+
+    [Fact]
+    public void Setpoint_Pending_DrawsTheTargetOnAPendingBand()
+    {
+        using var normal = _composer.ComposeImage(SetpointValue(pending: false), "SN1");
+        using var pending = _composer.ComposeImage(SetpointValue(pending: true), "SN1");
+
+        var amber = new Rgba32(255, 179, 0);
+        Assert.Equal(amber, pending[2, 52]);   // the band under the target
+        Assert.NotEqual(amber, normal[2, 52]);
+        Assert.Equal(pending[2, 20], normal[2, 20]); // the top of the key is unchanged
+    }
+
+    [Fact]
+    public void Setpoint_DisabledArrow_IsDarker()
+    {
+        using var enabled = _composer.ComposeImage(SetpointArrow(SetpointKeyRole.Plus, disabled: false), "SN1");
+        using var disabled = _composer.ComposeImage(SetpointArrow(SetpointKeyRole.Plus, disabled: true), "SN1");
+
+        Assert.True(disabled[2, 2].R < enabled[2, 2].R);
+        Assert.True(disabled[36, 36].R < enabled[36, 36].R); // the + itself
+    }
 
     // ── Sparkline (#25) ──────────────────────────────────────────────────────
 

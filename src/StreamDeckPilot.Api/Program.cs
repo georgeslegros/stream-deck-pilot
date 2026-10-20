@@ -9,6 +9,7 @@ using StreamDeckPilot.Core.Json;
 using StreamDeckPilot.Core.Migration;
 using StreamDeckPilot.Core.Models.Config;
 using StreamDeckPilot.Infrastructure.Brightness;
+using StreamDeckPilot.Infrastructure.Controls;
 using StreamDeckPilot.Infrastructure.Gestures;
 using StreamDeckPilot.Infrastructure.Icons;
 using StreamDeckPilot.Infrastructure.Mqtt;
@@ -98,6 +99,18 @@ builder.Services.AddSingleton<InactivityMonitor>(sp =>
         sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<NavigationOptions>>(),
         logger: sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<InactivityMonitor>>()));
 
+// Setpoint controls (#132): fed by the MQTT service, seeded by the supervisor, painted from desired state
+builder.Services.AddOptions<SetpointOptions>()
+    .Bind(builder.Configuration.GetSection("Setpoint"))
+    .Validate(o => o.Error() is null, "Invalid Setpoint options: check Setpoint:PendingColour (#RRGGBB), DefaultCommitDelayMs (0-10000), DefaultConfirmTimeoutSeconds (1-600) and FailedFlashMilliseconds (0-10000).")
+    .ValidateOnStart();
+builder.Services.AddSingleton<SetpointController>(sp =>
+    new SetpointController(
+        sp.GetRequiredService<DesiredStateStore>(),
+        sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<SetpointOptions>>(),
+        broker: sp.GetRequiredService<BrokerIndicator>(),
+        logger: sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SetpointController>>()));
+
 // Device supervision
 builder.Services.AddSingleton<IStreamDeckLibrary, StreamDeckLibrary>();
 builder.Services.AddSingleton<DeviceSupervisorService>(sp =>
@@ -113,7 +126,8 @@ builder.Services.AddSingleton<DeviceSupervisorService>(sp =>
         brightness: sp.GetRequiredService<BrightnessController>(),
         brokerIndicator: sp.GetRequiredService<BrokerIndicator>(),
         blink: sp.GetRequiredService<BlinkScheduler>(),
-        inactivity: sp.GetRequiredService<InactivityMonitor>()));
+        inactivity: sp.GetRequiredService<InactivityMonitor>(),
+        setpoints: sp.GetRequiredService<SetpointController>()));
 builder.Services.AddSingleton<IDeviceStateProvider>(sp => sp.GetRequiredService<DeviceSupervisorService>());
 // Registration order matters: the host stops hosted services in reverse order, so the supervisor
 // must be registered BEFORE every service that renders to the boards (MQTT, staleness). Those then
@@ -145,7 +159,8 @@ builder.Services.AddSingleton<MqttClientService>(sp =>
         brokerIndicator: sp.GetRequiredService<BrokerIndicator>(),
         pressFeedback: sp.GetRequiredService<PressFeedbackTracker>(),
         gestureOptions: sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<GestureOptions>>(),
-        sparklines: sp.GetRequiredService<SparklineHistory>()));
+        sparklines: sp.GetRequiredService<SparklineHistory>(),
+        setpoints: sp.GetRequiredService<SetpointController>()));
 builder.Services.AddSingleton<IConfigChangeNotifier>(sp => sp.GetRequiredService<MqttClientService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<MqttClientService>());
 builder.Services.AddHostedService<StalenessMonitor>();

@@ -30,6 +30,7 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
     private readonly BrightnessController _brightness;
     private readonly InactivityMonitor _inactivity;
     private readonly BrokerIndicator? _brokerIndicator;
+    private readonly Controls.SetpointController? _setpoints;
     private StreamDeckMetrics? _metrics;
 
     private readonly ConcurrentDictionary<string, DeviceConnectionState> _states = new();
@@ -60,7 +61,8 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
         BrightnessController? brightness = null,
         BrokerIndicator? brokerIndicator = null,
         BlinkScheduler? blink = null,
-        InactivityMonitor? inactivity = null)
+        InactivityMonitor? inactivity = null,
+        Controls.SetpointController? setpoints = null)
     {
         _library = library;
         _catalogue = catalogue;
@@ -78,6 +80,7 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
         _inactivity = inactivity ?? new InactivityMonitor(Options.Create(new NavigationOptions()));
         _inactivity.Expired += ReturnHome;
         _brokerIndicator = brokerIndicator;
+        _setpoints = setpoints;
         _blink = blink;
         if (blink is not null)
             blink.Toggled += RepaintBlinkingKeys;
@@ -455,6 +458,9 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
                     DependsOnBroker: ButtonRenderState.ButtonDependsOnBroker(button)));
             }
         }
+
+        // Setpoint controls (#132) keep their own state; they write their keys' looks themselves.
+        _setpoints?.Seed(serial, config, _boards.TryGetValue(serial, out var board) ? board.Keys.CountX : null);
     }
 
     /// <summary>

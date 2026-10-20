@@ -221,6 +221,10 @@ read by `Program.cs`, `MqttOptions.cs` and `BrightnessOptions.cs`.
 | `Gestures__LongPressMs` | How long a key must be held for its `LongPress` gesture. | `500` |
 | `Gestures__DoubleTapMs` | How long after a release a second press counts as a `DoubleTap`. Only keys that define `DoubleTap` wait this long. | `300` |
 | `Navigation__HomeAfterInactivitySeconds` | After this many seconds without a key press or page change, a deck goes back to its first page (see [Return to the home page](#return-to-the-home-page)). `0` disables it. A device config can override it. | `0` (disabled) |
+| `Setpoint__PendingColour` | Band behind a [setpoint](#setpoint-controls)'s target until the device confirms it (`#RRGGBB`). | `#FFB300` |
+| `Setpoint__DefaultCommitDelayMs` | Debounce after the last +/− press before the target is published, when the control sets no `commit.delayMs` (0–10000). | `1500` |
+| `Setpoint__DefaultConfirmTimeoutSeconds` | How long a published target waits for the target topic to report it, when the control sets no `confirmTimeoutSeconds` (1–600). | `30` |
+| `Setpoint__FailedFlashMilliseconds` | How long the value key shows the failed look after an unconfirmed target (0–10000). | `600` |
 | `Sparkline__MaxPoints` | Points kept per button for a `display.sparkline` trend (see the API guide). The window is split into this many buckets; values in the same bucket replace each other. | `240` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP gRPC endpoint for metrics and traces (standard OpenTelemetry variable). | `http://localhost:4317` |
 
@@ -573,6 +577,35 @@ applies to flash; a pulse without `periodMs` uses `Blink__PulsePeriodMillisecond
 
 The paint-time looks combine in this order of precedence: **offline > press feedback > blink
 frame**. Stale (the clock marker) is part of the key's state, and a stale key doesn't blink.
+
+### Setpoint controls
+
+A `Setpoint` control groups three keys (−, value, +) to adjust a numeric target such as a
+thermostat setpoint, fan speed or volume. It goes in a page's optional `controls` list, next to
+`buttons`; the full schema is in the [API guide](docs/api-guide.md#controls--setpoint).
+
+- **Layout:** `vertical` (+ on top) or `horizontal` (− on the left), your choice. The value key
+  shows the current value large and the target small underneath, with an optional label on top.
+- **Adjusting:** +/− change a local pending target, shown at once on an amber band. One message
+  with the final **absolute** target is published `commit.delayMs` (default 1.5 s) after the last
+  press, so a slow device API gets one command, not one per step.
+- **Confirmation:** the band stays until the target topic reports that value. If it doesn't within
+  `confirmTimeoutSeconds` (default 30 s), the key flashes the failed look, a warning is logged, and
+  the reported target shows again.
+- **Broker offline:** presses do nothing and the offline look wins. A dark deck is only woken by
+  the first press, as for any key.
+
+```jsonc
+"controls": [
+  {
+    "type": "Setpoint", "controlId": "office", "anchorKey": 0, "orientation": "vertical",
+    "label": "Office", "unit": "°", "step": 0.5, "min": 5, "max": 30,
+    "current": { "topic": "climate/office/current_temperature" },
+    "target":  { "topic": "climate/office/temperature" },
+    "commit":  { "topic": "climate/office/setpoint/set" }
+  }
+]
+```
 
 ### Brightness
 
