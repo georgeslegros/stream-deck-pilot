@@ -194,11 +194,31 @@ public sealed class BlinkStyleTests
     [Fact]
     public void PerRuleOverride_WinsOverTheGlobalDefaults()
     {
-        var (scheduler, _, _) = Build(new BlinkOptions { Style = BlinkSpec.Pulse, PulseStrength = 0.5, PeriodMilliseconds = 3000 });
+        var (scheduler, _, _) = Build(new BlinkOptions { Style = BlinkSpec.Pulse, PulseStrength = 0.5, PulsePeriodMilliseconds = 3000 });
 
         Assert.Equal(new BlinkScheduler.ResolvedBlink(true, 0.5f, 3000, 12), scheduler.Resolve(BlinkSpec.On));
         Assert.Equal(new BlinkScheduler.ResolvedBlink(false, 0.3f, 800, 2),
             scheduler.Resolve(new BlinkSpec(BlinkSpec.Flash, 0.3, 800)));
+    }
+
+    [Fact]
+    public void FlashWithoutAPeriod_UsesTheFlashPeriod()
+    {
+        var (scheduler, _, _) = Build(new BlinkOptions { PeriodMilliseconds = 1200, PulsePeriodMilliseconds = 3000 });
+
+        Assert.Equal(1200, scheduler.Resolve(new BlinkSpec(BlinkSpec.Flash)).PeriodMs);
+        Assert.Equal(1000, Build().Scheduler.Resolve(new BlinkSpec(BlinkSpec.Flash)).PeriodMs);
+    }
+
+    [Fact]
+    public void PulseWithoutAPeriod_UsesTheSlowerPulsePeriod_NotTheLegacyInterval()
+    {
+        Assert.Equal(2000, Build().Scheduler.Resolve(new BlinkSpec(BlinkSpec.Pulse)).PeriodMs);
+
+        // The legacy interval only ever meant half a flash.
+        var (scheduler, _, _) = Build(new BlinkOptions { IntervalMilliseconds = 300 });
+        Assert.Equal(600, scheduler.Resolve(new BlinkSpec(BlinkSpec.Flash)).PeriodMs);
+        Assert.Equal(2000, scheduler.Resolve(new BlinkSpec(BlinkSpec.Pulse)).PeriodMs);
     }
 
     [Fact]

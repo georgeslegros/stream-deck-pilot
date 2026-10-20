@@ -321,7 +321,8 @@ Full OpenAPI 3 schema (no auth required).
   // "Blinking keys"): true uses the global Blink__* defaults, or an object overrides any of them:
   //   "blink": { "style": "pulse", "strength": 0.6, "periodMs": 2000 }
   // style "flash" | "pulse" (exact case), strength 0.1–0.9 (brightness kept when dimmest),
-  // periodMs 400–10000 (one full cycle). Out-of-range values are rejected on PUT.
+  // periodMs 400–10000 (one full cycle; default 1000 for flash, 2000 for pulse).
+  // Out-of-range values are rejected on PUT.
   // Stale and broker-offline keys don't blink.
 
   "gestures": {

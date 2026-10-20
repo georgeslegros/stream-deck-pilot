@@ -72,7 +72,7 @@ public sealed class BlinkScheduler : IDisposable
         var strength = spec.Strength ?? (pulse ? _options.PulseStrength : _options.FlashStrength);
         var period = spec.PeriodMs is { } p
             ? Math.Clamp(p, BlinkSpec.MinPeriodMs, BlinkSpec.MaxPeriodMs)
-            : _options.EffectivePeriodMilliseconds;
+            : pulse ? _options.EffectivePulsePeriodMilliseconds : _options.EffectivePeriodMilliseconds;
         var steps = pulse ? Math.Clamp(period / BlinkOptions.MinFrameMilliseconds, 2, BlinkOptions.MaxPulseSteps) : 2;
         return new ResolvedBlink(pulse, (float)Math.Clamp(strength, BlinkSpec.MinStrength, BlinkSpec.MaxStrength), period, steps);
     }

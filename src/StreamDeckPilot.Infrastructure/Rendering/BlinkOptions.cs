@@ -26,16 +26,23 @@ public record BlinkOptions
     /// <summary>Brightness kept at the bottom of a pulse (0.1–0.9).</summary>
     public double PulseStrength { get; init; } = 0.6;
 
-    /// <summary>One full cycle, normal → dim → normal (400–10000 ms). Wins over <see cref="IntervalMilliseconds"/>.</summary>
+    /// <summary>One full flash cycle, normal → dim → normal (400–10000 ms). Wins over <see cref="IntervalMilliseconds"/>.</summary>
     public int? PeriodMilliseconds { get; init; }
+
+    /// <summary>One full pulse cycle (400–10000 ms). Slower than a flash by default: a fade reads better slowly.</summary>
+    public int PulsePeriodMilliseconds { get; init; } = 2000;
 
     /// <summary>
     /// Before #131: how long each half of a flash lasts. Still honoured when
-    /// <see cref="PeriodMilliseconds"/> is not set (period = 2 × interval).
+    /// <see cref="PeriodMilliseconds"/> is not set (flash period = 2 × interval). Never affects pulse.
     /// </summary>
     public int? IntervalMilliseconds { get; init; }
 
-    /// <summary>The default cycle length, clamped to the supported range.</summary>
+    /// <summary>The default flash cycle length, clamped to the supported range.</summary>
     public int EffectivePeriodMilliseconds =>
         Math.Clamp(PeriodMilliseconds ?? (IntervalMilliseconds * 2) ?? 1000, BlinkSpec.MinPeriodMs, BlinkSpec.MaxPeriodMs);
+
+    /// <summary>The default pulse cycle length, clamped to the supported range.</summary>
+    public int EffectivePulsePeriodMilliseconds =>
+        Math.Clamp(PulsePeriodMilliseconds, BlinkSpec.MinPeriodMs, BlinkSpec.MaxPeriodMs);
 }
