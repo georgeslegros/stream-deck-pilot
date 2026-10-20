@@ -26,6 +26,26 @@ public sealed class ButtonTopicIndexTests
         Assert.Empty(index.TopicsFor("SN3"));
     }
 
+    // #132: a setpoint's current and target topics are indexed for that control only, never as buttons,
+    // and count among the device's topics (so a config change requests their retained values).
+    [Fact]
+    public void SetpointTopics_AreIndexedForTheControl()
+    {
+        var control = Tests.Validation.SetpointValidationTests.Setpoint();
+        var index = new ButtonTopicIndex();
+        index.Update("SN1", new DeviceConfig(2, "SN1", [new ButtonGridPage("main", [], [control])]));
+
+        var current = Assert.Single(index.LookupControls("climate/room/current_temperature"));
+        var target = Assert.Single(index.LookupControls("climate/room/temperature"));
+        Assert.Equal(("SN1", "main", control, false), current);
+        Assert.Equal(("SN1", "main", control, true), target);
+        Assert.Empty(index.Lookup("climate/room/temperature"));
+        Assert.Equal(["climate/room/current_temperature", "climate/room/temperature"], index.TopicsFor("SN1").Order());
+
+        index.Update("SN1", Config("SN1", "home/co2"));
+        Assert.Empty(index.LookupControls("climate/room/temperature"));
+    }
+
     // The retained refresh subscribes then unsubscribes each topic: a wildcard binding must never
     // be in that list (unsubscribing "home/#" would drop the service's own wildcard), nor a topic
     // the wildcard does not cover.

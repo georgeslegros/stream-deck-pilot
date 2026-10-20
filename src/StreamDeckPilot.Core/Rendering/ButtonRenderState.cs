@@ -15,7 +15,8 @@ public sealed record ButtonRenderState(
     BlinkSpec? Blink = null,      // the matching rule asks for attention (#23, #131); null = no blink
     float BlinkLevel = 1f,        // render-time only: brightness kept in this blink frame (1 = normal look)
     SparklineSeries? Sparkline = null, // trend drawn behind the text (#25), null when not opted in
-    PressFeedback Feedback = PressFeedback.None) // render-time only, like IsOffline (#22)
+    PressFeedback Feedback = PressFeedback.None, // render-time only, like IsOffline (#22)
+    SetpointFace? Setpoint = null) // one of a setpoint control's keys (#132), null for buttons
 {
     /// <summary>True when the key should actually blink: stale and broker-offline keys don't.</summary>
     public bool BlinkActive => Blink is not null && !IsDimmed && !IsOffline;

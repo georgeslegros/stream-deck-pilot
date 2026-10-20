@@ -5,7 +5,9 @@ namespace StreamDeckPilot.Infrastructure.Mqtt;
 
 public sealed class ButtonTopicIndex
 {
-    private record Entry(string Serial, string PageId, ButtonDefinition Button);
+    // A button bound to the topic, or a setpoint control (#132) reading its current or target value from it.
+    private record Entry(string Serial, string PageId, ButtonDefinition? Button,
+        SetpointControl? Control = null, bool IsTarget = false);
 
     private volatile Dictionary<string, List<Entry>> _index = new(StringComparer.Ordinal);
 
@@ -49,7 +51,13 @@ public sealed class ButtonTopicIndex
 
     public IReadOnlyList<(string Serial, string PageId, ButtonDefinition Button)> Lookup(string topic) =>
         _index.TryGetValue(topic, out var entries)
-            ? entries.Select(e => (e.Serial, e.PageId, e.Button)).ToList()
+            ? entries.Where(e => e.Button is not null).Select(e => (e.Serial, e.PageId, e.Button!)).ToList()
+            : [];
+
+    /// <summary>Setpoint controls (#132) reading this topic, and whether it is their target (else current) topic.</summary>
+    public IReadOnlyList<(string Serial, string PageId, SetpointControl Control, bool IsTarget)> LookupControls(string topic) =>
+        _index.TryGetValue(topic, out var entries)
+            ? entries.Where(e => e.Control is not null).Select(e => (e.Serial, e.PageId, e.Control!, e.IsTarget)).ToList()
             : [];
 
     private static void AddConfig(Dictionary<string, List<Entry>> index, string serial, DeviceConfig config)
@@ -64,6 +72,19 @@ public sealed class ButtonTopicIndex
                     index[topic] = list = [];
                 list.Add(new Entry(serial, page.PageId, button));
             }
+            foreach (var control in (grid.Controls ?? []).OfType<SetpointControl>())
+            {
+                Add(index, control.Current?.Topic, new Entry(serial, page.PageId, null, control, IsTarget: false));
+                Add(index, control.Target?.Topic, new Entry(serial, page.PageId, null, control, IsTarget: true));
+            }
         }
+    }
+
+    private static void Add(Dictionary<string, List<Entry>> index, string? topic, Entry entry)
+    {
+        if (string.IsNullOrEmpty(topic)) return;
+        if (!index.TryGetValue(topic, out var list))
+            index[topic] = list = [];
+        list.Add(entry);
     }
 }

@@ -373,7 +373,70 @@ Conditions are validated when the config is written. A malformed or unknown cond
 | Toggle / status | `center` | — | `{ label: "Lampe" }` |
 | Navigation arrow | `center` | — | — |
 
-> Climate note: a `{label}` hero must have **no internal space** (`"22/18"`, not `"22 / 18"`), because the center text is split on the first space to separate the unit. Round to integers to keep it narrow on a 72 px key.
+> Climate note: a `{label}` hero must have **no internal space** (`"22/18"`, not `"22 / 18"`), because the center text is split on the first space to separate the unit. Round to integers to keep it narrow on a 72 px key. To *adjust* a target (thermostat, fan speed, volume), use a [Setpoint control](#controls--setpoint) instead.
+
+---
+
+## Controls — `Setpoint`
+
+A page can hold `controls` next to its `buttons`: units that occupy several keys and behave as one. `Setpoint` is the only type so far: three keys (−, value, +) that adjust a numeric target such as a thermostat setpoint. `controls` is optional and left out of the JSON when unset, so existing configs are unchanged.
+
+```jsonc
+{
+  "pageType": "ButtonGrid",
+  "pageId": "climate",
+  "buttons": [ /* … */ ],
+  "controls": [
+    {
+      "type": "Setpoint",                       // discriminator, first property
+      "controlId": "room-1",                    // unique across the device's pages
+      "anchorKey": 0,                           // first key of the group
+      "orientation": "vertical",                // "vertical": + on anchorKey, value below, − below that
+                                                // "horizontal": − on anchorKey, value, + to its right
+      "label": "Office",                        // optional caption on top of the value key
+      "current": { "topic": "climate/room-1/current_temperature",   // the measured value (large)
+                   "valueField": null,                              // as for buttons; null = the "value" key
+                   "stalenessTimeout": "00:15:00" },                // optional: dims the value key when silent
+      "target":  { "topic": "climate/room-1/temperature" },          // the device's reported target (small)
+      "unit": "°",                              // appended as written: "21.5°" (use " °C" for a space)
+      "precision": 1,                           // optional; default: the decimals of step (0.5 → 1)
+      "step": 0.5,
+      "min": 5, "max": 30,
+      "commit": {
+        "topic": "climate/room-1/setpoint/set", // receives the ABSOLUTE target, never up/down
+        "payload": "{\"temperature\": {target}}", // optional template; null = the bare number ("21.5")
+        "delayMs": 1500                         // optional debounce after the last press (default Setpoint__DefaultCommitDelayMs)
+      },
+      "confirmTimeoutSeconds": 30,              // optional, 1–600 (default Setpoint__DefaultConfirmTimeoutSeconds)
+      "rules": [                                // optional, same grammar as button rules, over the CURRENT value:
+        { "condition": ">25", "backgroundColour": "#CC3300", "icon": null }   // colours the value key
+      ],
+      "longPressStep": 2                        // optional: a long press on +/− moves by this much
+    }
+  ]
+}
+```
+
+**Keys.** On a 5-column deck, `anchorKey: 0` vertical uses keys 0 (+), 5 (value) and 10 (−); `anchorKey: 6` horizontal uses 6 (−), 7 (value) and 8 (+). The three keys must exist, sit in one row or column without wrapping, and not overlap a button or another control; otherwise the PUT is rejected with `400`. A `step` that doesn't divide `max − min` is a warning: the top of the range is reached by clamping.
+
+**Value key.** The current value large, the target small underneath (`→ 21.5°`), the optional `label` on top. `rules` colour it from the current value (`blink` works too). The stale and broker-offline looks apply as for buttons.
+
+**Adjusting.**
+- A press on +/− moves a local **pending target**, from the pending target, else the reported target, along the step grid that starts at `min`, clamped to `min`/`max`. It shows at once on a band in the pending colour (`Setpoint__PendingColour`, amber). At either end of the range that arrow is drawn dimmed and does nothing.
+- Until the `target` topic has reported a value, presses do nothing (logged at debug). The current value is never used as a starting point: it can be far from the real setpoint.
+- A tap goes to the next grid value strictly beyond the start in its direction: exactly one `step` when the target is on the grid. A device that reports an off-grid target moves onto the grid at the next press. With `min` 5 and `step` 0.5, a reported 16.3 goes to 16.5 on + (then 17.0), and to 16.0 on −.
+- A long press goes to the first grid value at or beyond start ± `longPressStep`. With `longPressStep` 2, 16.3 goes to 18.5 on + and 14.0 on −.
+- `delayMs` after the **last** press, **one** message with the final target is published on `commit.topic` (QoS 1, not retained). Repeated presses never send several commands. Nothing is published when the device is already heading to the final target:
+  - With no command in flight, that's the target it reports. If you went + then −, nothing is published and the band clears.
+  - With a command in flight (published, not yet reported back), that's the command. Going back to it publishes nothing and keeps waiting for it. Going anywhere else, including back to the old reported target, publishes the new target.
+- A new command supersedes the one in flight and restarts the confirm timeout. A late report of the superseded target confirms nothing.
+- The band stays until `target` reports the committed value, within half a step. A target reported **before** the commit doesn't count.
+- No match within `confirmTimeoutSeconds` after the commit: the value key flashes the failed look (red wash and ring) for `Setpoint__FailedFlashMilliseconds`, a warning is logged, and the reported target shows again.
+- A press after the commit starts a new cycle from the committed target.
+- The value key's own press does nothing. A setpoint key gets no [press feedback](../README.md#press-feedback) ring: the band replaces it.
+- While the broker is offline, presses do nothing and the offline look wins (no failed flash either). On a dark deck the first press only wakes it.
+- The pending target belongs to the control, not the page on screen: switching pages doesn't cancel it, and the commit still goes out.
+- With `longPressStep`, +/− answer a long press (`Gestures__LongPressMs`), so their tap runs on release rather than on key-down. Without it, a tap runs on key-down as for any Tap-only key.
 
 ---
 
