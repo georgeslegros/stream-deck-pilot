@@ -214,8 +214,8 @@ public sealed class SetpointController : IDisposable
                 return;
             }
 
-            var step = gesture == GestureNames.LongPress && c.LongPressStep is { } longStep ? longStep : c.Step;
-            var next = Snap(from.Value + (role == SetpointKeyRole.Plus ? step : -step), c);
+            var distance = gesture == GestureNames.LongPress ? c.LongPressStep : null;
+            var next = Move(from.Value, up: role == SetpointKeyRole.Plus, distance, c);
             if (Same(next, from.Value)) return; // already at that end of the range
 
             state.Pending = next;
@@ -437,12 +437,28 @@ public sealed class SetpointController : IDisposable
     private TimeSpan ConfirmTimeout(SetpointControl c) =>
         TimeSpan.FromSeconds(Math.Max(0, c.ConfirmTimeoutSeconds ?? _opts.DefaultConfirmTimeoutSeconds));
 
-    /// <summary>Snaps to the step grid that starts at min, then clamps to min/max.</summary>
-    internal static double Snap(double value, SetpointControl c)
+    /// <summary>
+    /// One press from <paramref name="from"/> on the step grid that starts at min, then clamped to min/max.
+    /// A step press goes to the next grid value strictly beyond <paramref name="from"/> in the press
+    /// direction: one step when on the grid, the nearest grid value that way when off it (16.3 → 16.5 up,
+    /// 16.0 down). With a <paramref name="distance"/> (long press), it goes to the first grid value at or
+    /// beyond from ± distance (16.3 ± 2 → 18.5 up, 14.0 down).
+    /// </summary>
+    internal static double Move(double from, bool up, double? distance, SetpointControl c)
     {
-        var snapped = c.Min + Math.Round((value - c.Min) / c.Step, MidpointRounding.AwayFromZero) * c.Step;
+        const double epsilon = 1e-6; // in steps: float noise like 16.499999 counts as on the grid
+        var position = (from - c.Min) / c.Step;
+        double index;
+        if (distance is { } d)
+        {
+            var beyond = (from + (up ? d : -d) - c.Min) / c.Step;
+            index = up ? Math.Ceiling(beyond - epsilon) : Math.Floor(beyond + epsilon);
+        }
+        else
+            index = up ? Math.Floor(position + epsilon) + 1 : Math.Ceiling(position - epsilon) - 1;
+
         // Clamping last: the top of a range the step doesn't divide is still reachable.
-        return Math.Round(Math.Clamp(snapped, c.Min, c.Max), 10);
+        return Math.Round(Math.Clamp(c.Min + index * c.Step, c.Min, c.Max), 10);
     }
 
     /// <summary>The payload for a committed target: the template with {target} filled in, or the bare number.</summary>

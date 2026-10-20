@@ -141,6 +141,17 @@ public class SetpointControllerTests
     }
 
     [Fact]
+    public void Press_FromAnOffGridTarget_GoesToTheNextGridValue()
+    {
+        Start();
+        Target(16.3);
+        Press(Plus);
+        Assert.Equal("16.5°", Face(Value).Target);
+        Press(Plus);
+        Assert.Equal("17.0°", Face(Value).Target);
+    }
+
+    [Fact]
     public void Press_ClampsToTheRange_AndSnapsToTheStep()
     {
         Start();
@@ -488,13 +499,39 @@ public class SetpointControllerTests
         Assert.Equal("#00AAFF", Face(Value).PendingColour);
     }
 
+    // Grid: min 5, step 0.5 unless stated. A step press goes to the next grid value strictly beyond the start.
     [Theory]
-    [InlineData(21.3, 5, 30, 0.5, 21.5)]
-    [InlineData(4, 5, 30, 0.5, 5)]
-    [InlineData(31, 5, 30, 0.5, 30)]
-    [InlineData(31, 5, 30, 2, 30)]     // 29 + 2: the top of a range the step doesn't divide is reached by clamping
-    [InlineData(28, 5, 30, 2, 29)]     // 30 − 2 lands back on the grid
-    [InlineData(0.30000000000000004, 0, 1, 0.1, 0.3)]
-    public void Snap_ClampsAndRoundsToTheStepGrid(double value, double min, double max, double step, double expected) =>
-        Assert.Equal(expected, SetpointController.Snap(value, _control with { Min = min, Max = max, Step = step }));
+    [InlineData(16.3, true, 16.5)]               // off the grid: the next value up, not 16.3 + 0.5 rounded (17.0)
+    [InlineData(16.3, false, 16.0)]
+    [InlineData(16.5, true, 17.0)]               // on the grid: exactly one step
+    [InlineData(16.5, false, 16.0)]
+    [InlineData(16.499999999, true, 17.0)]       // float noise counts as on the grid
+    [InlineData(16.500000001, false, 16.0)]
+    [InlineData(4, true, 5)]                     // below min: clamped
+    [InlineData(30, true, 30)]                   // at max: stays
+    [InlineData(5, false, 5)]                    // at min: stays
+    public void Move_StepPress(double from, bool up, double expected) =>
+        Assert.Equal(expected, SetpointController.Move(from, up, null, _control));
+
+    // A long press goes to the first grid value at or beyond start ± longPressStep, in the press direction.
+    [Theory]
+    [InlineData(16.3, true, 18.5)]               // first grid value ≥ 18.3
+    [InlineData(16.3, false, 14.0)]              // first grid value ≤ 14.3
+    [InlineData(16.5, true, 18.5)]               // on the grid: exactly the distance
+    [InlineData(16.5, false, 14.5)]
+    [InlineData(29, true, 30)]                   // clamped to max
+    [InlineData(6, false, 5)]                    // clamped to min
+    public void Move_LongPress(double from, bool up, double expected) =>
+        Assert.Equal(expected, SetpointController.Move(from, up, 2, _control));
+
+    [Theory]
+    [InlineData(29, true, 30)]                   // 31: the top of a range the step doesn't divide is reached by clamping
+    [InlineData(30, true, 30)]
+    [InlineData(30, false, 29)]                  // back onto the grid
+    public void Move_StepThatDoesNotDivideTheRange(double from, bool up, double expected) =>
+        Assert.Equal(expected, SetpointController.Move(from, up, null, _control with { Step = 2 }));
+
+    [Fact]
+    public void Move_WithFractionalSteps_HasNoFloatNoise() =>
+        Assert.Equal(0.3, SetpointController.Move(0.2, true, null, _control with { Min = 0, Max = 1, Step = 0.1 }));
 }

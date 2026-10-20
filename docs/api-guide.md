@@ -422,9 +422,10 @@ A page can hold `controls` next to its `buttons`: units that occupy several keys
 **Value key.** The current value large, the target small underneath (`→ 21.5°`), the optional `label` on top. `rules` colour it from the current value (`blink` works too). The stale and broker-offline looks apply as for buttons.
 
 **Adjusting.**
-- A press on +/− moves a local **pending target**: from the pending target, else the reported target; by `step` (`longPressStep` for a long press); snapped to the step grid that starts at `min` and clamped to `min`/`max`. It shows at once on a band in the pending colour (`Setpoint__PendingColour`, amber). At either end of the range that arrow is drawn dimmed and does nothing.
+- A press on +/− moves a local **pending target**, from the pending target, else the reported target, along the step grid that starts at `min`, clamped to `min`/`max`. It shows at once on a band in the pending colour (`Setpoint__PendingColour`, amber). At either end of the range that arrow is drawn dimmed and does nothing.
 - Until the `target` topic has reported a value, presses do nothing (logged at debug). The current value is never used as a starting point: it can be far from the real setpoint.
-- The grid starts at `min`, so a device that reports an off-grid target moves onto the grid at the next press: with `min` 5 and `step` 0.5, a reported 16.3 goes to 17.0 on +, and 16.0 on −.
+- A tap goes to the next grid value strictly beyond the start in its direction: exactly one `step` when the target is on the grid. A device that reports an off-grid target moves onto the grid at the next press. With `min` 5 and `step` 0.5, a reported 16.3 goes to 16.5 on + (then 17.0), and to 16.0 on −.
+- A long press goes to the first grid value at or beyond start ± `longPressStep`. With `longPressStep` 2, 16.3 goes to 18.5 on + and 14.0 on −.
 - `delayMs` after the **last** press, **one** message with the final target is published on `commit.topic` (QoS 1, not retained). Repeated presses never send several commands. Nothing is published when the device is already heading to the final target:
   - With no command in flight, that's the target it reports. If you went + then −, nothing is published and the band clears.
   - With a command in flight (published, not yet reported back), that's the command. Going back to it publishes nothing and keeps waiting for it. Going anywhere else, including back to the old reported target, publishes the new target.
