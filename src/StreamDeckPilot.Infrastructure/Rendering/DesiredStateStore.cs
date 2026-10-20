@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using StreamDeckPilot.Core.Models.Config;
 using StreamDeckPilot.Core.Rendering;
 
 namespace StreamDeckPilot.Infrastructure.Rendering;
@@ -42,6 +43,13 @@ public sealed class DesiredStateStore
     /// <summary>True when any key of <paramref name="serial"/>, on any page, should be blinking.</summary>
     public bool AnyBlinking(string serial) =>
         _store.Any(kv => kv.Key.Serial == serial && kv.Value.BlinkActive);
+
+    /// <summary>The blink settings of every key of <paramref name="serial"/>, on any page, that is blinking now.</summary>
+    public IReadOnlyList<BlinkSpec> BlinkingSpecs(string serial) =>
+        _store
+            .Where(kv => kv.Key.Serial == serial && kv.Value.BlinkActive)
+            .Select(kv => kv.Value.Blink!)
+            .ToList();
 
     public IReadOnlyList<(int KeyIndex, ButtonRenderState State)> GetPage(string serial, string pageId) =>
         _store

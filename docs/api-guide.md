@@ -317,8 +317,12 @@ Full OpenAPI 3 schema (no auth required).
   ],
   // "backgroundColour" must be #RRGGBB (or null); other forms ("red", "#F00") are rejected on PUT.
   // A matched rule's "icon" overrides display.baseIcon for that render.
-  // "blink": true (optional, default false) makes the key blink while that rule matches
-  // (README "Blinking keys"). Stale and broker-offline keys don't blink.
+  // "blink" (optional, default false) makes the key blink while that rule matches (README
+  // "Blinking keys"): true uses the global Blink__* defaults, or an object overrides any of them:
+  //   "blink": { "style": "pulse", "strength": 0.6, "periodMs": 2000 }
+  // style "flash" | "pulse" (exact case), strength 0.1–0.9 (brightness kept when dimmest),
+  // periodMs 400–10000 (one full cycle). Out-of-range values are rejected on PUT.
+  // Stale and broker-offline keys don't blink.
 
   "gestures": {
     "Tap": [

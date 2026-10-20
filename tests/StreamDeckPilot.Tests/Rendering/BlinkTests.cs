@@ -23,7 +23,7 @@ public sealed class BlinkTests
     private const string Serial = "SN1";
 
     private static ButtonRenderState State(string colour, bool blink = false, bool dimmed = false) =>
-        new("b", colour, null, IconPlacement.Corner, "42", null, IsDimmed: dimmed, DependsOnBroker: true, Blink: blink);
+        new("b", colour, null, IconPlacement.Corner, "42", null, IsDimmed: dimmed, DependsOnBroker: true, Blink: blink ? BlinkSpec.On : null);
 
     private static (BlinkScheduler Scheduler, DesiredStateStore Store, ManualTimeProvider Time) Build(int intervalMs = 500)
     {
@@ -44,7 +44,7 @@ public sealed class BlinkTests
         var rule = JsonSerializer.Deserialize<ConditionalRule>(
             """{ "condition": ">1000", "backgroundColour": "#CC3300", "icon": null }""", JsonOptions.Default)!;
 
-        Assert.False(rule.Blink);
+        Assert.Null(rule.Blink);
         Assert.DoesNotContain("blink", JsonSerializer.Serialize(rule, JsonOptions.Default));
     }
 
@@ -54,7 +54,7 @@ public sealed class BlinkTests
         var rule = JsonSerializer.Deserialize<ConditionalRule>(
             """{ "condition": "eq:failed", "backgroundColour": "#CC0000", "icon": null, "blink": true }""", JsonOptions.Default)!;
 
-        Assert.True(rule.Blink);
+        Assert.Equal(BlinkSpec.On, rule.Blink);
         var json = JsonSerializer.Serialize(rule, JsonOptions.Default);
         Assert.Contains("\"blink\": true", json);
         Assert.Equal(rule, JsonSerializer.Deserialize<ConditionalRule>(json, JsonOptions.Default));
@@ -65,12 +65,12 @@ public sealed class BlinkTests
     {
         IReadOnlyList<ConditionalRule> rules =
         [
-            new(">1500", "#CC0000", null, Blink: true),
+            new(">1500", "#CC0000", null, Blink: BlinkSpec.On),
             new(">1000", "#FF8800", null),
         ];
 
-        Assert.True(InboundPipeline.MatchRule("1600", rules)!.Blink);
-        Assert.False(InboundPipeline.MatchRule("1200", rules)!.Blink);
+        Assert.NotNull(InboundPipeline.MatchRule("1600", rules)!.Blink);
+        Assert.Null(InboundPipeline.MatchRule("1200", rules)!.Blink);
         Assert.Null(InboundPipeline.MatchRule("800", rules));
     }
 
@@ -273,6 +273,21 @@ public sealed class BlinkTests
         var (key, bitmap) = Assert.Single(rig.Board.RenderCalls);
         Assert.Equal(0, key);
         Assert.Equal(KeyBitmap.Create.FromRgb(30, 30, 30), bitmap);
+    }
+
+    [Fact]
+    public async Task Tick_RepaintsOnlyKeysWhoseOwnFrameChanged()
+    {
+        // #131: a flash key next to a fast pulse isn't repainted on every pulse frame.
+        await using var rig = new Rig();
+        rig.Store.Set(Serial, "main", 0, State("#CC0000") with { Blink = new BlinkSpec(BlinkSpec.Flash, PeriodMs: 1000) });
+        rig.Store.Set(Serial, "main", 1, State("#CC0000") with { Blink = new BlinkSpec(BlinkSpec.Pulse, PeriodMs: 1200) });
+        await rig.StartOnPageAsync("main");
+
+        rig.Tick(); // 100 ms: the pulse moved one frame, the flash is still in its first half
+
+        var (key, _) = Assert.Single(rig.Board.RenderCalls);
+        Assert.Equal(1, key);
     }
 
     [Fact]

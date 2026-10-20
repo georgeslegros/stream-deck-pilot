@@ -78,9 +78,12 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
         _inactivity = inactivity ?? new InactivityMonitor(Options.Create(new NavigationOptions()));
         _inactivity.Expired += ReturnHome;
         _brokerIndicator = brokerIndicator;
+        _blink = blink;
         if (blink is not null)
             blink.Toggled += RepaintBlinkingKeys;
     }
+
+    private readonly BlinkScheduler? _blink;
 
     // The deck sat idle for its inactivity timeout: show the home page again (#24). This never
     // touches brightness, so a dark deck stays dark; the render is invisible until the next wake,
@@ -119,9 +122,11 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
         _inactivity.SetDeviceTimeout(serial, config?.HomeAfterInactivitySeconds);
     }
 
-    // One blink half-period elapsed (#23): repaint only the keys that blink, on the page on screen.
-    // Nothing is painted while the deck is dark (brightness 0, not woken by a press) or for keys the
-    // broker-offline look has taken over, so a blink never turns into a stream of identical writes.
+    // The blink clock advanced (#23, #131): repaint only the keys that blink, on the page on screen,
+    // and only those whose own frame changed (a flash key next to a fast pulse isn't repainted on
+    // every pulse frame). Nothing is painted while the deck is dark (brightness 0, not woken by a
+    // press) or for keys the broker-offline look has taken over, so a blink never turns into a
+    // stream of identical writes.
     private void RepaintBlinkingKeys(string serial)
     {
         if (!_boards.TryGetValue(serial, out var board) || !board.IsConnected) return;
@@ -133,6 +138,7 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
         foreach (var (keyIndex, state) in _desiredState.GetPage(serial, pageId))
         {
             if (!state.BlinkActive || (offline && state.DependsOnBroker)) continue;
+            if (_blink?.ShouldRepaint(serial, keyIndex, state.Blink!) == false) continue;
             try { _renderer.RenderLatest(board, serial, pageId, keyIndex, _desiredState); }
             catch (Exception ex) { _logger.LogWarning(ex, "Blink repaint failed for {Serial} key {Key}", serial, keyIndex); }
         }

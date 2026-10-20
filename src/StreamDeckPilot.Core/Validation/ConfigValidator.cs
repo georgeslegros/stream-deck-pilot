@@ -109,6 +109,9 @@ public static class ConfigValidator
                         errors.Add($"Button '{button.ButtonId}' rule {i + 1}: backgroundColour '{colour}' must be #RRGGBB (e.g. #CC3300).");
                     if (IconReference.Validate(button.Rules[i].Icon) is { } iconError)
                         errors.Add($"Button '{button.ButtonId}' rule {i + 1}: icon '{button.Rules[i].Icon}' {iconError}.");
+                    if (button.Rules[i].Blink is { } blink)
+                        foreach (var blinkError in BlinkErrors(blink))
+                            errors.Add($"Button '{button.ButtonId}' rule {i + 1}: {blinkError}.");
                 }
 
                 // A bad publish topic only fails at press time (the MQTT client refuses to build or
@@ -158,6 +161,22 @@ public static class ConfigValidator
             warnings.Add($"Page '{pageId}' is unreachable by any navigation action.");
 
         return new ValidationResult(errors, warnings);
+    }
+
+    // A rule's blink object (#131): every property optional, each checked against its range.
+    private static IEnumerable<string> BlinkErrors(BlinkSpec blink)
+    {
+        if (blink.Style is { } style && !BlinkSpec.Styles.Contains(style))
+        {
+            var hint = BlinkSpec.Styles.FirstOrDefault(s => string.Equals(s, style, StringComparison.OrdinalIgnoreCase));
+            yield return hint is not null
+                ? $"blink.style '{style}' must be written '{hint}'"
+                : $"blink.style '{style}' is not supported (supported: {string.Join(", ", BlinkSpec.Styles)})";
+        }
+        if (blink.Strength is { } strength && (double.IsNaN(strength) || strength < BlinkSpec.MinStrength || strength > BlinkSpec.MaxStrength))
+            yield return $"blink.strength must be between {BlinkSpec.MinStrength} and {BlinkSpec.MaxStrength} (got {strength})";
+        if (blink.PeriodMs is { } period && (period < BlinkSpec.MinPeriodMs || period > BlinkSpec.MaxPeriodMs))
+            yield return $"blink.periodMs must be between {BlinkSpec.MinPeriodMs} and {BlinkSpec.MaxPeriodMs} (got {period})";
     }
 
     // MQTT publish topic rules: non-empty, no wildcards (+ and # are for subscriptions only),
