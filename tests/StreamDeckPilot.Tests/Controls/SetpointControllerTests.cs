@@ -174,12 +174,19 @@ public class SetpointControllerTests
     }
 
     [Fact]
-    public void Press_StartsFromTheCurrentValue_WhenNoTargetWasReported()
+    public void Press_WithOnlyACurrentValue_IsIgnored_UntilATargetIsKnown()
     {
+        // current + step could be far from the real setpoint (current 21, setpoint 16).
         Start();
         Current(20);
         Press(Minus);
-        Assert.Equal("19.5°", Face(Value).Target);
+        Assert.False(Face(Value).Pending);
+        Advance(5000);
+        Assert.Empty(_published);
+
+        Target(16);
+        Press(Minus);
+        Assert.Equal("15.5°", Face(Value).Target);
     }
 
     [Fact]
@@ -289,10 +296,10 @@ public class SetpointControllerTests
     }
 
     [Fact]
-    public void NoTargetAtAll_TimesOut()
+    public void NoReportAfterTheCommit_TimesOut()
     {
         Start();
-        Current(20);
+        Target(20);
         Press(Plus);
         Advance(1500);
         Advance(29_999);
@@ -317,6 +324,78 @@ public class SetpointControllerTests
         Assert.Equal(PressFeedback.None, ValueState.Feedback);
         Target(22);
         Assert.False(Face(Value).Pending);
+    }
+
+    [Fact]
+    public void RevertWhileACommandIsInFlight_IsPublished_AndALateReportOfTheOldTargetDoesNotConfirm()
+    {
+        // The reviewer's sequence: a slow device hasn't reported 16.5 yet when the user goes back to 16.
+        Start();
+        Target(16);
+        Press(Plus);
+        Advance(1500);                       // 16.5 in flight
+        Press(Minus);                        // back to 16.0 before the device reports
+        Advance(1500);
+        Assert.Equal(["16.5", "16"], _published.Select(p => p.Payload));
+        Assert.True(Face(Value).Pending);
+        Assert.Equal("16.0°", Face(Value).Target);
+
+        Target(16.5);                        // the superseded command lands late
+        Assert.True(Face(Value).Pending);    // not a confirmation of 16.0
+        Assert.Equal("16.0°", Face(Value).Target);
+
+        Target(16);                          // the second command lands
+        Assert.False(Face(Value).Pending);
+        Assert.Equal("16.0°", Face(Value).Target);
+    }
+
+    [Fact]
+    public void NewCommit_RestartsTheConfirmTimeout()
+    {
+        Start();
+        Target(16);
+        Press(Plus);
+        Advance(1500);                       // 16.5 in flight, times out at +30 s
+        Advance(20_000);
+        Press(Plus);
+        Advance(1500);                       // 17 supersedes it, with a fresh 30 s
+        Advance(20_000);                     // past the first command's deadline
+        Assert.Equal(PressFeedback.None, ValueState.Feedback);
+        Assert.True(Face(Value).Pending);
+        Advance(10_000);
+        Assert.Equal(PressFeedback.Failed, ValueState.Feedback);
+    }
+
+    [Fact]
+    public void BackToTheCommandInFlight_IsNotResent_AndStillWaitsForIt()
+    {
+        Start();
+        Target(16);
+        Press(Plus);
+        Advance(1500);                       // 16.5 in flight
+        Press(Plus);
+        Press(Minus);                        // back to 16.5
+        Advance(1500);
+        Assert.Equal(["16.5"], _published.Select(p => p.Payload));
+        Assert.True(Face(Value).Pending);
+
+        Target(16.5);
+        Assert.False(Face(Value).Pending);
+    }
+
+    [Fact]
+    public void InFlightTargetArriving_WhileAdjustingAgain_KeepsTheBand()
+    {
+        Start();
+        Target(16);
+        Press(Plus);
+        Advance(1500);                       // 16.5 in flight
+        Press(Plus);                         // adjusting to 17
+        Target(16.5);                        // the first command lands mid-adjustment
+        Assert.True(Face(Value).Pending);
+        Assert.Equal("17.0°", Face(Value).Target);
+        Advance(1500);
+        Assert.Equal(["16.5", "17"], _published.Select(p => p.Payload));
     }
 
     [Fact]

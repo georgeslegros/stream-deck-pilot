@@ -588,7 +588,9 @@ thermostat setpoint, fan speed or volume. It goes in a page's optional `controls
   shows the current value large and the target small underneath, with an optional label on top.
 - **Adjusting:** +/− change a local pending target, shown at once on an amber band. One message
   with the final **absolute** target is published `commit.delayMs` (default 1.5 s) after the last
-  press, so a slow device API gets one command, not one per step.
+  press, so a slow device API gets one command, not one per step. Presses do nothing until the
+  target topic has reported a value. Changing your mind while a command is still in flight sends
+  the new target; a late report of the old one doesn't count.
 - **Confirmation:** the band stays until the target topic reports that value. If it doesn't within
   `confirmTimeoutSeconds` (default 30 s), the key flashes the failed look, a warning is logged, and
   the reported target shows again.

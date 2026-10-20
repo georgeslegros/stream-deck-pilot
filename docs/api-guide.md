@@ -422,8 +422,13 @@ A page can hold `controls` next to its `buttons`: units that occupy several keys
 **Value key.** The current value large, the target small underneath (`→ 21.5°`), the optional `label` on top. `rules` colour it from the current value (`blink` works too). The stale and broker-offline looks apply as for buttons.
 
 **Adjusting.**
-- A press on +/− moves a local **pending target**: from the pending target, else the reported target, else the current value; by `step` (`longPressStep` for a long press); snapped to the step grid that starts at `min` and clamped to `min`/`max`. It shows at once on a band in the pending colour (`Setpoint__PendingColour`, amber). At either end of the range that arrow is drawn dimmed and does nothing. With no value known yet, a press does nothing.
-- `delayMs` after the **last** press, **one** message with the final target is published on `commit.topic` (QoS 1, not retained). Repeated presses never send several commands. If the final target is the one the device already reports (you went + then −), nothing is published and the band clears.
+- A press on +/− moves a local **pending target**: from the pending target, else the reported target; by `step` (`longPressStep` for a long press); snapped to the step grid that starts at `min` and clamped to `min`/`max`. It shows at once on a band in the pending colour (`Setpoint__PendingColour`, amber). At either end of the range that arrow is drawn dimmed and does nothing.
+- Until the `target` topic has reported a value, presses do nothing (logged at debug). The current value is never used as a starting point: it can be far from the real setpoint.
+- The grid starts at `min`, so a device that reports an off-grid target moves onto the grid at the next press: with `min` 5 and `step` 0.5, a reported 16.3 goes to 17.0 on +, and 16.0 on −.
+- `delayMs` after the **last** press, **one** message with the final target is published on `commit.topic` (QoS 1, not retained). Repeated presses never send several commands. Nothing is published when the device is already heading to the final target:
+  - With no command in flight, that's the target it reports. If you went + then −, nothing is published and the band clears.
+  - With a command in flight (published, not yet reported back), that's the command. Going back to it publishes nothing and keeps waiting for it. Going anywhere else, including back to the old reported target, publishes the new target.
+- A new command supersedes the one in flight and restarts the confirm timeout. A late report of the superseded target confirms nothing.
 - The band stays until `target` reports the committed value, within half a step. A target reported **before** the commit doesn't count.
 - No match within `confirmTimeoutSeconds` after the commit: the value key flashes the failed look (red wash and ring) for `Setpoint__FailedFlashMilliseconds`, a warning is logged, and the reported target shows again.
 - A press after the commit starts a new cycle from the committed target.

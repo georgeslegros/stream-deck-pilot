@@ -13,10 +13,12 @@ namespace StreamDeckPilot.Infrastructure.Controls;
 /// <summary>
 /// Runs every setpoint control (#132): three keys (−, value, +) adjusting one numeric target.
 /// <list type="bullet">
-/// <item>+/− move a local pending target (from the pending, else reported, else current value), snapped
-/// to the step and clamped to min/max. It shows at once on the value key, on a band in the pending colour.</item>
-/// <item><c>commit.delayMs</c> after the last press, ONE message with the absolute target is published.
-/// If that target is what the device already reports, nothing is published and the pending look clears.</item>
+/// <item>+/− move a local pending target (from the pending, else the reported target; presses are ignored
+/// until a target is known), snapped to the step and clamped to min/max. It shows at once on the value
+/// key, on a band in the pending colour.</item>
+/// <item><c>commit.delayMs</c> after the last press, ONE message with the absolute target is published,
+/// unless the device is already heading there: the command still in flight, or with none in flight the
+/// reported target. A new command supersedes one in flight; a late report of the old one confirms nothing.</item>
 /// <item>The pending look stays until the target topic reports the committed value (within half a step).
 /// A target reported before the commit doesn't count. No match within the confirm timeout: the value key
 /// flashes the failed look (#22), a warning is logged, and the reported target shows again.</item>
@@ -41,7 +43,9 @@ public sealed class SetpointController : IDisposable
         public bool Stale { get; set; }
         public double? ReportedTarget { get; set; }
         public double? Pending { get; set; }           // the target shown while adjusting or awaiting confirmation
-        public double Committed { get; set; }
+        // The last target published and not yet reported back: what the device is heading to. A new
+        // commit supersedes it; it clears when the device reports it, or when the cycle ends.
+        public double? InFlight { get; set; }
         public Phase Phase { get; set; }
         public long Generation { get; set; }           // a late timer callback from an earlier cycle is ignored
         public ITimer? Timer { get; set; }
@@ -141,10 +145,15 @@ public sealed class SetpointController : IDisposable
             if (isTarget)
             {
                 state.ReportedTarget = value;
-                if (state.Phase == Phase.AwaitingConfirm && Matches(value, state.Committed, state.Control))
+                if (state.InFlight is { } inFlight && Matches(value, inFlight, state.Control))
                 {
-                    _logger?.LogInformation("Setpoint {ControlId} on {Serial} confirmed at {Target}", control.ControlId, serial, value);
-                    EndCycle(state);
+                    if (state.Phase == Phase.AwaitingConfirm)
+                    {
+                        _logger?.LogInformation("Setpoint {ControlId} on {Serial} confirmed at {Target}", control.ControlId, serial, value);
+                        EndCycle(state);
+                    }
+                    else
+                        state.InFlight = null; // arrived while the user is adjusting again: keep the band
                 }
             }
             else
@@ -197,11 +206,11 @@ public sealed class SetpointController : IDisposable
         {
             if (!_states.TryGetValue((serial, control.ControlId), out state!)) return;
             var c = state.Control;
-            var from = state.Pending ?? state.ReportedTarget ?? state.Current;
+            // Never from the current value: it can be far from the real setpoint (current 21, setpoint 16).
+            var from = state.Pending ?? state.ReportedTarget;
             if (from is null)
             {
-                _logger?.LogInformation("Setpoint {ControlId} on {Serial}: no target or current value known yet — press ignored",
-                    c.ControlId, serial);
+                _logger?.LogDebug("Setpoint {ControlId} on {Serial}: no target known yet — press ignored", c.ControlId, serial);
                 return;
             }
 
@@ -230,16 +239,29 @@ public sealed class SetpointController : IDisposable
             if (state.Generation != generation || state.Phase != Phase.Adjusting || state.Pending is not { } target) return;
             var c = state.Control;
 
-            if (state.ReportedTarget is { } reported && Matches(reported, target, c))
+            // Where the device is heading: the command in flight, else the target it reports.
+            var heading = state.InFlight ?? state.ReportedTarget;
+            if (heading is { } h && Matches(h, target, c))
             {
-                // Back where the device already is: a command would change nothing, and a device that
-                // only publishes on change would never confirm it.
-                EndCycle(state);
+                if (state.InFlight is null)
+                {
+                    // Back where the device already is: a command would change nothing, and a device
+                    // that only publishes on change would never confirm it.
+                    EndCycle(state);
+                }
+                else
+                {
+                    // Back to the command already in flight: keep waiting for it, without resending.
+                    state.Pending = state.InFlight;
+                    state.Phase = Phase.AwaitingConfirm;
+                    Rearm(state, ConfirmTimeout(c), g => ConfirmTimedOut(state, g));
+                }
                 keys = WriteKeys(state);
             }
             else
             {
-                state.Committed = target;
+                // Supersedes any command in flight: a late report of that one no longer confirms anything.
+                state.InFlight = target;
                 state.Phase = Phase.AwaitingConfirm;
                 awaiting = Rearm(state, ConfirmTimeout(c), g => ConfirmTimedOut(state, g));
                 topic = c.Commit.Topic;
@@ -280,11 +302,13 @@ public sealed class SetpointController : IDisposable
     {
         List<int> keys;
         bool failed;
+        double? unconfirmed;
         lock (_lock)
         {
             if (state.Generation != generation || state.Phase != Phase.AwaitingConfirm) return;
             // If the broker went away meanwhile, that's not the device's failure: no flash.
             failed = _broker?.ShowOffline != true;
+            unconfirmed = state.InFlight;
             EndCycle(state);
             if (failed)
             {
@@ -295,7 +319,7 @@ public sealed class SetpointController : IDisposable
         }
         if (failed)
             _logger?.LogWarning("Setpoint {ControlId} on {Serial}: target {Target} not confirmed on {Topic} within the timeout",
-                state.Control.ControlId, state.Serial, state.Committed, state.Control.Target?.Topic);
+                state.Control.ControlId, state.Serial, unconfirmed, state.Control.Target?.Topic);
         RaiseChanged(state, keys);
     }
 
@@ -353,6 +377,7 @@ public sealed class SetpointController : IDisposable
         state.Timer = null;
         state.Generation++;
         state.Pending = null;
+        state.InFlight = null;
         state.Phase = Phase.Idle;
     }
 
