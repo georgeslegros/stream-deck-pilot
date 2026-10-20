@@ -36,6 +36,9 @@ public static class ConfigValidator
                     for (var b = 0; b < g.Buttons.Count; b++)
                         if (g.Buttons[b] is null)
                             errors.Add($"Page '{g.PageId}' button {b + 1} is null.");
+                    for (var c = 0; c < (g.Controls?.Count ?? 0); c++)
+                        if (g.Controls![c] is null)
+                            errors.Add($"Page '{g.PageId}' control {c + 1} is null.");
                     break;
             }
         }
@@ -141,6 +144,9 @@ public static class ConfigValidator
             }
         }
 
+        // Controls (#132): their keys, overlap with buttons and each other, and their own fields.
+        ControlValidator.Validate(config, device, errors, warnings);
+
         var reachablePages = new HashSet<string>();
         if (config.Pages.Count > 0)
         {
@@ -162,7 +168,7 @@ public static class ConfigValidator
 
     // MQTT publish topic rules: non-empty, no wildcards (+ and # are for subscriptions only),
     // no NUL, at most 65 535 bytes as UTF-8.
-    private static string? PublishTopicError(string? topic)
+    internal static string? PublishTopicError(string? topic)
     {
         if (string.IsNullOrWhiteSpace(topic)) return "is required";
         if (topic.AsSpan().IndexOfAny('+', '#') >= 0) return $"'{topic}' must not contain the wildcards '+' or '#'";
@@ -172,6 +178,6 @@ public static class ConfigValidator
     }
 
     // The renderer understands #RRGGBB only; anything else silently fell back to the default grey.
-    private static bool IsHexColour(string value) =>
+    internal static bool IsHexColour(string value) =>
         value.Length == 7 && value[0] == '#' && value.AsSpan(1).IndexOfAnyExcept("0123456789abcdefABCDEF") < 0;
 }

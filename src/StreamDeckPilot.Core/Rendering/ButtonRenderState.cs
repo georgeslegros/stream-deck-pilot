@@ -15,7 +15,8 @@ public sealed record ButtonRenderState(
     bool Blink = false,           // the matching rule asks for attention (#23)
     bool IsBlinkOffPhase = false, // render-time only: the "off" half of a blink, set while painting
     SparklineSeries? Sparkline = null, // trend drawn behind the text (#25), null when not opted in
-    PressFeedback Feedback = PressFeedback.None) // render-time only, like IsOffline (#22)
+    PressFeedback Feedback = PressFeedback.None, // render-time only, like IsOffline (#22)
+    SetpointFace? Setpoint = null) // one of a setpoint control's keys (#132), null for buttons
 {
     /// <summary>True when the key should actually blink: stale and broker-offline keys don't.</summary>
     public bool BlinkActive => Blink && !IsDimmed && !IsOffline;

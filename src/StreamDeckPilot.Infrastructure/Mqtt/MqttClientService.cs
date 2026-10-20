@@ -36,6 +36,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
     private readonly Sparkline.SparklineHistory? _sparklines;
     private readonly BrokerIndicator? _brokerIndicator;
     private readonly PressFeedbackTracker? _pressFeedback;
+    private readonly Controls.SetpointController? _setpoints;
 
     // A bound topic whose payloads carry no usable value would otherwise log a warning per message.
     // Warn on the first one, then at most once per interval per topic; the rest go to Debug.
@@ -96,7 +97,8 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         BrokerIndicator? brokerIndicator = null,
         PressFeedbackTracker? pressFeedback = null,
         IOptions<GestureOptions>? gestureOptions = null,
-        Sparkline.SparklineHistory? sparklines = null)
+        Sparkline.SparklineHistory? sparklines = null,
+        Controls.SetpointController? setpoints = null)
     {
         _gestureOptions = gestureOptions?.Value ?? new GestureOptions();
         _opts = opts.Value;
@@ -113,6 +115,12 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         _pressFeedback = pressFeedback;
         if (pressFeedback is not null) pressFeedback.Changed += RepaintKey;
         _sparklines = sparklines;
+        _setpoints = setpoints;
+        if (setpoints is not null)
+        {
+            setpoints.Changed += RepaintKey;
+            setpoints.Publish = PublishAsync;
+        }
         _client = new MqttClientFactory().CreateMqttClient();
         _brightness = brightness ?? new BrightnessController(Options.Create(new BrightnessOptions()));
         _brightness.EffectiveChanged += level => _ = Task.Run(PublishBrightnessStateAsync);
@@ -485,7 +493,8 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
             return; // our own retained state echoed back through the wildcard — not a dropped message
 
         var matches = _topicIndex.Lookup(topic);
-        if (matches.Count == 0)
+        var controls = _topicIndex.LookupControls(topic);
+        if (matches.Count == 0 && controls.Count == 0)
         {
             // With a wildcard subscription many topics won't map to a button — this is normal, not a fault.
             _logger.LogDebug("MQTT message on {Topic} has no button binding — dropped", topic);
@@ -500,6 +509,17 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Pipeline failed for button {ButtonId} on {Serial}", button.ButtonId, serial);
+            }
+        }
+
+        // Setpoint controls (#132) reading their current or target value from this topic.
+        foreach (var (serial, pageId, control, isTarget) in controls)
+        {
+            _metrics?.MqttMessagesReceived.Add(1, [new("topic", topic)]);
+            try { _setpoints?.ValueReceived(serial, pageId, control, isTarget, payload); }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Setpoint {ControlId} on {Serial} failed to take a value from {Topic}", control.ControlId, serial, topic);
             }
         }
         await Task.CompletedTask;
@@ -708,7 +728,8 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
             case KeyEventKind.Down:
                 if (press.PageId is null) return;
                 pressed = await FindButtonAsync(press.Serial, press.PageId, press.KeyIndex);
-                recognised = gestures.KeyDown(press.KeyIndex, press.PageId, pressed?.Gestures.Keys ?? []);
+                recognised = gestures.KeyDown(press.KeyIndex, press.PageId,
+                    pressed?.Gestures.Keys ?? SetpointGestures(press.Serial, press.PageId, press.KeyIndex));
                 break;
             case KeyEventKind.Up:
                 recognised = gestures.KeyUp(press.KeyIndex);
@@ -724,8 +745,19 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
                 ? pressed
                 : await FindButtonAsync(press.Serial, gesture.PageId, gesture.KeyIndex);
             if (button is not null) await RunGestureAsync(press.Serial, gesture.PageId, button, gesture.Gesture);
+            // A setpoint key (#132). Offline, nothing happens: the offline look explains why. No press
+            // feedback ring either: the setpoint's own pending look replaces it.
+            else if (_setpoints is not null && _client.IsConnected)
+                _setpoints.Press(press.Serial, gesture.PageId, gesture.KeyIndex, gesture.Gesture);
         }
     }
+
+    // The gestures a setpoint key answers: +/- tap, and long press when the control sets longPressStep.
+    // The value key answers none (its Tap does nothing). Not a setpoint key: none.
+    private IReadOnlyCollection<string> SetpointGestures(string serial, string pageId, int keyIndex) =>
+        _setpoints?.TryFindKey(serial, pageId, keyIndex, out var control, out var role) == true && role != SetpointKeyRole.Value
+            ? control.LongPressStep is null ? [GestureNames.Tap] : [GestureNames.Tap, GestureNames.LongPress]
+            : [];
 
     private async Task<ButtonDefinition?> FindButtonAsync(string serial, string pageId, int keyIndex)
     {
@@ -764,43 +796,51 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         catch (Exception ex) { _logger.LogWarning(ex, "Press feedback repaint failed for key {Key} on {Serial}", keyIndex, serial); }
     }
 
+    // Publishes one command (a Publish action, or a setpoint's target). True when it went out.
+    private async Task<bool> PublishAsync(string topic, string payload)
+    {
+        // Authoritative liveness is the transport's own state, not a hand-maintained bool
+        // (which can lag the real disconnect and publish into a half-open socket).
+        if (!_client.IsConnected)
+        {
+            _logger.LogWarning("Cannot publish to {Topic} — broker not connected", topic);
+            return false;
+        }
+        var msg = new MqttApplicationMessageBuilder()
+            .WithTopic(topic)
+            .WithPayload(payload)
+            .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
+            .Build();
+        try
+        {
+            // Bound the publish independently of the global Options.Timeout (library default
+            // 100s). On a half-open socket (IsConnected can read true via TOCTOU above) a QoS1
+            // PublishAsync blocks waiting for a PUBACK up to Options.Timeout, freezing the button
+            // task ~100s and piling up Task.Run instances on repeated presses (dotnet/MQTTnet#1642).
+            // A short linked CTS caps the wait; the catch below swallows the resulting
+            // OperationCanceledException as a logged transient.
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(_stoppingToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(10));
+            await _client.PublishAsync(msg, cts.Token);
+            _logger.LogInformation("Published to {Topic}", topic);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // IsConnected can transiently disagree with PublishAsync during a drop; treat a
+            // failed/timed-out publish as a logged transient (the poll loop will reconnect),
+            // not a crash.
+            _logger.LogWarning(ex, "Publish to {Topic} failed — broker connection may be dropping", topic);
+            return false;
+        }
+    }
+
     private async Task ExecuteActionAsync(string serial, ButtonAction action)
     {
         switch (action)
         {
             case PublishAction publish:
-                // Authoritative liveness is the transport's own state, not a hand-maintained bool
-                // (which can lag the real disconnect and publish into a half-open socket).
-                if (!_client.IsConnected)
-                {
-                    _logger.LogWarning("Cannot publish to {Topic} — broker not connected", publish.Topic);
-                    return;
-                }
-                var msg = new MqttApplicationMessageBuilder()
-                    .WithTopic(publish.Topic)
-                    .WithPayload(publish.Payload ?? string.Empty) // a missing payload publishes an empty message
-                    .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
-                    .Build();
-                try
-                {
-                    // Bound the publish independently of the global Options.Timeout (library default
-                    // 100s). On a half-open socket — IsConnected can read true via TOCTOU at line 431 —
-                    // a QoS1 PublishAsync blocks waiting for a PUBACK up to Options.Timeout, freezing
-                    // the button task ~100s and piling up Task.Run instances on repeated presses
-                    // (dotnet/MQTTnet#1642). A short linked CTS caps the wait; the catch below already
-                    // swallows the resulting OperationCanceledException as a logged transient.
-                    using var cts = CancellationTokenSource.CreateLinkedTokenSource(_stoppingToken);
-                    cts.CancelAfter(TimeSpan.FromSeconds(10));
-                    await _client.PublishAsync(msg, cts.Token);
-                    _logger.LogInformation("Published to {Topic}", publish.Topic);
-                }
-                catch (Exception ex)
-                {
-                    // IsConnected can transiently disagree with PublishAsync during a drop; treat a
-                    // failed/timed-out publish as a logged transient (the poll loop will reconnect),
-                    // not a crash.
-                    _logger.LogWarning(ex, "Publish to {Topic} failed — broker connection may be dropping", publish.Topic);
-                }
+                await PublishAsync(publish.Topic, publish.Payload ?? string.Empty); // a missing payload publishes an empty message
                 break;
 
             case NavigateAction navigate:

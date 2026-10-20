@@ -113,12 +113,20 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver, ILogger<KeyBitm
         if (hasBottom)
             DrawBottomCaption(image, state.BottomText!, ink);
 
+        // Setpoint value key (#132): its own rows, label / current / target.
+        if (state.Setpoint is { Role: SetpointKeyRole.Value } setpoint)
+            DrawSetpointValue(image, setpoint, ink);
+
         // Status marker, top-right: broker offline (#26) wins over stale, since an outage is the
         // reason values stop updating.
         if (state.IsOffline)
             DrawStatusMarker(image, OfflineMarkerIcon, ink);
         else if (state.IsDimmed)
             DrawStatusMarker(image, ClockMarkerIcon, ink);
+
+        // A setpoint's + or − at the end of its range (#132): drawn but clearly unavailable.
+        if (state.Setpoint is { Disabled: true })
+            Darken(image, SetpointDisabledBrightness);
 
         // Blink "off" half (#23): the whole key drops to a quarter of its brightness. The value stays
         // faintly readable, and the alternation with the normal look is what catches the eye.
@@ -131,6 +139,38 @@ public sealed class KeyBitmapComposer(IconResolver iconResolver, ILogger<KeyBitm
             DrawFeedbackRing(image, ink);
 
         return image;
+    }
+
+    // ── Setpoint value key (#132) ────────────────────────────────────────────────
+    // Current value large, target small underneath (on a band in the pending colour until the
+    // device confirms it), optional label on top.
+    private const float SetpointDisabledBrightness = 0.35f;
+    private const int SetpointTargetBandTop = 49;
+    private static readonly Color DefaultPendingColour = new(new Rgba32(255, 179, 0));
+
+    private static void DrawSetpointValue(Image<Rgba32> image, SetpointFace face, Color ink)
+    {
+        var hasLabel = !string.IsNullOrEmpty(face.Label);
+        if (hasLabel && CaptionFont is not null)
+            DrawCentredText(image, Truncate(face.Label!, 12), CaptionFont, WithAlpha(ink, 0.85f), x: 36f, baseline: 13f);
+
+        var current = string.IsNullOrEmpty(face.Current) ? "–" : face.Current;
+        var heroBaseline = hasLabel ? 40f : 37f;
+        if (FitValueFont(current) is { } font)
+        {
+            DrawCentredText(image, current, font, Color.Black, x: 36f, baseline: heroBaseline + 1);
+            DrawCentredText(image, current, font, ink, x: 36f, baseline: heroBaseline);
+        }
+
+        var targetInk = WithAlpha(ink, 0.85f);
+        if (face.Pending)
+        {
+            var band = ParseColour(face.PendingColour) ?? DefaultPendingColour;
+            image.Mutate(ctx => ctx.Fill(band, new RectangleF(0, SetpointTargetBandTop, Size, Size - SetpointTargetBandTop)));
+            targetInk = Ink(band);
+        }
+        if (UnitFont is not null)
+            DrawCentredText(image, "→ " + (string.IsNullOrEmpty(face.Target) ? "–" : face.Target), UnitFont, targetInk, x: 36f, baseline: 67f);
     }
 
     private static readonly Color FailedWash = new(new Rgba32(220, 20, 20, 190));
