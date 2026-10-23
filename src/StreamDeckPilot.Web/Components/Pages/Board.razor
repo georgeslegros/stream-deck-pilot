@@ -1,49 +1,60 @@
 @page "/board/{Serial}"
 @implements IDisposable
-@inject IDeviceDirectory Directory
+@inject IDashboardSource Source
 @inject DeviceSelection Selection
+@inject BrowserClock Clock
+@inject ILogger<Board> Logger
 
 <PageTitle>@Serial · Stream Deck Pilot</PageTitle>
 
-@* Placeholder for one deck; the rendered pages and live values come with the dashboard (#99). *@
+@* One deck's dashboard (#99): the same live view as the overview, for this deck only. *@
 <MudText Typo="Typo.h4" HtmlTag="h1" GutterBottom="true" Class="sdp-break">Deck @Serial</MudText>
 
-@if (_device is null)
+@if (_snapshot is null)
+{
+    <MudProgressCircular Indeterminate="true" aria-label="Loading" />
+}
+else if (_snapshot.Device(Serial) is not { } device)
 {
     <MudAlert Severity="Severity.Warning" data-testid="unknown-device">This deck is not in the catalogue.</MudAlert>
 }
 else
 {
-    <MudPaper Class="pa-4" Elevation="1" data-testid="deck-summary">
-        <MudText Typo="Typo.body1">@_device.Model · @_device.KeyColumns × @_device.KeyRows keys</MudText>
-        <MudText Typo="Typo.body1" Color="@(_device.IsConnected ? Color.Success : Color.Default)" data-testid="deck-state">
-            @(_device.IsConnected ? "Connected" : "Not connected")
-        </MudText>
-    </MudPaper>
+    <MudText Typo="Typo.caption" Class="d-block mb-3" data-testid="as-of">
+        As of <time datetime="@Clock.Now.ToString("O")">@Clock.Time(Clock.Now)</time>; updates as they happen.
+    </MudText>
+    <DeviceDashboard @key="device.Serial" Device="device" Snapshot="_snapshot" Brightness="_snapshot.Brightness" ShowLink="false" />
 }
 
 @code {
     [Parameter] public string Serial { get; set; } = "";
 
-    private DeviceSummary? _device;
+    private LiveSnapshot? _snapshot;
+    private CoalescingRunner? _refresh;
 
-    protected override void OnInitialized() => Directory.Changed += OnDirectoryChanged;
+    protected override void OnInitialized()
+    {
+        _refresh = new CoalescingRunner(() => InvokeAsync(() =>
+        {
+            _snapshot = Source.Snapshot;
+            StateHasChanged();
+        }), ex => Logger.LogWarning(ex, "Could not refresh deck {Serial}", Serial));
+        Source.Changed += _refresh.Request;
+    }
 
     protected override async Task OnParametersSetAsync()
     {
         Selection.Select(Serial);
-        await LoadAsync();
+        _snapshot = await Source.StartAsync();
     }
 
-    private async Task LoadAsync() =>
-        _device = (await Directory.ListAsync()).FirstOrDefault(d => d.Serial == Serial);
-
-    // Pushed by the event bus (#108).
-    private void OnDirectoryChanged() => InvokeAsync(async () =>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        await LoadAsync();
-        StateHasChanged();
-    });
+        if (firstRender && await Clock.LoadAsync()) StateHasChanged();
+    }
 
-    public void Dispose() => Directory.Changed -= OnDirectoryChanged;
+    public void Dispose()
+    {
+        if (_refresh is not null) Source.Changed -= _refresh.Request;
+    }
 }

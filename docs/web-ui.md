@@ -49,6 +49,38 @@ them from its `wwwroot`. Without a deck attached, the catalogue is whatever is i
   Nothing polls; see [live-events.md](live-events.md#in-the-web-ui). A banner shows while the
   circuit's connection is down (`#components-reconnect-modal` in `App.razor`).
 
+### The dashboard (#99)
+
+The overview (`/`) and each deck's page (`/board/{serial}`) show the same read-only dashboard
+(`Components/Dashboard`), for every deck or for one:
+
+- **Broker**: connected or offline, whether the decks show the offline look yet, and the last
+  message received.
+- **Deck card**: connected or not, model, brightness and the page on screen, with a link to the
+  deck's own page.
+- **The page on screen**, key by key, as the deck shows it. When a key is repainted
+  (`KeyRendered`), only that key's image is replaced, and only if its content hash changed. A deck
+  that isn't connected shows its keys as it will show them when it connects (desired state).
+- **Other pages**, collapsed. A page is rendered when you open it, and re-rendered while it is open
+  when the deck's state changes, so a phone isn't sent every page.
+- **Bound topics**: each topic a button or setpoint control listens to, with its latest payload
+  and when it arrived. A topic is highlighted as **stale** when the deck shows its key dimmed for
+  staleness; the dashboard reads that verdict from the renderer's state rather than working it out
+  again, so the list and the keys always agree. A topic with no value since the service started is
+  shown as waiting, not stale.
+
+**Images** are rendered in-process (`DevicePreviewService`, the same code as the preview endpoint)
+and sent over the circuit as `data:` URIs. The browser never fetches an image URL, so no image
+endpoint is opened without the API key; when sign-in arrives (#97) it covers the images along with
+the rest of the circuit.
+
+**Times and ages**: times are shown in the browser's time zone (asked once per tab). Ages ("2 min
+ago") are worked out when the page renders, which it does on every pushed update; nothing refreshes
+them on a timer (#108). The "As of" line under the title says when that was.
+
+All of it is pushed: live events (#108) and desired-state changes (a key going stale writes no
+event). Bursts are folded into at most one refresh in flight (`CoalescingRunner`).
+
 ### Adding a page
 
 1. Add `Components/Pages/MyPage.razor` with `@page "/my-page"`. Don't use a route the API uses
@@ -56,7 +88,8 @@ them from its `wwwroot`. Without a deck attached, the catalogue is whatever is i
    the example path base for running behind a proxy. Current pages: `/` (overview) and
    `/board/{serial}` (one deck).
 2. Add a `MudNavLink` in `Components/Layout/NavMenu.razor`.
-3. Use the injected services (`LiveState` for live data, `IDeviceDirectory`, `DeviceSelection`);
+3. Use the injected services (`LiveState` for live data, `IDashboardSource` for the dashboard's
+   data and images, `BrowserClock` for local times, `IDeviceDirectory`, `DeviceSelection`);
    register new ones in `WebUiExtensions.AddWebUi`. Subscribe to `Changed` events and re-render
    with `InvokeAsync(StateHasChanged)`; never refresh on a timer.
 4. Give the page an `h1` (`<MudText Typo="Typo.h4" HtmlTag="h1">`), and add the path to
@@ -72,7 +105,7 @@ serials and topics). The E2E tests check both at three sizes.
 
 | Project | What | Needs |
 |---|---|---|
-| `tests/StreamDeckPilot.Tests/Web` | bUnit component tests (`WebComponentTests`) and hosting tests (`WebUiHostingTests`: off by default, API unchanged, UI exempt from the key) | nothing |
+| `tests/StreamDeckPilot.Tests/Web` | bUnit component tests (`WebComponentTests`, `DashboardComponentTests` with `FakeDashboardSource`) and hosting tests (`WebUiHostingTests`: off by default, API unchanged, UI exempt from the key) | nothing |
 | `tests/StreamDeckPilot.Web.E2E` | Playwright (Chromium) against the real app on a Kestrel port, at phone 360×740, tablet 768×1024 and desktop 1440×900 | the Playwright browser |
 
 Install the browser once after a build:
@@ -86,8 +119,9 @@ Without it, `dotnet test` skips the E2E tests with a message. CI installs it and
 
 Helpers for new tests:
 
-- `WebAppFixture`: one app (UI on, one generic deck `EXAMPLE-0001` in the catalogue) and one
-  browser for the whole run. `NewPageAsync(viewport, colourScheme)` gives a fresh page.
+- `WebAppFixture`: one app (UI on, one generic deck `EXAMPLE-0001` in the catalogue with a
+  two-page sample config, `SampleConfig`) and one browser for the whole run. `Services` reaches
+  the app's services, e.g. to publish a live event or write desired state. `NewPageAsync(viewport, colourScheme)` gives a fresh page.
 - `PageChecks.GotoInteractiveAsync(path)`: loads a page and waits for the circuit (the layout sets
   `data-interactive="true"` once it is live). On timeout it reports the browser console.
 - `AssertNoHorizontalScrollAsync()`, `AssertTouchTargetsAsync()`, `OpenNavAsync(viewport)`.

@@ -1,0 +1,30 @@
+@inject BrowserClock Clock
+
+@* MQTT broker status (#99): connected, the decks' offline look, and the last message. *@
+<MudPaper Class="pa-4" Elevation="1" data-testid="broker-card">
+    <MudText Typo="Typo.h6" HtmlTag="h2">MQTT broker</MudText>
+    <MudText Typo="Typo.body1" Color="@(Broker.Connected ? Color.Success : Color.Error)"
+             data-testid="broker-state" data-state="@(Broker.Connected ? "online" : "offline")">
+        @(Broker.Connected ? "Connected" : "Offline, retrying")
+    </MudText>
+    @if (!Broker.Connected)
+    {
+        <MudText Typo="Typo.body2" data-testid="broker-indicator">
+            @(Broker.OfflineIndicator ? "Decks show the offline look." : "Decks show the offline look if it stays down.")
+        </MudText>
+    }
+    <MudText Typo="Typo.body2" data-testid="broker-last-message">
+        @if (Broker.LastMessageAt is { } at)
+        {
+            <span>Last message at <time datetime="@at.ToString("O")">@Clock.Time(at)</time> (@Clock.Age(at))</span>
+        }
+        else
+        {
+            <span>No message since the service started.</span>
+        }
+    </MudText>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public BrokerSnapshot Broker { get; set; } = default!;
+}

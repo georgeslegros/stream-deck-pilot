@@ -1,0 +1,100 @@
+@implements IDisposable
+@inject IDashboardSource Source
+@inject ILogger<DeviceDashboard> Logger
+
+@* Everything the dashboard shows for one deck (#99): its card, the page on screen live, its other
+   pages on demand, and its bound topics. Used by the overview and by the deck's own page. *@
+<section class="sdp-device" data-testid="device-dashboard" data-serial="@Device.Serial" aria-label="@Device.Serial">
+    <MudGrid Spacing="2">
+        <MudItem xs="12" md="4">
+            <DeviceCard Device="Device" Brightness="Brightness" ShowLink="ShowLink" />
+        </MudItem>
+        <MudItem xs="12" md="8">
+            <MudPaper Class="pa-4" Elevation="1">
+                <MudText Typo="Typo.subtitle1" HtmlTag="h3" Class="mb-2 sdp-break" data-testid="shown-page">
+                    @if (ShownPage is null)
+                    {
+                        <span>No page configured</span>
+                    }
+                    else if (Device.IsConnected)
+                    {
+                        <span>On screen: page @ShownPage</span>
+                    }
+                    else
+                    {
+                        <span>Page @ShownPage, as the deck will show it when it connects</span>
+                    }
+                </MudText>
+                <LiveBoard Serial="@Device.Serial" Columns="Device.KeyColumns" Rows="Device.KeyRows" PageId="@ShownPage" />
+                <PagePreviews Serial="@Device.Serial" Pages="OtherPages" />
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12">
+            <MudPaper Class="pa-4" Elevation="1">
+                <BoundTopicsList Topics="Topics" />
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public DeviceSnapshot Device { get; set; } = default!;
+    [Parameter, EditorRequired] public LiveSnapshot Snapshot { get; set; } = default!;
+    [Parameter] public int Brightness { get; set; }
+    [Parameter] public bool ShowLink { get; set; } = true;
+
+    private DeviceConfig? _config;
+    private CoalescingRunner? _refresh;
+    private string? _loadedFor;
+
+    // The page the board shows: the one on screen, or (no page yet) the first, as the preview does.
+    private string? ShownPage => Device.ActivePage is { } active && _config?.Pages.Any(p => p.PageId == active) != false
+        ? active
+        : _config?.Pages.FirstOrDefault()?.PageId;
+
+    private IReadOnlyList<string> OtherPages =>
+        _config?.Pages.Select(p => p.PageId).Where(id => id != ShownPage).ToList() ?? [];
+
+    // Recomputed on every render: values come with the snapshot, staleness from desired state.
+    private IReadOnlyList<BoundTopic> Topics => _config is null
+        ? []
+        : BoundTopics.From(_config, Device.KeyColumns, Snapshot,
+            (pageId, key) => Source.IsDimmed(Device.Serial, pageId, key));
+
+    protected override void OnInitialized()
+    {
+        // Staleness flips write desired state without a live event: re-render on those too.
+        _refresh = new CoalescingRunner(() => InvokeAsync(StateHasChanged),
+            ex => Logger.LogWarning(ex, "Could not refresh the dashboard of {Serial}", Device.Serial));
+        Source.EventApplied += OnEvent;
+        Source.DesiredStateChanged += OnDesiredStateChanged;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedFor == Device.Serial) return;
+        _loadedFor = Device.Serial;
+        _config = await Source.GetConfigAsync(Device.Serial);
+    }
+
+    private void OnEvent(LiveEvent e)
+    {
+        if (e is ConfigChanged && e.Serial == Device.Serial)
+            _ = InvokeAsync(async () =>
+            {
+                _config = await Source.GetConfigAsync(Device.Serial);
+                StateHasChanged();
+            });
+    }
+
+    private void OnDesiredStateChanged(string serial)
+    {
+        if (serial == Device.Serial) _refresh!.Request();
+    }
+
+    public void Dispose()
+    {
+        Source.EventApplied -= OnEvent;
+        Source.DesiredStateChanged -= OnDesiredStateChanged;
+    }
+}

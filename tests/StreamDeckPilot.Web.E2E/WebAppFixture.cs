@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Playwright;
+using StreamDeckPilot.Core.Models.Config;
 using StreamDeckPilot.Infrastructure.Persistence;
 
 [assembly: AssemblyFixture(typeof(StreamDeckPilot.Web.E2E.WebAppFixture))]
@@ -24,6 +25,30 @@ public sealed class WebAppFixture : IAsyncLifetime
 
     public string BaseUrl { get; private set; } = "";
 
+    /// <summary>A generic two-page layout for the test deck: bound values, a setpoint and navigation.</summary>
+    public const string Co2Topic = "example/sensors/co2";
+
+    public static readonly DeviceConfig SampleConfig = new(2, Serial,
+    [
+        new ButtonGridPage("main",
+        [
+            new ButtonDefinition("co2", 0, "main", new DisplaySpec(Center: new TextZone(null, "{value}"), Bottom: new TextZone("CO2", null)),
+                new InboundBinding(Co2Topic, null, null, false, TimeSpan.FromMinutes(5)), [], NoGestures),
+            new ButtonDefinition("temperature", 1, "main", new DisplaySpec(Center: new TextZone(null, "{value}")),
+                new InboundBinding("example/sensors/temperature", null, null, false, TimeSpan.FromMinutes(5)), [], NoGestures),
+            new ButtonDefinition("to-climate", 4, "main", new DisplaySpec(Center: new TextZone("Climate", null)), null, [],
+                new Dictionary<string, IReadOnlyList<ButtonAction>> { ["Tap"] = [new NavigateAction("climate")] }),
+        ]),
+        new ButtonGridPage("climate", [],
+        [
+            new SetpointControl("room", 1, SetpointOrientation.Vertical,
+                new SetpointBinding("example/climate/room/current"), new SetpointBinding("example/climate/room/target"),
+                new SetpointCommit("example/climate/room/set"), 0.5, 5, 30, Label: "Room", Unit: "°"),
+        ]),
+    ]);
+
+    private static readonly Dictionary<string, IReadOnlyList<ButtonAction>> NoGestures = new();
+
     /// <summary>The running app's services, e.g. to push a live event (#108).</summary>
     public IServiceProvider Services => _factory.Services;
     public IBrowser? Browser { get; private set; }
@@ -38,6 +63,7 @@ public sealed class WebAppFixture : IAsyncLifetime
 
         await _factory.Services.GetRequiredService<CatalogueStore>().AppendDeviceAsync(
             new(Serial, "Stream Deck MK.2", 3, 5, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+        await _factory.Services.GetRequiredService<ConfigStore>().SaveAsync(SampleConfig);
 
         try
         {
