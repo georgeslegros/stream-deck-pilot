@@ -4,8 +4,6 @@ using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
 using StreamDeckPilot.Core;
 using StreamDeckPilot.Core.Json;
 using StreamDeckPilot.Core.Migration;
@@ -53,15 +51,6 @@ var composer = new KeyBitmapComposer(new IconResolver(
     new CustomImageSource(Options.Create(new StorageOptions { BaseDirectory = baseDir })),
     NullLogger<IconResolver>.Instance));
 
-const int Key = 72;
-int gap = 6 * scale;
-int cell = Key * scale;
-int boardW = cols * cell + (cols + 1) * gap;
-int boardH = rows * cell + (rows + 1) * gap;
-
-(int X, int Y) CellXy(int idx) =>
-    (gap + idx % cols * (cell + gap), gap + idx / cols * (cell + gap));
-
 ButtonRenderState BuildState(ButtonDefinition b, SampleDatum? s)
 {
     var hasData = s is not null && (s.Value is not null || s.Unit is not null || s.Label is not null);
@@ -75,24 +64,13 @@ ButtonRenderState BuildState(ButtonDefinition b, SampleDatum? s)
 
 foreach (var page in config.Pages.OfType<ButtonGridPage>())
 {
-    using var board = new Image<Rgba32>(boardW, boardH, new Rgba32(28, 28, 28)); // bezel
-
-    // Every key cell starts black (unconfigured = black, matching the device).
-    for (var i = 0; i < cols * rows; i++)
-    {
-        var (x, y) = CellXy(i);
-        using var black = new Image<Rgba32>(cell, cell, new Rgba32(0, 0, 0));
-        board.Mutate(c => c.DrawImage(black, new Point(x, y), 1f));
-    }
-
-    foreach (var b in page.Buttons)
-    {
-        if (b.KeyIndex < 0 || b.KeyIndex >= cols * rows) continue;
-        using var key = composer.ComposeImage(BuildState(b, sample.GetValueOrDefault(b.ButtonId)), config.Serial);
-        key.Mutate(c => c.Resize(cell, cell, KnownResamplers.Bicubic));
-        var (x, y) = CellXy(b.KeyIndex);
-        board.Mutate(c => c.DrawImage(key, new Point(x, y), 1f));
-    }
+    // Same board layout as the service's live preview (BoardPreviewRenderer); keys with no button are black.
+    var byKey = page.Buttons.Where(b => b.KeyIndex >= 0 && b.KeyIndex < cols * rows)
+        .ToDictionary(b => b.KeyIndex);
+    using var board = BoardPreviewRenderer.Compose(cols, rows, scale, key =>
+        byKey.TryGetValue(key, out var b)
+            ? composer.ComposeImage(BuildState(b, sample.GetValueOrDefault(b.ButtonId)), config.Serial)
+            : null);
 
     var outPath = Path.Combine(outDir, $"board-{page.PageId}.png");
     board.SaveAsPng(outPath);

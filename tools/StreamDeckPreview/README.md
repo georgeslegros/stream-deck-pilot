@@ -35,3 +35,7 @@ This writes `docs/images/board-main.png` and `docs/images/board-climate.png`.
 
 > The sample config under `samples/` is an example layout with representative readings — it is
 > for previews/docs, not the source of truth.
+
+The board layout (bezel, gaps, black unconfigured keys) comes from `BoardPreviewRenderer` in the
+service, which also draws the live preview endpoint `GET /devices/{serial}/preview.png`. To see a
+running deck rather than a config file, use that endpoint (see `docs/api-guide.md`).

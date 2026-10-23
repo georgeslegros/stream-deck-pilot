@@ -720,6 +720,7 @@ key returns `401`. See `docs/api-guide.md` for full request/response shapes and 
 | GET | `/devices` | Yes | List catalogued devices (serial, model, key geometry, connection state). |
 | GET | `/devices/{serial}/status` | Yes | Connection state for one device. |
 | POST | `/devices/{serial}/force-render` | Yes | Rebuild desired state from config and full clear-and-redraw the current page. |
+| GET | `/devices/{serial}/preview.png` | Yes | PNG of the deck as it looks now (`?page=`, `?scale=1\|2`); `/devices/{serial}/keys/{index}.png` for one key. ETag + `304`. Never touches the hardware. |
 | GET | `/devices/{serial}/active-page` | Yes | Current page + available navigation targets. |
 | POST | `/devices/{serial}/navigate` | Yes | Force navigation to a page (re-renders, clears stale keys). `400` unknown/empty page, `404` no config. |
 | GET | `/devices/{serial}/config` | Yes | Read the stored config for a device. |
