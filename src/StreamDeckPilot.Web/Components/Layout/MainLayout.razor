@@ -1,0 +1,55 @@
+@inherits LayoutComponentBase
+
+@* App shell: app bar + navigation. The drawer is a side bar from the md breakpoint (960 px) up and a
+   temporary drawer with an overlay below it (phones, portrait tablets). The theme follows the OS. *@
+<MudThemeProvider @ref="_themeProvider" @bind-IsDarkMode="_isDarkMode" ObserveSystemDarkModeChange="true" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+@* data-interactive flips to true once the circuit is up (OnAfterRender never runs while prerendering):
+   end-to-end tests wait on it before clicking. *@
+<MudLayout data-interactive="@(_interactive ? "true" : "false")">
+    <MudAppBar Elevation="1">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start"
+                       OnClick="ToggleDrawer" aria-label="Toggle navigation" data-testid="nav-toggle" />
+        <MudText Typo="Typo.h6" Class="ml-2 sdp-app-title" data-testid="app-title">Stream Deck Pilot</MudText>
+        <MudSpacer />
+        <DeviceSwitcher />
+    </MudAppBar>
+
+    <MudDrawer @bind-Open="_drawerOpen" Variant="DrawerVariant.Responsive" Breakpoint="Breakpoint.Md"
+               ClipMode="DrawerClipMode.Always" Elevation="1" data-testid="nav-drawer">
+        <NavMenu />
+    </MudDrawer>
+
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.Large" Class="py-4 sdp-content">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+@code {
+    private MudThemeProvider? _themeProvider;
+    private bool _isDarkMode;
+    private bool _drawerOpen = true;
+    private bool _interactive;
+
+    private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _themeProvider is null) return;
+        _interactive = true;
+        _isDarkMode = await _themeProvider.GetSystemDarkModeAsync();
+        await _themeProvider.WatchSystemDarkModeAsync(OnSystemDarkModeChanged);
+        StateHasChanged();
+    }
+
+    private Task OnSystemDarkModeChanged(bool isDark)
+    {
+        _isDarkMode = isDark;
+        return InvokeAsync(StateHasChanged);
+    }
+}

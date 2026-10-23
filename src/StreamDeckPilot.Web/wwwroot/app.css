@@ -1,0 +1,39 @@
+/* Responsive rules shared by every page (#96): no horizontal scrolling down to 360 px, and touch
+   targets of at least 44 × 44 px. */
+
+html, body {
+    overflow-x: hidden;
+    margin: 0;
+}
+
+/* Long serials and topic names wrap instead of widening the page. */
+.sdp-break {
+    overflow-wrap: anywhere;
+}
+
+/* Touch targets: nav links, the device switcher and app bar buttons. */
+.sdp-nav .mud-nav-link {
+    min-height: 48px;
+}
+
+.sdp-device-switcher .mud-button-root {
+    min-height: 44px;
+    max-width: 50vw;
+}
+
+.sdp-device-switcher .mud-button-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mud-menu-item {
+    min-height: 48px;
+}
+
+/* On a phone the title gives way to the menu button and the device switcher. */
+@media (max-width: 599.98px) {
+    .sdp-app-title {
+        display: none;
+    }
+}

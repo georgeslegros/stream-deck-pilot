@@ -1,0 +1,19 @@
+@* Read-only pages only until sign-in (#97). Add new pages here. *@
+<MudNavMenu Class="sdp-nav" data-testid="nav-menu">
+    <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">Overview</MudNavLink>
+    @if (Selection.Serial is { } serial)
+    {
+        <MudNavLink Href="@($"deck/{Uri.EscapeDataString(serial)}")" Icon="@Icons.Material.Filled.GridView">Deck @serial</MudNavLink>
+    }
+</MudNavMenu>
+
+@implements IDisposable
+@inject DeviceSelection Selection
+
+@code {
+    protected override void OnInitialized() => Selection.Changed += OnSelectionChanged;
+
+    private void OnSelectionChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Selection.Changed -= OnSelectionChanged;
+}

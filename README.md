@@ -181,6 +181,7 @@ PRs run the tests only.
 on every push to `master`. The suite includes the Testcontainers integration tests (a Mosquitto container), which need Docker;
 GitHub's `ubuntu-latest` runners provide it. The `Build and test` check is required before a PR
 can merge into `master`. The release workflow calls the same workflow as its first step.
+It also runs the web UI's browser tests (Playwright, Chromium) at phone, tablet and desktop sizes.
 CI also collects code coverage. The summary appears on the workflow run page, and on pull
 requests `coverage-comment.yml` posts it as a single PR comment that is updated on each push.
 
@@ -226,10 +227,23 @@ read by `Program.cs`, `MqttOptions.cs` and `BrightnessOptions.cs`.
 | `Setpoint__DefaultConfirmTimeoutSeconds` | How long a published target waits for the target topic to report it, when the control sets no `confirmTimeoutSeconds` (1–600). | `30` |
 | `Setpoint__FailedFlashMilliseconds` | How long the value key shows the failed look after an unconfirmed target (0–10000). | `600` |
 | `Sparkline__MaxPoints` | Points kept per button for a `display.sparkline` trend (see the API guide). The window is split into this many buckets; values in the same bucket replace each other. | `240` |
+| `Web__Enabled` | Serve the read-only web UI under `/` (see [Web UI](#web-ui)). **Private networks only** until sign-in lands (v0.10.0). | `false` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP gRPC endpoint for metrics and traces (standard OpenTelemetry variable). | `http://localhost:4317` |
 
 All secrets (API key, MQTT credentials, OTLP endpoint) come from environment variables / Docker
 secrets only. They are never written to persisted config files or baked into the image.
+
+### Web UI
+
+A browser UI is being built (epic #95). It is **off by default**; `Web__Enabled=true` serves it
+under `/`, next to the REST API, which is unchanged and still needs its key.
+
+> **Until sign-in (#97, v0.10.0) lands, the UI has no login.** Anyone who can reach it can see your
+> decks. Only turn it on where the service is reachable from a private network (LAN or VPN), never
+> from the internet. The pages are read-only for now.
+
+It works on a phone (from 360 px wide), a tablet and a desktop, and follows the OS light/dark
+setting. See [docs/web-ui.md](docs/web-ui.md) for running it locally and for the tests.
 
 ### Persistent volume layout
 
@@ -715,6 +729,7 @@ dotnet build                                   # build the solution
 dotnet test                                    # run all tests
 dotnet test --filter "FullyQualifiedName~SomeTest"   # run a single test
 dotnet run --project src/StreamDeckPilot.Api   # run locally (dev machine with a device attached)
+Web__Enabled=true dotnet run --project src/StreamDeckPilot.Api   # … with the web UI (see docs/web-ui.md)
 docker build -f src/StreamDeckPilot.Api/Dockerfile -t stream-deck-pilot .   # build the Linux container
 ```
 
