@@ -7,12 +7,17 @@
 #   - Puts the service on an external `traefik` network so Traefik can route to it
 #   - Exposes the service at https://streamdeck.example.com (HTTPS terminated by Traefik)
 #   - Points OTLP telemetry at a collector reachable as `otel-collector`
+#
+# Forwarded headers, path base, WebSockets and nginx/Caddy equivalents: docs/reverse-proxy.md.
 
 services:
   stream-deck-pilot:
     container_name: stream-deck-pilot
     environment:
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      # Serving under a sub-path instead of a host name? Set the base and change the rule below
+      # to Host(`apps.example.com`) && PathPrefix(`/deck`) (no StripPrefix middleware).
+      # - Proxy__PathBase=/deck
     networks:
       - traefik
     labels:
@@ -21,6 +26,8 @@ services:
       - "traefik.http.routers.streamdeck.entrypoints=https"
       - "traefik.http.routers.streamdeck.tls.certresolver=letsencrypt"
       - "traefik.http.services.streamdeck.loadbalancer.server.port=8080"
+      - "traefik.http.services.streamdeck.loadbalancer.healthcheck.path=/health"
+      - "traefik.http.services.streamdeck.loadbalancer.healthcheck.interval=30s"
 
 networks:
   traefik:

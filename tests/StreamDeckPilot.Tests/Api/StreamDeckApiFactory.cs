@@ -6,10 +6,13 @@ using StreamDeckPilot.Infrastructure.Persistence;
 
 namespace StreamDeckPilot.Tests.Api;
 
-public sealed class StreamDeckApiFactory : WebApplicationFactory<Program>, IAsyncDisposable
+public sealed class StreamDeckApiFactory(Dictionary<string, string?>? settings = null)
+    : WebApplicationFactory<Program>, IAsyncDisposable
 {
     public const string TestApiKey = "test-api-key-12345";
     public string StorageDir { get; } = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+
+    public StreamDeckApiFactory() : this(null) { }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -21,6 +24,8 @@ public sealed class StreamDeckApiFactory : WebApplicationFactory<Program>, IAsyn
                 ["ApiKey"] = TestApiKey,
                 ["Storage:BaseDirectory"] = StorageDir,
             });
+            if (settings is not null)
+                config.AddInMemoryCollection(settings);
         });
     }
 
