@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace StreamDeckPilot.Infrastructure.Persistence;
 
-internal static class AtomicFileWriter
+public static class AtomicFileWriter
 {
     // Writes to a temp file next to the target, then renames over it — crash-safe. The temp name is
     // unique per write: a shared <path>.tmp made two concurrent writes of the same file collide on

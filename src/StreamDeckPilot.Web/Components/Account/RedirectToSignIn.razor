@@ -1,0 +1,21 @@
+@inject NavigationManager Navigation
+
+@* Shown by AuthorizeRouteView when a page isn't allowed: signed out → the sign-in page (a full load,
+   so the cookie is read again); signed in without the role → a short notice. *@
+@if (_signedIn)
+{
+    <MudAlert Severity="Severity.Warning" data-testid="not-authorised">Your account can't open this page.</MudAlert>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
+    private bool _signedIn;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _signedIn = AuthenticationState is not null && (await AuthenticationState).User.Identity?.IsAuthenticated == true;
+        if (_signedIn) return;
+        var returnUrl = new Uri(Navigation.Uri).PathAndQuery;
+        Navigation.NavigateTo($"account/signin?returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
+    }
+}

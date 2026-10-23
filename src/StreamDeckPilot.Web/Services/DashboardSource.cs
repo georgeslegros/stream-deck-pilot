@@ -49,7 +49,7 @@ public interface IDashboardSource
 /// <summary>
 /// Per circuit. Images are rendered in-process by <see cref="DevicePreviewService"/> and sent over
 /// the circuit as data URIs: the browser never fetches an image URL, so no image endpoint has to be
-/// opened without the API key, and when sign-in arrives (#97) it covers the images with the circuit.
+/// opened without the API key, and the circuit's sign-in (#97) covers the images.
 /// </summary>
 public sealed class DashboardSource : IDashboardSource, IDisposable
 {

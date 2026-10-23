@@ -1,0 +1,105 @@
+@page "/account/setup"
+@attribute [AllowAnonymous]
+@attribute [ExcludeFromInteractiveRouting]
+@layout AccountLayout
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authentication.Cookies
+@using Microsoft.Extensions.Options
+@inject IOptions<AuthOptions> Options
+@inject LocalUserStore Users
+@inject SetupToken Token
+@inject SignInThrottle Throttle
+@inject SignInAudit Audit
+@inject NavigationManager Navigation
+
+<PageTitle>Set up · Stream Deck Pilot</PageTitle>
+
+<h1 class="sdp-account-title">Create the admin account</h1>
+<p class="sdp-account-hint">
+    This install has no account yet. Enter the one-time setup token from the service log
+    (the line that starts with "No local account exists yet"), then choose the admin's user name and password.
+</p>
+
+@if (_message is not null)
+{
+    <p class="sdp-account-error" role="alert" data-testid="setup-error">@_message</p>
+}
+
+<EditForm Model="Input" method="post" OnSubmit="SubmitAsync" FormName="setup" class="sdp-account-form">
+    <label for="setup-token">Setup token</label>
+    <InputText id="setup-token" @bind-Value="Input!.Token" autocomplete="off" required data-testid="setup-token" />
+    <label for="setup-username">User name</label>
+    <InputText id="setup-username" @bind-Value="Input!.UserName" autocomplete="username" required maxlength="64" data-testid="setup-username" />
+    <label for="setup-password">Password (at least @Options.Value.Local.MinimumPasswordLength characters)</label>
+    <InputText id="setup-password" type="password" @bind-Value="Input!.Password" autocomplete="new-password" required data-testid="setup-password" />
+    <label for="setup-confirm">Repeat the password</label>
+    <InputText id="setup-confirm" type="password" @bind-Value="Input!.Confirm" autocomplete="new-password" required data-testid="setup-confirm" />
+    <button type="submit" class="sdp-account-button" data-testid="setup-submit">Create admin and sign in</button>
+</EditForm>
+
+@code {
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+    [SupplyParameterFromForm] private SetupInput? Input { get; set; }
+
+    private string? _message;
+
+    protected override void OnInitialized() => Input ??= new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Setup only exists until the first account does.
+        if (!Options.Value.LocalEnabled || await Users.AnyAsync())
+            Navigation.NavigateTo("account/signin");
+    }
+
+    private async Task SubmitAsync()
+    {
+        var address = HttpContext.Connection.RemoteIpAddress;
+        if (!Throttle.TryAcquire("setup", address, out var wait))
+        {
+            Audit.Failed("setup", "rate_limited", address);
+            HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+            _message = $"Too many attempts. Try again in {Math.Max(1, (int)Math.Ceiling(wait.TotalMinutes))} min.";
+            return;
+        }
+        if (!Token.Matches(Input!.Token))
+        {
+            Audit.Failed("setup", "invalid_setup_token", address);
+            _message = "That setup token isn't valid. Copy it from the service log; a restart makes a new one.";
+            return;
+        }
+
+        var userName = Input!.UserName?.Trim() ?? "";
+        var minimum = Options.Value.Local.MinimumPasswordLength;
+        if (userName.Length is 0 or > 64 || userName.Any(char.IsControl))
+            _message = "Choose a user name of 1 to 64 characters.";
+        else if ((Input!.Password ?? "").Length < minimum)
+            _message = $"The password needs at least {minimum} characters.";
+        else if (Input!.Password != Input!.Confirm)
+            _message = "The two passwords don't match.";
+        if (_message is not null) return;
+
+        if (!await Users.CreateFirstAdminAsync(userName, Input!.Password!))
+        {
+            // Someone finished setup a moment ago.
+            Navigation.NavigateTo("account/signin");
+            return;
+        }
+        Token.Consume();
+        Audit.SetupCompleted(userName, address);
+
+        await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme,
+            AuthRoles.Principal($"local:{userName}", userName, AuthRoles.Admin, "local"),
+            new AuthenticationProperties { IsPersistent = true });
+        Audit.Succeeded("local", userName, AuthRoles.Admin, address);
+        Navigation.NavigateTo("");
+    }
+
+    private sealed class SetupInput
+    {
+        public string? Token { get; set; }
+        public string? UserName { get; set; }
+        public string? Password { get; set; }
+        public string? Confirm { get; set; }
+    }
+}

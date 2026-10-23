@@ -6,19 +6,23 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Playwright;
 using StreamDeckPilot.Core.Models.Config;
 using StreamDeckPilot.Infrastructure.Persistence;
+using StreamDeckPilot.Web.Auth;
 
 [assembly: AssemblyFixture(typeof(StreamDeckPilot.Web.E2E.WebAppFixture))]
 
 namespace StreamDeckPilot.Web.E2E;
 
 /// <summary>
-/// One app (UI on, real Kestrel port, one generic deck in the catalogue) and one Chromium for the
-/// whole test assembly. If the browser isn't installed, tests skip — unless E2E_REQUIRED=1 (CI).
+/// One app (UI on, real Kestrel port, one generic deck in the catalogue, one local admin) and one
+/// Chromium for the whole test assembly. Pages start signed in (#97) unless a test asks otherwise.
+/// If the browser isn't installed, tests skip — unless E2E_REQUIRED=1 (CI).
 /// </summary>
 public sealed class WebAppFixture : IAsyncLifetime
 {
     public const string ApiKey = "e2e-api-key-0123456789";
     public const string Serial = "EXAMPLE-0001";
+    public const string AdminUser = "admin";
+    public const string AdminPassword = "e2e admin password";
 
     private readonly AppFactory _factory = new();
     private IPlaywright? _playwright;
@@ -54,6 +58,9 @@ public sealed class WebAppFixture : IAsyncLifetime
     public IBrowser? Browser { get; private set; }
     public string? Unavailable { get; private set; }
 
+    // Cookies of a signed-in session, shared by every page that starts signed in.
+    private string? _signedIn;
+
     public async ValueTask InitializeAsync()
     {
         _factory.UseKestrel(0);
@@ -64,6 +71,7 @@ public sealed class WebAppFixture : IAsyncLifetime
         await _factory.Services.GetRequiredService<CatalogueStore>().AppendDeviceAsync(
             new(Serial, "Stream Deck MK.2", 3, 5, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
         await _factory.Services.GetRequiredService<ConfigStore>().SaveAsync(SampleConfig);
+        await _factory.Services.GetRequiredService<LocalUserStore>().CreateAsync(AdminUser, AdminPassword, AuthRoles.Admin);
 
         try
         {
@@ -77,10 +85,14 @@ public sealed class WebAppFixture : IAsyncLifetime
         }
     }
 
-    /// <summary>A fresh page at the given viewport, or a skip when no browser is available.</summary>
-    public async Task<IPage> NewPageAsync(Viewport viewport, ColorScheme scheme = ColorScheme.Light)
+    /// <summary>
+    /// A fresh page at the given viewport, signed in as the admin unless <paramref name="signedIn"/>
+    /// is false, or a skip when no browser is available.
+    /// </summary>
+    public async Task<IPage> NewPageAsync(Viewport viewport, ColorScheme scheme = ColorScheme.Light, bool signedIn = true)
     {
         if (Browser is null) Assert.Skip(Unavailable ?? "No browser");
+        if (signedIn) _signedIn ??= await SignInOnceAsync();
         var context = await Browser.NewContextAsync(new()
         {
             BaseURL = BaseUrl,
@@ -88,8 +100,17 @@ public sealed class WebAppFixture : IAsyncLifetime
             IsMobile = viewport.IsMobile,
             HasTouch = viewport.IsMobile,
             ColorScheme = scheme,
+            StorageState = signedIn ? _signedIn : null,
         });
         return await context.NewPageAsync();
+    }
+
+    private async Task<string> SignInOnceAsync()
+    {
+        await using var context = await Browser!.NewContextAsync(new() { BaseURL = BaseUrl });
+        var page = await context.NewPageAsync();
+        await page.SignInAsync(AdminUser, AdminPassword);
+        return await context.StorageStateAsync();
     }
 
     public async ValueTask DisposeAsync()
@@ -99,7 +120,8 @@ public sealed class WebAppFixture : IAsyncLifetime
         await _factory.DisposeAsync();
     }
 
-    private sealed class AppFactory : WebApplicationFactory<Program>
+    /// <summary>The app with the UI on and its own empty data directory (deleted on dispose).</summary>
+    internal sealed class AppFactory : WebApplicationFactory<Program>
     {
         private readonly string _storage = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
 
@@ -112,6 +134,9 @@ public sealed class WebAppFixture : IAsyncLifetime
             builder.UseSetting("Web:Enabled", "true");
             builder.UseSetting("ApiKey", ApiKey);
             builder.UseSetting("Storage:BaseDirectory", _storage);
+            // Every test signs in from 127.0.0.1; the per-address limit is covered by AuthTests in
+            // StreamDeckPilot.Tests.
+            builder.UseSetting("Auth:AttemptLimit", "1000");
         }
 
         public override async ValueTask DisposeAsync()

@@ -179,3 +179,138 @@ html, body {
     font-size: 0.85rem;
     opacity: 0.8;
 }
+
+/* ── Sign-in, setup and denied pages (#97) ───────────────────────────────
+   Server-rendered without MudBlazor's theme, so colours come from these tokens and follow the OS. */
+.sdp-account {
+    --sdp-bg: #f5f5f5;
+    --sdp-card: #ffffff;
+    --sdp-text: #1f1f1f;
+    --sdp-muted: #5f6368;
+    --sdp-border: #c4c7c5;
+    --sdp-accent: #594ae2;
+    --sdp-accent-text: #ffffff;
+    --sdp-error: #b3261e;
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 48px 16px;
+    box-sizing: border-box;
+    background: var(--sdp-bg);
+    color: var(--sdp-text);
+    font-family: Roboto, "Segoe UI", system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+    .sdp-account {
+        --sdp-bg: #1a1a27;
+        --sdp-card: #27272f;
+        --sdp-text: #e6e6ea;
+        --sdp-muted: #a8a8b3;
+        --sdp-border: #4a4a55;
+        --sdp-accent: #7e6fff;
+        --sdp-error: #f2b8b5;
+    }
+}
+
+.sdp-account-card {
+    width: 100%;
+    max-width: 420px;
+    box-sizing: border-box;
+    padding: 24px;
+    border-radius: 8px;
+    background: var(--sdp-card);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.sdp-account-brand {
+    margin: 0 0 8px;
+    color: var(--sdp-muted);
+    font-size: 0.9rem;
+}
+
+.sdp-account-title {
+    margin: 0 0 16px;
+    font-size: 1.6rem;
+    font-weight: 500;
+}
+
+.sdp-account-hint {
+    color: var(--sdp-muted);
+    line-height: 1.4;
+}
+
+.sdp-account-error {
+    color: var(--sdp-error);
+    border: 1px solid currentColor;
+    border-radius: 6px;
+    padding: 8px 12px;
+}
+
+.sdp-account-form {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.sdp-account-form label {
+    margin-top: 8px;
+    font-size: 0.9rem;
+}
+
+.sdp-account-form input {
+    min-height: 48px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 12px;
+    font-size: 1rem;
+    border: 1px solid var(--sdp-border);
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+}
+
+.sdp-account-providers {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.sdp-account-divider {
+    margin: 20px 0 4px;
+    text-align: center;
+    color: var(--sdp-muted);
+    font-size: 0.9rem;
+}
+
+.sdp-account-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 48px;
+    margin-top: 16px;
+    padding: 8px 16px;
+    box-sizing: border-box;
+    border: 1px solid var(--sdp-accent);
+    border-radius: 6px;
+    background: var(--sdp-accent);
+    color: var(--sdp-accent-text);
+    font-size: 1rem;
+    font-weight: 500;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.sdp-account-providers .sdp-account-button {
+    margin-top: 0;
+}
+
+.sdp-account-button-secondary {
+    background: transparent;
+    color: var(--sdp-accent);
+}
+
+.sdp-signout {
+    display: contents;
+}

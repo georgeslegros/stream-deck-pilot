@@ -1,0 +1,114 @@
+@page "/account/signin"
+@attribute [AllowAnonymous]
+@attribute [ExcludeFromInteractiveRouting]
+@layout AccountLayout
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authentication.Cookies
+@using Microsoft.Extensions.Options
+@inject IOptions<AuthOptions> Options
+@inject LocalUserStore Users
+@inject SignInThrottle Throttle
+@inject SignInAudit Audit
+@inject NavigationManager Navigation
+
+<PageTitle>Sign in · Stream Deck Pilot</PageTitle>
+
+<h1 class="sdp-account-title">Sign in</h1>
+
+@if (_message is not null)
+{
+    <p class="sdp-account-error" role="alert" data-testid="signin-error">@_message</p>
+}
+
+@if (Options.Value.Providers.Count > 0)
+{
+    <div class="sdp-account-providers">
+        @foreach (var provider in Options.Value.Providers)
+        {
+            <a class="sdp-account-button sdp-account-button-secondary" data-testid="provider-@provider.Name"
+               href="@($"account/signin/oidc/{Uri.EscapeDataString(provider.Name)}?returnUrl={Uri.EscapeDataString(ReturnUrl ?? "")}")">
+                Sign in with @provider.Label
+            </a>
+        }
+    </div>
+}
+
+@if (Options.Value.LocalEnabled)
+{
+    @if (Options.Value.Providers.Count > 0)
+    {
+        <p class="sdp-account-divider">or with a local account</p>
+    }
+    <EditForm Model="Input" method="post" OnSubmit="SubmitAsync" FormName="signin" class="sdp-account-form">
+        <label for="signin-username">User name</label>
+        <InputText id="signin-username" @bind-Value="Input!.UserName" autocomplete="username" required data-testid="signin-username" />
+        <label for="signin-password">Password</label>
+        <InputText id="signin-password" type="password" @bind-Value="Input!.Password" autocomplete="current-password" required data-testid="signin-password" />
+        <button type="submit" class="sdp-account-button" data-testid="signin-submit">Sign in</button>
+    </EditForm>
+}
+
+@code {
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+    [SupplyParameterFromForm] private SignInInput? Input { get; set; }
+    [SupplyParameterFromQuery] private string? ReturnUrl { get; set; }
+    [SupplyParameterFromQuery] private string? Error { get; set; }
+
+    private string? _message;
+
+    protected override void OnInitialized() => Input ??= new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // A fresh install with local accounts and no account yet: create the admin first.
+        if (HttpMethods.IsGet(HttpContext.Request.Method) && Options.Value.LocalEnabled && !await Users.AnyAsync())
+        {
+            Navigation.NavigateTo("account/setup");
+            return;
+        }
+        _message = Error switch
+        {
+            "no_role" => "Your account has no access to this app. Ask an admin to give you the admin or viewer role.",
+            "remote_failure" => "Signing in with the provider didn't work. Try again.",
+            _ => null,
+        };
+    }
+
+    private async Task SubmitAsync()
+    {
+        var address = HttpContext.Connection.RemoteIpAddress;
+        if (!Options.Value.LocalEnabled)
+        {
+            _message = "Local accounts are turned off.";
+            return;
+        }
+        if (!Throttle.TryAcquire("signin", address, out var wait))
+        {
+            Audit.Failed("local", "rate_limited", address);
+            HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+            _message = $"Too many attempts. Try again in {Math.Max(1, (int)Math.Ceiling(wait.TotalMinutes))} min.";
+            return;
+        }
+
+        var user = await Users.VerifyAsync(Input!.UserName ?? "", Input!.Password ?? "");
+        if (user is null)
+        {
+            Audit.Failed("local", "invalid_credentials", address);
+            _message = "Wrong user name or password.";
+            return;
+        }
+
+        await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme,
+            AuthRoles.Principal($"local:{user.UserName}", user.UserName, user.Role, "local"),
+            new AuthenticationProperties { IsPersistent = true });
+        Audit.Succeeded("local", user.UserName, user.Role, address);
+        if (!HttpContext.Request.IsHttps) Audit.PlainHttp(user.UserName);
+        Navigation.NavigateTo(AuthExtensions.SafeReturnUrl(ReturnUrl, HttpContext.Request.PathBase));
+    }
+
+    private sealed class SignInInput
+    {
+        public string? UserName { get; set; }
+        public string? Password { get; set; }
+    }
+}

@@ -40,6 +40,16 @@ public static class PageChecks
         }
     }
 
+    /// <summary>Signs in with a local account on the sign-in page and waits for the app shell.</summary>
+    public static async Task SignInAsync(this IPage page, string user, string password, string path = "account/signin")
+    {
+        await page.GotoInteractiveAsync(path);
+        await page.FillAsync("[data-testid=signin-username]", user);
+        await page.FillAsync("[data-testid=signin-password]", password);
+        await page.ClickAsync("[data-testid=signin-submit]");
+        await page.WaitForSelectorAsync("[data-testid=nav-menu]", new() { State = WaitForSelectorState.Attached, Timeout = 15_000 });
+    }
+
     /// <summary>
     /// Waits until the page's URL ends with <paramref name="path"/> after an in-app navigation.
     /// Blazor navigates with history.pushState: no new document and no load event, and when the
