@@ -9,8 +9,8 @@ namespace StreamDeckPilot.Api.Events;
 /// <see cref="Subscribe"/> with the event types and deck it wants; it gets a snapshot back and
 /// then receives <c>event</c> messages (the same payloads as SSE). <c>resync</c> means it fell
 /// behind: call <see cref="GetSnapshot"/> and continue. After a reconnect, call
-/// <see cref="Subscribe"/> again. Authenticated with the API key (header, Bearer token or
-/// <c>access_token</c> query); see docs/live-events.md.
+/// <see cref="Subscribe"/> again. Authenticated with the API key as the <c>X-Api-Key</c> header or a
+/// Bearer token, never a query parameter; see docs/live-events.md.
 /// </summary>
 public sealed class LiveHub(LiveSnapshotService snapshots) : Hub
 {

@@ -166,6 +166,27 @@ public sealed class EventBusTests : IDisposable
     }
 
     [Fact]
+    public void IdleCoalescingSlots_ArePruned_PendingOnesKept()
+    {
+        var bus = Bus(maxPerSecond: 4);
+        using var subscription = bus.Subscribe();
+        for (var key = 0; key < 100; key++)
+            bus.Publish(new ValueReceived($"topic/{key}", "1"));
+        Assert.Equal(100, bus.CoalesceSlotCount);
+
+        _time.Advance(EventBus.PruneInterval);
+        bus.Publish(new ValueReceived("busy", "1"));
+        bus.Publish(new ValueReceived("busy", "2"));   // held back: its slot has a pending event
+        Assert.Equal(1, bus.CoalesceSlotCount);
+
+        _time.Advance(TimeSpan.FromSeconds(1));         // "busy" flushes
+        _time.Advance(EventBus.PruneInterval);
+        bus.Publish(new ValueReceived("other", "1"));
+        Assert.Equal(1, bus.CoalesceSlotCount);        // "busy" flushed and went idle, then pruned
+        Assert.Equal("2", Drain(subscription).OfType<ValueReceived>().Last(v => v.Topic == "busy").Value);
+    }
+
+    [Fact]
     public void UncoalescedEvents_AreNeverHeldBack()
     {
         var bus = Bus(maxPerSecond: 1);

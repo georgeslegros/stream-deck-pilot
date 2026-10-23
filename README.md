@@ -724,7 +724,7 @@ key returns `401`. See `docs/api-guide.md` for full request/response shapes and 
 | GET | `/devices/{serial}/status` | Yes | Connection state for one device. |
 | POST | `/devices/{serial}/force-render` | Yes | Rebuild desired state from config and full clear-and-redraw the current page. |
 | GET | `/api/events` | Yes | Live events as Server-Sent Events: a snapshot, then deltas (`?types=`, `?serial=`, `Last-Event-ID` resume). See [docs/live-events.md](docs/live-events.md). |
-| — | `/hubs/live` | Yes | The same events over SignalR (key as header, Bearer token or `access_token`). |
+| — | `/hubs/live` | Yes | The same events over SignalR (key as `X-Api-Key` or a Bearer token; never in the URL). |
 | GET | `/devices/{serial}/preview.png` | Yes | PNG of the deck as it looks now (`?page=`, `?scale=1\|2`); `/devices/{serial}/keys/{index}.png` for one key. ETag + `304`. Never touches the hardware. |
 | GET | `/devices/{serial}/active-page` | Yes | Current page + available navigation targets. |
 | POST | `/devices/{serial}/navigate` | Yes | Force navigation to a page (re-renders, clears stale keys). `400` unknown/empty page, `404` no config. |

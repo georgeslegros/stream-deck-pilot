@@ -71,8 +71,12 @@ know.
 - `state` is `unknown`, `disconnected`, `connecting`, `connected` or `faulted`.
 - `keys` holds the content hash of every key painted since the deck connected.
 - `values` holds the latest payload per bound topic since the service started.
-- To apply an event, skip it if its `sequence` is at or below the snapshot's `sequence`. An event
-  for a deck that isn't in your snapshot (a deck discovered just now) means: fetch a new snapshot.
+- **Snapshot and events overlap.** The server subscribes you before it takes the snapshot, so an
+  event can arrive that the snapshot already reflects. Applying an event is idempotent (it sets a
+  state, it never adds to one), so applying it again is harmless. Still, the simple rule is: ignore
+  every event whose `sequence` is at or below the snapshot's `sequence`.
+- An event for a deck that isn't in your snapshot (a deck discovered just now) means: fetch a new
+  snapshot.
 
 ## `GET /api/events` (Server-Sent Events)
 
@@ -117,13 +121,17 @@ data: {"type":"ValueReceived","topic":"sensors/office/co2","value":"812",…}
 
 ## `/hubs/live` (SignalR)
 
-Authenticate with the API key in any of these ways:
+Authenticate with the API key in a header, either of:
 
-- an `X-Api-Key` header (non-browser clients),
-- a Bearer token: set the client's `accessTokenFactory` / `AccessTokenProvider` to return the key,
-- an `access_token` query parameter, which SignalR uses for WebSockets in browsers.
+- `X-Api-Key` (set it in the client's `headers` / `Headers` option),
+- a Bearer token: set the client's `accessTokenFactory` / `AccessTokenProvider` to return the key
+  (accepted on `/hubs/live` only).
 
-The Bearer and `access_token` forms are accepted on `/hubs/live` only.
+The key is **never** accepted in the URL: SignalR's `access_token` query parameter gets a `401`.
+URLs end up in host and proxy access logs, and the key would end up there with them. A consequence:
+a browser can't put headers on a WebSocket or an `EventSource`, so a browser client only works over
+long polling. Use a server-side or native client (the .NET client sends the Bearer header on every
+transport), or the web UI, which needs none of this: it runs in-process.
 
 Hub methods:
 
@@ -144,11 +152,13 @@ again: it returns a fresh snapshot.
 
 ```js
 const connection = new signalR.HubConnectionBuilder()
+  // Outside a browser the key travels as a Bearer header. In a browser, force long polling:
+  // it can't put headers on a WebSocket or an EventSource, and the key is never accepted in the URL.
   .withUrl("https://streamdeck.example.com/hubs/live", { accessTokenFactory: () => apiKey })
   .withAutomaticReconnect()
   .build();
 let state;
-connection.on("event", e => { if (e.sequence > state.sequence) apply(state, e); });
+connection.on("event", e => { if (e.sequence > state.sequence) apply(state, e); });   // skip what the snapshot covers
 connection.on("resync", async () => state = await connection.invoke("GetSnapshot", null));
 connection.onreconnected(async () => state = await connection.invoke("Subscribe", ["KeyRendered"], null));
 await connection.start();

@@ -180,6 +180,21 @@ public sealed class LiveEventsApiTests : IAsyncDisposable
         Assert.True(snapshot.TryGetProperty("bootId", out _));
     }
 
+    [Theory]
+    [InlineData("/hubs/live/negotiate?negotiateVersion=1&access_token=" + StreamDeckApiFactory.TestApiKey)]
+    [InlineData("/hubs/live?id=x&access_token=" + StreamDeckApiFactory.TestApiKey)]
+    [InlineData("/api/events?access_token=" + StreamDeckApiFactory.TestApiKey)]
+    [InlineData("/devices?access_token=" + StreamDeckApiFactory.TestApiKey)]
+    public async Task TheKeyInTheQueryString_IsNeverAccepted(string url)
+    {
+        // URLs land in access logs: the key must only ever travel in a header.
+        var client = _factory.CreateClient();
+        var response = url.Contains("negotiate")
+            ? await client.PostAsync(url, null)
+            : await client.GetAsync(url);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
     [Fact]
     public async Task Hub_WithoutTheKey_IsRefused()
     {

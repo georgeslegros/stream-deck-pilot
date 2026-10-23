@@ -89,7 +89,17 @@ public sealed class EventBus : IEventBus, IDisposable
 
     private readonly Lock _coalesceLock = new();
     private readonly Dictionary<string, CoalesceSlot> _slots = new(StringComparer.Ordinal);
+    private DateTimeOffset _lastPrune;
     private bool _disposed;
+
+    // Idle slots (nothing pending, quiet for a full interval) behave exactly like absent ones, so
+    // they're dropped now and then: keys of removed buttons and old topics don't pile up.
+    internal static readonly TimeSpan PruneInterval = TimeSpan.FromMinutes(1);
+
+    internal int CoalesceSlotCount
+    {
+        get { lock (_coalesceLock) return _slots.Count; }
+    }
 
     private sealed class CoalesceSlot
     {
@@ -187,10 +197,12 @@ public sealed class EventBus : IEventBus, IDisposable
         lock (_coalesceLock)
         {
             if (_disposed) return;
+            var now = _time.GetUtcNow();
+            if (now - _lastPrune >= PruneInterval) Prune(now);
+
             if (!_slots.TryGetValue(key, out var slot))
                 _slots[key] = slot = new CoalesceSlot();
 
-            var now = _time.GetUtcNow();
             if (slot.Timer is null && now - slot.LastDelivered >= _coalesceInterval)
             {
                 slot.LastDelivered = now;
@@ -208,6 +220,14 @@ public sealed class EventBus : IEventBus, IDisposable
             }
         }
         if (deliverNow) Deliver(e);
+    }
+
+    private void Prune(DateTimeOffset now)
+    {
+        _lastPrune = now;
+        foreach (var (key, slot) in _slots)
+            if (slot.Timer is null && now - slot.LastDelivered >= _coalesceInterval)
+                _slots.Remove(key);
     }
 
     private void Flush(string key)
