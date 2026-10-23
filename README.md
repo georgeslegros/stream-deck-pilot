@@ -257,6 +257,10 @@ under `/`, next to the REST API, which is unchanged and still needs its key.
 > decks. Only turn it on where the service is reachable from a private network (LAN or VPN), never
 > from the internet. The pages are read-only for now.
 
+The first screen is a read-only dashboard: the MQTT broker's status, and for each deck its
+connection, brightness, the page on screen as live key images, its other pages on demand, and the
+topics it listens to with their latest values, stale ones highlighted.
+
 It works on a phone (from 360 px wide), a tablet and a desktop, and follows the OS light/dark
 setting. Everything on it updates live: changes are pushed over the page's connection, and a
 banner shows while that connection is down. See [docs/web-ui.md](docs/web-ui.md) for running it

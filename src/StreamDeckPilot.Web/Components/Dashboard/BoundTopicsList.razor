@@ -1,0 +1,45 @@
+@inject BrowserClock Clock
+
+@* The topics a deck listens to (#99): who reads each one, its latest payload and age, and whether the
+   deck shows it as stale. Stacked rows, so it fits a phone without scrolling sideways. *@
+<div data-testid="bound-topics">
+    <MudText Typo="Typo.subtitle1" HtmlTag="h3" Class="mb-1">Bound topics</MudText>
+    @if (Topics.Count == 0)
+    {
+        <MudText Typo="Typo.body2" data-testid="no-topics">No button or control on this deck listens to a topic.</MudText>
+    }
+    else
+    {
+        <ul class="sdp-topics">
+            @foreach (var t in Topics)
+            {
+                <li class="@(t.Stale ? "sdp-topic sdp-topic-stale" : "sdp-topic")" data-testid="bound-topic"
+                    data-topic="@t.Topic" data-stale="@(t.Stale ? "true" : "false")">
+                    <div class="sdp-topic-head">
+                        <span class="sdp-break"><strong>@t.Owner</strong> · @t.Role · page @t.PageId</span>
+                        @if (t.Stale)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Warning" data-testid="stale-chip">Stale</MudChip>
+                        }
+                    </div>
+                    <div class="sdp-topic-name sdp-break">@t.Topic</div>
+                    <div class="sdp-break" data-testid="topic-value">
+                        @if (t.Latest is { } latest)
+                        {
+                            <span class="sdp-topic-value">@latest.Value</span>
+                            <span class="sdp-topic-age"> · <time datetime="@latest.At.ToString("O")">@Clock.Time(latest.At)</time> (@Clock.Age(latest.At))</span>
+                        }
+                        else
+                        {
+                            <span class="sdp-topic-age">No value since the service started.</span>
+                        }
+                    </div>
+                </li>
+            }
+        </ul>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<BoundTopic> Topics { get; set; } = [];
+}

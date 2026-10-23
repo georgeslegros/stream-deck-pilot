@@ -1,9 +1,11 @@
 using Bunit;
 using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 using MudBlazor;
 using MudBlazor.Services;
 using StreamDeckPilot.Core.DeviceState;
+using StreamDeckPilot.Infrastructure.Events;
 using StreamDeckPilot.Web.Components.Layout;
 using StreamDeckPilot.Web.Components.Pages;
 using StreamDeckPilot.Web.Services;
@@ -14,6 +16,7 @@ namespace StreamDeckPilot.Tests.Web;
 public sealed class WebComponentTests : BunitContext
 {
     private readonly FakeDeviceDirectory _directory = new();
+    private readonly FakeDashboardSource _dashboard = new();
 
     public WebComponentTests()
     {
@@ -21,6 +24,9 @@ public sealed class WebComponentTests : BunitContext
         Services.AddMudServices();
         Services.AddSingleton<IDeviceDirectory>(_directory);
         Services.AddScoped<DeviceSelection>();
+        Services.AddSingleton<IDashboardSource>(_dashboard);
+        Services.AddSingleton<TimeProvider>(new FakeTimeProvider(new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero)));
+        Services.AddScoped<BrowserClock>();
     }
 
     private static DeviceSummary Deck(string serial, DeviceConnectionState state = DeviceConnectionState.Connected) =>
@@ -38,7 +44,8 @@ public sealed class WebComponentTests : BunitContext
     [Fact]
     public void Home_ListsEveryDeck_WithItsConnectionState()
     {
-        _directory.Devices = [Deck("EXAMPLE-A"), Deck("EXAMPLE-B", DeviceConnectionState.Disconnected)];
+        _dashboard.Snapshot = FakeDashboardSource.Snap(
+            FakeDashboardSource.Deck("EXAMPLE-A"), FakeDashboardSource.Deck("EXAMPLE-B", DeviceConnectionState.Disconnected));
 
         var cards = Render<Home>().FindAll("[data-testid=device-card]");
 
@@ -101,9 +108,10 @@ public sealed class WebComponentTests : BunitContext
         var nav = Render<NavMenu>();
         Assert.DoesNotContain("board/", nav.Markup);
 
+        _dashboard.Snapshot = FakeDashboardSource.Snap(FakeDashboardSource.Deck("EXAMPLE-A"));
         var page = Render<Board>(p => p.Add(d => d.Serial, "EXAMPLE-A"));
 
-        Assert.NotNull(page.Find("[data-testid=deck-summary]"));
+        Assert.NotNull(page.Find("[data-testid=device-card]"));
         Assert.Equal("EXAMPLE-A", Services.GetRequiredService<DeviceSelection>().Serial);
         nav.WaitForAssertion(() => Assert.Contains("board/EXAMPLE-A", nav.Markup));
     }
@@ -120,11 +128,11 @@ public sealed class WebComponentTests : BunitContext
     [Fact]
     public void Home_UpdatesWhenAConnectionStateIsPushed()
     {
-        _directory.Devices = [Deck("EXAMPLE-A", DeviceConnectionState.Disconnected)];
+        _dashboard.Snapshot = FakeDashboardSource.Snap(FakeDashboardSource.Deck("EXAMPLE-A", DeviceConnectionState.Disconnected));
         var cut = Render<Home>();
         Assert.Contains("Not connected", cut.Find("[data-testid=device-card]").TextContent);
 
-        _directory.Push([Deck("EXAMPLE-A")]);
+        _dashboard.Push(new DeviceConnected { Serial = "EXAMPLE-A", Sequence = 1 });
 
         cut.WaitForAssertion(() =>
             Assert.DoesNotContain("Not connected", cut.Find("[data-testid=device-card]").TextContent));
@@ -147,13 +155,16 @@ public sealed class WebComponentTests : BunitContext
     public async Task Components_StopListening_WhenDisposed()
     {
         _directory.Devices = [Deck("EXAMPLE-A")];
+        _dashboard.Snapshot = FakeDashboardSource.Snap(FakeDashboardSource.Deck("EXAMPLE-A"));
         var home = Render<Home>();
         var switcher = Render<DeviceSwitcher>();
-        Assert.Equal(2, _directory.Listeners);
+        Assert.Equal(1, _directory.Listeners);
+        Assert.True(_dashboard.Listeners > 0);
 
         await DisposeComponentsAsync();
 
         Assert.Equal(0, _directory.Listeners);
+        Assert.Equal(0, _dashboard.Listeners);
     }
 
     private sealed class FakeDeviceDirectory : IDeviceDirectory

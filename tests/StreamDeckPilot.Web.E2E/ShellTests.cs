@@ -50,7 +50,7 @@ public sealed class ShellTests(WebAppFixture app)
         await option.ClickAsync();
 
         await page.WaitForInAppNavigationAsync($"/board/{WebAppFixture.Serial}");
-        await Assertions.Expect(page.Locator("[data-testid=deck-summary]")).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator($"[data-testid=device-card][data-serial='{WebAppFixture.Serial}']")).ToBeVisibleAsync();
     }
 
     [Fact]

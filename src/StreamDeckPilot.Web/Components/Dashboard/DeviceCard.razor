@@ -1,0 +1,24 @@
+@* One deck at a glance (#99): connection, model, brightness, the page on screen. *@
+<MudPaper Class="pa-4" Elevation="1" data-testid="device-card" data-serial="@Device.Serial">
+    <MudText Typo="Typo.h6" HtmlTag="h2" Class="sdp-break">@Device.Serial</MudText>
+    <MudText Typo="Typo.body2">@Device.Model · @Device.KeyColumns × @Device.KeyRows keys</MudText>
+    <MudText Typo="Typo.body1" Color="@(Device.IsConnected ? Color.Success : Color.Default)"
+             data-testid="deck-state" data-state="@(Device.IsConnected ? "connected" : "disconnected")">
+        @(Device.IsConnected ? "Connected" : "Not connected")
+    </MudText>
+    <MudText Typo="Typo.body2" data-testid="deck-brightness">Brightness @Brightness %</MudText>
+    <MudText Typo="Typo.body2" Class="sdp-break" data-testid="deck-page">
+        Page on screen: @(Device.ActivePage ?? "none")
+    </MudText>
+    @if (ShowLink)
+    {
+        <MudButton Href="@($"board/{Uri.EscapeDataString(Device.Serial)}")" Variant="Variant.Text" Color="Color.Primary"
+                   Class="sdp-touch mt-2" data-testid="deck-link">Open deck</MudButton>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public DeviceSnapshot Device { get; set; } = default!;
+    [Parameter] public int Brightness { get; set; }
+    [Parameter] public bool ShowLink { get; set; } = true;
+}

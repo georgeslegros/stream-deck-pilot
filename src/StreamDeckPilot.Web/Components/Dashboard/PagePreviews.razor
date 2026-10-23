@@ -1,0 +1,83 @@
+@implements IDisposable
+@inject IDashboardSource Source
+@inject ILogger<PagePreviews> Logger
+
+@* The deck's other pages (#99), rendered from desired state. Collapsed by default and rendered only
+   when opened, so a phone isn't sent every page; an open page re-renders when its deck's desired
+   state changes (pushed), at most one render at a time. *@
+@if (Pages.Count > 0)
+{
+    <MudExpansionPanels MultiExpansion="true" Elevation="0" Class="sdp-pages" data-testid="other-pages">
+        @foreach (var pageId in Pages)
+        {
+            var id = pageId;
+            <MudExpansionPanel Text="@($"Page {id}")" Expanded="@_open.Contains(id)"
+                               ExpandedChanged="@((bool expanded) => OnExpandedAsync(id, expanded))"
+                               data-testid="page-panel" data-page="@id">
+                @if (_images.TryGetValue(id, out var image))
+                {
+                    <img class="sdp-page-image" src="@image.DataUri" alt="@($"Page {id} of {Serial}")"
+                         data-testid="page-image" data-page="@id" data-etag="@image.ETag" />
+                }
+                else
+                {
+                    <MudProgressLinear Indeterminate="true" aria-label="Rendering" />
+                }
+            </MudExpansionPanel>
+        }
+    </MudExpansionPanels>
+}
+
+@code {
+    [Parameter, EditorRequired] public string Serial { get; set; } = "";
+    [Parameter] public IReadOnlyList<string> Pages { get; set; } = [];
+
+    private readonly HashSet<string> _open = new();
+    private readonly Dictionary<string, InlineImage> _images = new();
+    private CoalescingRunner? _refresh;
+
+    protected override void OnInitialized()
+    {
+        _refresh = new CoalescingRunner(() => InvokeAsync(RefreshOpenAsync),
+            ex => Logger.LogWarning(ex, "Could not refresh the page previews of {Serial}", Serial));
+        Source.DesiredStateChanged += OnDesiredStateChanged;
+    }
+
+    protected override void OnParametersSet()
+    {
+        // A page that is now on screen (or was removed) leaves the list; forget its preview.
+        _open.IntersectWith(Pages);
+        foreach (var gone in _images.Keys.Except(Pages).ToList()) _images.Remove(gone);
+    }
+
+    private async Task OnExpandedAsync(string pageId, bool expanded)
+    {
+        if (!expanded)
+        {
+            _open.Remove(pageId);
+            return;
+        }
+        _open.Add(pageId);
+        await RenderAsync(pageId);
+    }
+
+    private void OnDesiredStateChanged(string serial)
+    {
+        if (serial == Serial && _open.Count > 0) _refresh!.Request();
+    }
+
+    private async Task RefreshOpenAsync()
+    {
+        foreach (var pageId in _open.ToList()) await RenderAsync(pageId);
+    }
+
+    private async Task RenderAsync(string pageId)
+    {
+        var image = await Source.GetPageImageAsync(Serial, pageId);
+        if (image is null || (_images.TryGetValue(pageId, out var shown) && shown.ETag == image.ETag)) return;
+        _images[pageId] = image;
+        StateHasChanged();
+    }
+
+    public void Dispose() => Source.DesiredStateChanged -= OnDesiredStateChanged;
+}

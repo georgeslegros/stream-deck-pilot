@@ -82,3 +82,100 @@ html, body {
     color: inherit;
     font-weight: 700;
 }
+
+/* Dashboard (#99) */
+
+.sdp-touch {
+    min-height: 44px;
+    min-width: 44px;
+}
+
+.sdp-device {
+    margin-bottom: 24px;
+}
+
+/* The page on screen, laid out like the deck: one cell per key, shrinking with the screen. */
+.sdp-board {
+    display: grid;
+    grid-template-columns: repeat(var(--sdp-cols, 5), minmax(0, 1fr));
+    gap: 6px;
+    max-width: 480px;
+    padding: 8px;
+    border-radius: 10px;
+    background: #111;
+}
+
+.sdp-board > img,
+.sdp-board > .sdp-key-blank {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    border-radius: 6px;
+    background: #000;
+}
+
+.sdp-pages {
+    margin-top: 12px;
+}
+
+.sdp-pages .mud-expand-panel-header {
+    min-height: 48px;
+}
+
+.sdp-page-image {
+    display: block;
+    width: 100%;
+    max-width: 480px;
+    height: auto;
+}
+
+/* Bound topics: stacked rows, never wider than the screen. */
+.sdp-topics {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+}
+
+@media (min-width: 960px) {
+    .sdp-topics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+.sdp-topic {
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--mud-palette-lines-default);
+    min-width: 0;
+}
+
+.sdp-topic-stale {
+    border-color: var(--mud-palette-warning);
+    background: color-mix(in srgb, var(--mud-palette-warning) 12%, transparent);
+}
+
+.sdp-topic-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+}
+
+.sdp-topic-name {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.85rem;
+    opacity: 0.8;
+}
+
+.sdp-topic-value {
+    font-weight: 500;
+}
+
+.sdp-topic-age {
+    font-size: 0.85rem;
+    opacity: 0.8;
+}

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using MudBlazor.Services;
 using StreamDeckPilot.Web.Components;
 using StreamDeckPilot.Web.Services;
@@ -27,6 +28,10 @@ public static class WebUiExtensions
         builder.Services.AddScoped<LiveState>();
         builder.Services.AddScoped<IDeviceDirectory, DeviceDirectory>();
         builder.Services.AddScoped<DeviceSelection>();
+        // Dashboard (#99): live data, in-process key images and browser-local times, per circuit.
+        builder.Services.AddScoped<IDashboardSource, DashboardSource>();
+        builder.Services.AddScoped<BrowserClock>();
+        builder.Services.TryAddSingleton(TimeProvider.System);
         return builder;
     }
 
