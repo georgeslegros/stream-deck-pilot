@@ -1,0 +1,40 @@
+# E2E: the app behind Traefik, at the root of a host name and under a path base (#109).
+# Used by the "Reverse proxy (E2E)" CI job; run locally with:
+#   docker build -f src/StreamDeckPilot.Api/Dockerfile -t stream-deck-pilot:e2e .
+#   docker compose -f e2e/reverse-proxy/docker-compose.yml up -d && e2e/reverse-proxy/smoke.sh
+#
+# Routing comes from a file provider rather than Docker labels so the job doesn't depend on the
+# runner's Docker API version; the routing itself is the same as the documented labels.
+
+services:
+  traefik:
+    image: traefik:v3.3.4
+    command:
+      - --entrypoints.web.address=:80
+      - --providers.file.filename=/etc/traefik/dynamic.yml
+      - --log.level=INFO
+    ports:
+      - "8088:80"
+    volumes:
+      - ./traefik-dynamic.yml:/etc/traefik/dynamic.yml:ro
+
+  app:
+    image: ${APP_IMAGE:-stream-deck-pilot:e2e}
+    environment:
+      - ApiKey=e2e-test-key
+      - Storage__BaseDirectory=/data
+      - Mqtt__Host=mqtt.invalid   # no broker: the app must still serve its API
+      - Web__Enabled=true
+    tmpfs:
+      - /data
+
+  app-sub:
+    image: ${APP_IMAGE:-stream-deck-pilot:e2e}
+    environment:
+      - ApiKey=e2e-test-key
+      - Storage__BaseDirectory=/data
+      - Mqtt__Host=mqtt.invalid
+      - Web__Enabled=true
+      - Proxy__PathBase=/deck
+    tmpfs:
+      - /data

@@ -1,0 +1,48 @@
+@implements IDisposable
+@inject IDeviceDirectory Directory
+@inject DeviceSelection Selection
+@inject NavigationManager Navigation
+
+@* Picks the deck the pages show. Lists the catalogue (decks seen at least once), connected or not. *@
+<MudMenu Label="@Label" EndIcon="@Icons.Material.Filled.ArrowDropDown" Color="Color.Inherit"
+         AriaLabel="Choose a deck" Class="sdp-device-switcher" data-testid="device-switcher"
+         AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+    @if (_devices.Count == 0)
+    {
+        <MudMenuItem Disabled="true">No decks discovered yet</MudMenuItem>
+    }
+    @foreach (var device in _devices)
+    {
+        <MudMenuItem OnClick="() => Choose(device.Serial)"
+                     Icon="@(device.IsConnected ? Icons.Material.Filled.Link : Icons.Material.Filled.LinkOff)"
+                     IconColor="@(device.IsConnected ? Color.Success : Color.Default)"
+                     data-testid="device-option">
+            @device.Serial · @device.Model
+        </MudMenuItem>
+    }
+</MudMenu>
+
+@code {
+    private IReadOnlyList<DeviceSummary> _devices = [];
+
+    private string Label => Selection.Serial ?? (_devices.Count == 0 ? "No decks" : "Choose a deck");
+
+    protected override async Task OnInitializedAsync()
+    {
+        Selection.Changed += OnSelectionChanged;
+        _devices = await Directory.ListAsync();
+        // One deck: nothing to choose, select it so the pages have something to show.
+        if (Selection.Serial is null && _devices.Count == 1)
+            Selection.Select(_devices[0].Serial);
+    }
+
+    private void Choose(string serial)
+    {
+        Selection.Select(serial);
+        Navigation.NavigateTo($"board/{Uri.EscapeDataString(serial)}");
+    }
+
+    private void OnSelectionChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Selection.Changed -= OnSelectionChanged;
+}

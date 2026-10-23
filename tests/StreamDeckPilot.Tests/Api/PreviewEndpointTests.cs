@@ -2,10 +2,14 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using StreamDeckPilot.Core.Json;
 using StreamDeckPilot.Core.Models.Config;
+using StreamDeckPilot.Infrastructure.Persistence;
 
 namespace StreamDeckPilot.Tests.Api;
 
@@ -146,6 +150,21 @@ public sealed class PreviewEndpointTests : IAsyncDisposable
         await SeedAsync();
         var response = await _factory.CreateClient().GetAsync($"/devices/{Serial}/preview.png");
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Preview_WorksUnderAPathBase()
+    {
+        using var proxied = _factory.WithWebHostBuilder(b => b.ConfigureAppConfiguration((_, c) =>
+            c.AddInMemoryCollection(new Dictionary<string, string?> { ["Proxy:PathBase"] = "/deck" })));
+        await proxied.Services.GetRequiredService<CatalogueStore>().AppendDeviceAsync(new(
+            Serial, "Stream Deck MK.2", 3, 5, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+        var client = proxied.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Api-Key", StreamDeckApiFactory.TestApiKey);
+
+        using var board = await AssertPngAsync(await client.GetAsync($"/deck/devices/{Serial}/preview.png"));
+        using var key = await AssertPngAsync(await client.GetAsync($"/deck/devices/{Serial}/keys/0.png"));
+        Assert.Equal((72, 72), (key.Width, key.Height));
     }
 
     [Fact]

@@ -17,7 +17,11 @@ public sealed class PaintedFrameStore
 {
     private readonly ConcurrentDictionary<(string Serial, int KeyIndex), PaintedFrame> _frames = new();
 
-    /// <summary>Raised after a key was painted with different content: (serial, key index, frame).</summary>
+    /// <summary>
+    /// Raised after a key was painted with different content: (serial, key index, frame).
+    /// Subscribers run synchronously on the render path, under the key's paint lock: hand off
+    /// without blocking (e.g. write to a bounded <c>Channel</c>) and never paint from the handler.
+    /// </summary>
     public event Action<string, int, PaintedFrame>? Painted;
 
     public void Record(string serial, int keyIndex, KeyBitmap bitmap)
