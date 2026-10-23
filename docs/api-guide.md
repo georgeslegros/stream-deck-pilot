@@ -250,6 +250,38 @@ config file on disk, or to recover the on-screen layout. `202 Accepted`; `404` i
 in the catalogue, `409 Conflict` if the device isn't connected (it renders from desired state when
 it reconnects).
 
+### `GET /devices/{serial}/preview.png` / `GET /devices/{serial}/keys/{index}.png`
+A PNG of what the deck shows, to check it remotely. `preview.png` is the whole board (keys laid out
+on a dark bezel, unconfigured keys black); `keys/{index}.png` is one key (0-based, row by row).
+
+| Parameter | Default | Meaning |
+|-----------|---------|---------|
+| `page` | the page on screen | Any page of the config, on screen or not. |
+| `scale` | `1` | `1` (72 px keys, as on the device) or `2`. |
+
+**Where the pixels come from** (the `X-Preview-Source` response header):
+- `device`: the page on screen of a **connected** deck. These are exactly the frames last sent to
+  the keys, every paint-time look included: offline overlay, stale dimming, press feedback, the
+  current blink frame, setpoint controls.
+- `desired-state`: any other page, or a deck that isn't connected. Keys are composed from desired
+  state with the looks the deck would show now: the broker-offline overlay and press feedback
+  apply; a blinking key shows its "on" look. A disconnected deck has no look of its own: the
+  preview shows what it will paint when it reconnects. Until a deck has been seen since the service
+  started, keys that haven't received a value yet may be black.
+
+The preview never touches the hardware, so it can't wake a dark deck. Brightness isn't applied:
+the image is what the deck shows at full brightness.
+
+Responses carry `Cache-Control: no-cache` and an `ETag` over the image bytes. Send it back in
+`If-None-Match` to get `304 Not Modified` while nothing changed.
+
+```
+Response 200: image/png
+Response 304: unchanged since the ETag in If-None-Match
+Response 400 problem: scale other than 1 or 2
+Response 404 problem: serial not in the catalogue, unknown page, or key index out of range
+```
+
 ### `POST /devices/{serial}/images`
 Upload a custom icon (PNG or JPEG, max 512 KB). `multipart/form-data`.
 
@@ -575,7 +607,7 @@ navigate. An unexpected server error is a `500` problem with no exception detail
 |------|---------|
 | 400 | Validation error or malformed body (`errors` on config writes), bad/unknown `pageId` on navigate, bad upload |
 | 401 | Missing or wrong `X-Api-Key` |
-| 404 | Serial not in catalogue, no config for that serial, unknown image, unknown route |
+| 404 | Serial not in catalogue, no config for that serial, unknown image, unknown preview page or key, unknown route |
 | 409 | `force-render` while the device isn't connected |
 | 422 | Schema version too old for `POST /config/upgrade` |
 | 500 | Unexpected server error (logged; no details in the response) |

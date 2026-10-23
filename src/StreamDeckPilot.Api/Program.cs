@@ -77,13 +77,17 @@ builder.Services.AddSingleton<BlinkScheduler>(sp =>
         sp.GetRequiredService<DesiredStateStore>(),
         sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<BlinkOptions>>(),
         logger: sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<BlinkScheduler>>()));
-builder.Services.AddSingleton<IDeviceRenderer>(sp =>
+// The renderer records each frame it sends in PaintedFrameStore, which the live preview reads (#27).
+builder.Services.AddSingleton<PaintedFrameStore>();
+builder.Services.AddSingleton<DeviceRenderer>(sp =>
     new DeviceRenderer(
         sp.GetRequiredService<KeyBitmapComposer>(),
         sp.GetRequiredService<StreamDeckMetrics>(),
         sp.GetRequiredService<BrokerIndicator>(),
         sp.GetRequiredService<BlinkScheduler>(),
-        sp.GetRequiredService<PressFeedbackTracker>()));
+        sp.GetRequiredService<PressFeedbackTracker>(),
+        sp.GetRequiredService<PaintedFrameStore>()));
+builder.Services.AddSingleton<IDeviceRenderer>(sp => sp.GetRequiredService<DeviceRenderer>());
 
 // Brightness — desired level set over MQTT, applied by the supervisor, state published by MQTT
 builder.Services.Configure<BrightnessOptions>(builder.Configuration.GetSection("Brightness"));
@@ -129,6 +133,7 @@ builder.Services.AddSingleton<DeviceSupervisorService>(sp =>
         inactivity: sp.GetRequiredService<InactivityMonitor>(),
         setpoints: sp.GetRequiredService<SetpointController>()));
 builder.Services.AddSingleton<IDeviceStateProvider>(sp => sp.GetRequiredService<DeviceSupervisorService>());
+builder.Services.AddSingleton<DevicePreviewService>();
 // Registration order matters: the host stops hosted services in reverse order, so the supervisor
 // must be registered BEFORE every service that renders to the boards (MQTT, staleness). Those then
 // stop first, and the supervisor's StopAsync releases the boards with no renders still arriving
@@ -211,6 +216,7 @@ app.MapOpenApi(ApiKeyMiddleware.OpenApiPath);
 app.MapDeviceEndpoints();
 app.MapConfigEndpoints();
 app.MapImageEndpoints();
+app.MapPreviewEndpoints();
 
 app.Run();
 

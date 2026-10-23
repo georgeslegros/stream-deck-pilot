@@ -18,22 +18,40 @@ public sealed class DeviceRenderer : IDeviceRenderer
     private readonly BrokerIndicator? _broker;
     private readonly BlinkScheduler? _blink;
     private readonly PressFeedbackTracker? _feedback;
+    private readonly PaintedFrameStore? _frames;
 
-    public DeviceRenderer(BrokerIndicator? broker = null, BlinkScheduler? blink = null, PressFeedbackTracker? feedback = null)
+    public DeviceRenderer(BrokerIndicator? broker = null, BlinkScheduler? blink = null, PressFeedbackTracker? feedback = null,
+        PaintedFrameStore? frames = null)
     {
         _broker = broker;
         _blink = blink;
         _feedback = feedback;
+        _frames = frames;
     }
 
     public DeviceRenderer(KeyBitmapComposer composer, StreamDeckMetrics? metrics = null, BrokerIndicator? broker = null,
-        BlinkScheduler? blink = null, PressFeedbackTracker? feedback = null)
+        BlinkScheduler? blink = null, PressFeedbackTracker? feedback = null, PaintedFrameStore? frames = null)
     {
         _composer = composer;
         _metrics = metrics;
         _broker = broker;
         _blink = blink;
         _feedback = feedback;
+        _frames = frames;
+    }
+
+    /// <summary>
+    /// The paint-time looks that don't animate, in precedence order: the broker-offline overlay (#26)
+    /// wins over press feedback (#22). Applied to a copy; desired state keeps the real value. The live
+    /// preview (#27) uses this too, so a page that isn't on screen previews with the same looks.
+    /// </summary>
+    public ButtonRenderState WithPaintOverlays(string serial, ButtonRenderState state)
+    {
+        if (state.DependsOnBroker && _broker?.ShowOffline == true)
+            return state with { IsOffline = true };
+        if (_feedback?.Get(serial, state.ButtonId) is { } feedback and not PressFeedback.None)
+            return state with { Feedback = feedback };
+        return state;
     }
 
     public void RenderButton(IMacroBoard board, string serial, int keyIndex, ButtonRenderState state)
@@ -45,11 +63,8 @@ public sealed class DeviceRenderer : IDeviceRenderer
         // RenderLatest/RenderAll, and every flip of the flag is followed by a repaint.
         // Paint-time overlays, in precedence order: offline (#26) > press feedback (#22) > blink
         // phase (#23).
-        if (state.DependsOnBroker && _broker?.ShowOffline == true)
-            state = state with { IsOffline = true };
         // Press feedback: the offline look wins, so no feedback then.
-        else if (_feedback?.Get(serial, state.ButtonId) is { } feedback and not PressFeedback.None)
-            state = state with { Feedback = feedback };
+        state = WithPaintOverlays(serial, state);
 
         // Blink: the offline look wins (a blinking alert can't be trusted while its value has
         // stopped updating, so it shows offline and stops blinking). Press feedback wins too: a
@@ -74,6 +89,7 @@ public sealed class DeviceRenderer : IDeviceRenderer
                 : blinkFrame ? BlinkFrame(serial, keyIndex, state)
                 : _composer.Compose(state, serial);
             board.SetKeyBitmap(keyIndex, bitmap);
+            _frames?.Record(serial, keyIndex, bitmap);
             _metrics?.RenderOperations.Add(1, [new("serial", serial)]);
         }
         catch
@@ -119,6 +135,7 @@ public sealed class DeviceRenderer : IDeviceRenderer
         try
         {
             board.SetKeyBitmap(keyIndex, KeyBitmap.Black);
+            _frames?.Record(serial, keyIndex, KeyBitmap.Black);
             _metrics?.RenderOperations.Add(1, [new("serial", serial)]);
         }
         catch
