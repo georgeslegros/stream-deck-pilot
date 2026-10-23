@@ -30,7 +30,7 @@ public static class WebUiExtensions
 
     /// <summary>
     /// Maps the UI under <c>/</c>. Page routes must not collide with the REST API (<c>/devices…</c>,
-    /// <c>/config…</c>, <c>/health</c>, <c>/openapi.json</c>); UI pages live at <c>/</c> and <c>/deck/…</c>.
+    /// <c>/config…</c>, <c>/health</c>, <c>/openapi.json</c>); UI pages live at <c>/</c> and <c>/board/…</c> (not <c>/deck</c>: that is the example path base).
     /// Every UI endpoint carries <see cref="WebUiEndpointMetadata"/> so the API key middleware lets it through.
     /// </summary>
     public static WebApplication MapWebUi(this WebApplication app)

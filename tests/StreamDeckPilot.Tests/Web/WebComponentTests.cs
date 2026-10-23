@@ -82,7 +82,7 @@ public sealed class WebComponentTests : BunitContext
         options[1].Click();
 
         Assert.Equal("EXAMPLE-B", selection.Serial);
-        Assert.EndsWith("/deck/EXAMPLE-B", Services.GetRequiredService<NavigationManager>().Uri);
+        Assert.EndsWith("/board/EXAMPLE-B", Services.GetRequiredService<NavigationManager>().Uri);
     }
 
     [Fact]
@@ -99,19 +99,19 @@ public sealed class WebComponentTests : BunitContext
     {
         _directory.Devices = [Deck("EXAMPLE-A")];
         var nav = Render<NavMenu>();
-        Assert.DoesNotContain("deck/", nav.Markup);
+        Assert.DoesNotContain("board/", nav.Markup);
 
-        var page = Render<Deck>(p => p.Add(d => d.Serial, "EXAMPLE-A"));
+        var page = Render<Board>(p => p.Add(d => d.Serial, "EXAMPLE-A"));
 
         Assert.NotNull(page.Find("[data-testid=deck-summary]"));
         Assert.Equal("EXAMPLE-A", Services.GetRequiredService<DeviceSelection>().Serial);
-        nav.WaitForAssertion(() => Assert.Contains("deck/EXAMPLE-A", nav.Markup));
+        nav.WaitForAssertion(() => Assert.Contains("board/EXAMPLE-A", nav.Markup));
     }
 
     [Fact]
     public void DeckPage_UnknownDeck_SaysSo()
     {
-        var page = Render<Deck>(p => p.Add(d => d.Serial, "NOT-CATALOGUED"));
+        var page = Render<Board>(p => p.Add(d => d.Serial, "NOT-CATALOGUED"));
         Assert.NotNull(page.Find("[data-testid=unknown-device]"));
     }
 

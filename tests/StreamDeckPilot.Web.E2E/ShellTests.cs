@@ -5,7 +5,7 @@ namespace StreamDeckPilot.Web.E2E;
 /// <summary>The app shell (#96) at phone, tablet and desktop sizes.</summary>
 public sealed class ShellTests(WebAppFixture app)
 {
-    private static readonly string[] Pages = ["/", $"/deck/{WebAppFixture.Serial}"];
+    private static readonly string[] Pages = ["/", $"/board/{WebAppFixture.Serial}"];
 
     [Theory]
     [MemberData(nameof(Viewport.All), MemberType = typeof(Viewport))]
@@ -31,7 +31,7 @@ public sealed class ShellTests(WebAppFixture app)
         await page.AssertTouchTargetsAsync();   // with the drawer open too
         await nav.GetByText($"Deck {WebAppFixture.Serial}").ClickAsync();
 
-        await page.WaitForURLAsync($"**/deck/{WebAppFixture.Serial}");
+        await page.WaitForURLAsync($"**/board/{WebAppFixture.Serial}");
         await Assertions.Expect(page.Locator("h1")).ToContainTextAsync(WebAppFixture.Serial);
     }
 
@@ -49,7 +49,7 @@ public sealed class ShellTests(WebAppFixture app)
         await page.AssertNoHorizontalScrollAsync();
         await option.ClickAsync();
 
-        await page.WaitForURLAsync($"**/deck/{WebAppFixture.Serial}");
+        await page.WaitForURLAsync($"**/board/{WebAppFixture.Serial}");
         await Assertions.Expect(page.Locator("[data-testid=deck-summary]")).ToBeVisibleAsync();
     }
 

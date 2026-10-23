@@ -46,7 +46,7 @@ public sealed class WebUiHostingTests
         Assert.Contains("Stream Deck Pilot", html);
         Assert.Contains("<base href=\"/\"", html);
 
-        Assert.Equal(HttpStatusCode.OK, (await anonymous.GetAsync("/deck/SN001")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await anonymous.GetAsync("/board/SN001")).StatusCode);
         var script = await anonymous.GetAsync("/_framework/blazor.web.js");
         Assert.Equal(HttpStatusCode.OK, script.StatusCode);
         Assert.True((await script.Content.ReadAsByteArrayAsync()).Length > 10_000, "blazor.web.js should have a body");

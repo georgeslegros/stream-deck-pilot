@@ -49,7 +49,9 @@ them from its `wwwroot`. Without a deck attached, the catalogue is whatever is i
 ### Adding a page
 
 1. Add `Components/Pages/MyPage.razor` with `@page "/my-page"`. Don't use a route the API uses
-   (`/devices…`, `/config…`, `/health`, `/openapi.json`).
+   (`/devices…`, `/config…`, `/health`, `/openapi.json`), and don't start one with `/deck`: that is
+   the example path base for running behind a proxy. Current pages: `/` (overview) and
+   `/board/{serial}` (one deck).
 2. Add a `MudNavLink` in `Components/Layout/NavMenu.razor`.
 3. Use the injected services (`IDeviceDirectory`, `DeviceSelection`); register new ones in
    `WebUiExtensions.AddWebUi`.

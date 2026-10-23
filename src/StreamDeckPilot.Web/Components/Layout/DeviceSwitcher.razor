@@ -39,7 +39,7 @@
     private void Choose(string serial)
     {
         Selection.Select(serial);
-        Navigation.NavigateTo($"deck/{Uri.EscapeDataString(serial)}");
+        Navigation.NavigateTo($"board/{Uri.EscapeDataString(serial)}");
     }
 
     private void OnSelectionChanged() => InvokeAsync(StateHasChanged);
