@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using MudBlazor.Services;
+using StreamDeckPilot.Web.Auth;
 using StreamDeckPilot.Web.Components;
 using StreamDeckPilot.Web.Services;
 
@@ -22,6 +23,8 @@ public static class WebUiExtensions
         builder.Services.Configure<WebOptions>(builder.Configuration.GetSection(WebOptions.Section));
         if (!builder.Configuration.IsWebUiEnabled()) return builder;
 
+        // Sign-in (#97): with the UI on, every page needs a signed-in user. Bad auth settings stop startup.
+        builder.Services.AddWebAuth(builder.Configuration);
         builder.Services.AddRazorComponents().AddInteractiveServerComponents();
         builder.Services.AddMudServices();
         // Per circuit: each browser tab has its own live subscription, disposed with the circuit (#108).
@@ -38,7 +41,10 @@ public static class WebUiExtensions
     /// <summary>
     /// Maps the UI under <c>/</c>. Page routes must not collide with the REST API (<c>/devices…</c>,
     /// <c>/config…</c>, <c>/health</c>, <c>/openapi.json</c>); UI pages live at <c>/</c> and <c>/board/…</c> (not <c>/deck</c>: that is the example path base).
-    /// Every UI endpoint carries <see cref="WebUiEndpointMetadata"/> so the API key middleware lets it through.
+    /// Every UI endpoint carries <see cref="WebUiEndpointMetadata"/> so the API key middleware lets it
+    /// through; pages and the circuit need a signed-in viewer or admin instead (#97), except the
+    /// account pages (sign-in, setup, denied), which are <c>[AllowAnonymous]</c>. Static assets are public.
+    /// Call <see cref="AuthExtensions.UseWebAuth"/> earlier in the pipeline.
     /// </summary>
     public static WebApplication MapWebUi(this WebApplication app)
     {
@@ -48,7 +54,9 @@ public static class WebUiExtensions
         app.MapStaticAssets().Add(e => e.Metadata.Add(WebUiEndpointMetadata.Instance));
         app.MapRazorComponents<App>()
             .AddInteractiveServerRenderMode()
+            .RequireAuthorization(AuthRoles.ViewerPolicy)
             .Add(e => e.Metadata.Add(WebUiEndpointMetadata.Instance));
+        app.MapAccountEndpoints();
         return app;
     }
 }

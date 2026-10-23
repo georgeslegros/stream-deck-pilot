@@ -1,0 +1,15 @@
+@page "/account/denied"
+@attribute [AllowAnonymous]
+@attribute [ExcludeFromInteractiveRouting]
+@layout AccountLayout
+
+<PageTitle>No access · Stream Deck Pilot</PageTitle>
+
+<h1 class="sdp-account-title">No access</h1>
+<p class="sdp-account-hint" data-testid="denied">
+    Your account is signed in but has no role in this app. Ask an admin to give you the admin or viewer role.
+</p>
+<form method="post" action="account/signout" class="sdp-account-form">
+    <AntiforgeryToken />
+    <button type="submit" class="sdp-account-button sdp-account-button-secondary" data-testid="denied-signout">Sign out</button>
+</form>

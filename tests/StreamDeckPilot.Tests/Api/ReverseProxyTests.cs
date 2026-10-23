@@ -181,9 +181,20 @@ public sealed class ReverseProxyTests
             ["Web:Enabled"] = "true",
             ["Proxy:PathBase"] = pathBase,
         });
-        var response = await factory.CreateClient().GetAsync(root);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains(baseHref, await response.Content.ReadAsStringAsync());
+        var client = factory.CreateClient(new() { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Accept.ParseAdd("text/html");
+
+        // Signed out, the root sends the browser to sign-in under the same base (#97)…
+        var home = await client.GetAsync(root);
+        Assert.Equal(HttpStatusCode.Redirect, home.StatusCode);
+        Assert.Equal($"{root}account/signin", home.Headers.Location!.AbsolutePath);
+
+        // …which renders with the base in its <base href>, so its relative URLs resolve. A fresh
+        // install goes on to setup, which renders the same way.
+        var signIn = await client.GetAsync($"{root}account/signin");
+        var page = signIn.StatusCode == HttpStatusCode.Redirect ? await client.GetAsync(signIn.Headers.Location) : signIn;
+        Assert.Equal(HttpStatusCode.OK, page.StatusCode);
+        Assert.Contains(baseHref, await page.Content.ReadAsStringAsync());
     }
 
     [Fact]

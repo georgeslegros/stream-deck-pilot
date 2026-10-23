@@ -16,6 +16,19 @@
         <MudText Typo="Typo.h6" Class="ml-2 sdp-app-title" data-testid="app-title">Stream Deck Pilot</MudText>
         <MudSpacer />
         <DeviceSwitcher />
+        @* Sign-out is a form post with an anti-forgery token (#97), not a link: a GET could be
+           triggered from another site. *@
+        <AuthorizeView>
+            <Authorized>
+                <form method="post" action="account/signout" class="sdp-signout" data-testid="signout-form">
+                    <AntiforgeryToken />
+                    <MudTooltip Text="@($"Sign out {context.User.Identity?.Name}")">
+                        <MudIconButton ButtonType="ButtonType.Submit" Icon="@Icons.Material.Filled.Logout" Color="Color.Inherit"
+                                       aria-label="Sign out" data-testid="signout" />
+                    </MudTooltip>
+                </form>
+            </Authorized>
+        </AuthorizeView>
     </MudAppBar>
 
     <MudDrawer @bind-Open="_drawerOpen" Variant="DrawerVariant.Responsive" Breakpoint="Breakpoint.Md"
