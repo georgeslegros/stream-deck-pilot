@@ -7,8 +7,9 @@ using StreamDeckPilot.Core.Rules;
 namespace StreamDeckPilot.Infrastructure.Sparkline;
 
 /// <summary>
-/// In-memory value history for buttons that opt in to a sparkline (#25). One bounded buffer per
-/// (serial, button); nothing is persisted, so a trend starts empty after a restart. Only numeric
+/// Value history for buttons that opt in to a sparkline (#25). One bounded buffer per
+/// (serial, button), held in memory; <see cref="SparklinePersistence"/> saves it to the data
+/// volume and loads it back at startup (#144) via <see cref="Export"/>/<see cref="Import"/>. Only numeric
 /// values are recorded; a text value leaves the trend as it is. Each bucket keeps its latest
 /// value, so a spike shorter than a bucket can disappear from the trend.
 /// </summary>
@@ -20,6 +21,10 @@ public sealed class SparklineHistory(IOptions<SparklineOptions> options, TimePro
     private readonly int _maxPoints = Math.Max(2, options.Value.MaxPoints);
     private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
     private readonly ConcurrentDictionary<(string Serial, string ButtonId), SparklineBuffer> _buffers = new();
+    private long _version;
+
+    /// <summary>Bumped on every change to the recorded points; lets the saver skip unchanged state.</summary>
+    public long Version => Interlocked.Read(ref _version);
 
     /// <summary>
     /// Records <paramref name="value"/> (when numeric) for a button that has a sparkline and
@@ -45,6 +50,7 @@ public sealed class SparklineHistory(IOptions<SparklineOptions> options, TimePro
                     buffer.ReplaceLastValue(number);
                 else
                     buffer.Add(now, number);
+                Interlocked.Increment(ref _version);
             }
             buffer.LastSnapshot = now;
             return Snapshot(buffer, now, window);
@@ -78,8 +84,64 @@ public sealed class SparklineHistory(IOptions<SparklineOptions> options, TimePro
     public void Retain(string serial, IReadOnlySet<string> buttonIds)
     {
         foreach (var key in _buffers.Keys)
-            if (key.Serial == serial && !buttonIds.Contains(key.ButtonId))
-                _buffers.TryRemove(key, out _);
+            if (key.Serial == serial && !buttonIds.Contains(key.ButtonId) && _buffers.TryRemove(key, out _))
+                Interlocked.Increment(ref _version);
+    }
+
+    /// <summary>
+    /// A copy of every recorded point, grouped by device then button, oldest first. Each buffer is
+    /// copied under its own lock; callers do their I/O on the copy.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyDictionary<string, IReadOnlyList<(DateTimeOffset At, double Value)>>> Export()
+    {
+        var result = new Dictionary<string, Dictionary<string, IReadOnlyList<(DateTimeOffset, double)>>>(StringComparer.Ordinal);
+        foreach (var ((serial, buttonId), buffer) in _buffers)
+        {
+            List<(DateTimeOffset, double)> points;
+            lock (buffer)
+            {
+                points = new List<(DateTimeOffset, double)>(buffer.Count);
+                for (var i = 0; i < buffer.Count; i++) points.Add(buffer[i]);
+            }
+            if (points.Count == 0) continue;
+            if (!result.TryGetValue(serial, out var buttons))
+                result[serial] = buttons = new Dictionary<string, IReadOnlyList<(DateTimeOffset, double)>>(StringComparer.Ordinal);
+            buttons[buttonId] = points;
+        }
+        return result.ToDictionary(kv => kv.Key,
+            kv => (IReadOnlyDictionary<string, IReadOnlyList<(DateTimeOffset, double)>>)kv.Value, StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// Restores a button's saved points (#144). They are resampled with the current window and
+    /// <see cref="SparklineOptions.MaxPoints"/> (either may have changed since the save): points
+    /// later than now (clock skew) are dropped, points older than the window are dropped except the
+    /// one giving the left-edge value, and points sharing a bucket keep the latest value. A button
+    /// that already has live points keeps them. Returns whether anything was restored.
+    /// </summary>
+    public bool Import(string serial, ButtonDefinition button, IEnumerable<(DateTimeOffset At, double Value)> points)
+    {
+        if (button.Display?.Sparkline is not { Hours: > 0 } spec) return false;
+
+        var now = _time.GetUtcNow();
+        var window = TimeSpan.FromHours(Math.Min(spec.Hours, SparklineSpec.MaxHours));
+        var bucket = window / _maxPoints;
+        var buffer = new SparklineBuffer(_maxPoints + 1);
+        foreach (var (at, value) in points.Where(p => p.At <= now && double.IsFinite(p.Value)).OrderBy(p => p.At))
+        {
+            if (buffer.Count > 0 && at - buffer[buffer.Count - 1].At < bucket)
+                buffer.ReplaceLastValue(value);
+            else
+                buffer.Add(at, value);
+        }
+        var start = now - window;
+        while (buffer.Count >= 2 && buffer[1].At <= start)
+            buffer.RemoveOldest();
+        if (buffer.Count == 0) return false;
+
+        if (!_buffers.TryAdd((serial, button.ButtonId), buffer)) return false;
+        Interlocked.Increment(ref _version);
+        return true;
     }
 
     internal static SparklineSeries? Snapshot(SparklineBuffer buffer, DateTimeOffset now, TimeSpan window)
