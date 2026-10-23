@@ -4,6 +4,7 @@ using Serilog;
 using Serilog.Formatting.Compact;
 using StreamDeckPilot.Api.Endpoints;
 using StreamDeckPilot.Api.Middleware;
+using StreamDeckPilot.Api.Proxy;
 using StreamDeckPilot.Core.DeviceState;
 using StreamDeckPilot.Core.Json;
 using StreamDeckPilot.Core.Migration;
@@ -24,6 +25,7 @@ using StreamDeckPilot.Infrastructure.Supervision;
 using StreamDeckPilot.Web;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddReverseProxySupport();
 
 builder.Host.UseSerilog((ctx, cfg) =>
     cfg.ReadFrom.Configuration(ctx.Configuration)
@@ -206,6 +208,8 @@ app.Services.GetRequiredService<StreamDeckMetrics>().RegisterObservableGauges(
 if (string.IsNullOrWhiteSpace(app.Configuration["ApiKey"]))
     app.Logger.LogWarning("ApiKey is not configured — all requests will be rejected with 401. Set the ApiKey environment variable.");
 
+// First: forwarded headers, the optional path base and WebSockets (#109, docs/reverse-proxy.md).
+app.UseReverseProxySupport();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.UseMiddleware<ApiKeyMiddleware>();

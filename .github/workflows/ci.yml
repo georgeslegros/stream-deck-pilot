@@ -91,3 +91,32 @@ jobs:
         with:
           name: test-results
           path: TestResults/
+
+  # The container image behind a real Traefik, at the root of a host name and under a path base
+  # (#109, docs/reverse-proxy.md). Runs in parallel with the test job.
+  reverse-proxy-e2e:
+    name: Reverse proxy (E2E)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -f src/StreamDeckPilot.Api/Dockerfile -t stream-deck-pilot:e2e .
+
+      - name: Start the app behind Traefik
+        run: docker compose -f e2e/reverse-proxy/docker-compose.yml up -d
+
+      - name: Smoke checks
+        env:
+          WS_PATH: /_blazor   # the web UI's circuit: a WebSocket upgrade must get 101 through Traefik
+        run: e2e/reverse-proxy/smoke.sh
+
+      - name: Container logs
+        if: failure()
+        run: docker compose -f e2e/reverse-proxy/docker-compose.yml logs --no-color
+
+      - name: Stop
+        if: always()
+        run: docker compose -f e2e/reverse-proxy/docker-compose.yml down -v

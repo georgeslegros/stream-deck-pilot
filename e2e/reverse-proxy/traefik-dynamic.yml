@@ -1,0 +1,20 @@
+http:
+  routers:
+    root:
+      entryPoints: [web]
+      rule: "Host(`deck.example.test`)"
+      service: root
+    sub:
+      entryPoints: [web]
+      # The prefix is passed through unchanged: the app strips it (Proxy__PathBase).
+      rule: "Host(`apps.example.test`) && PathPrefix(`/deck`)"
+      service: sub
+  services:
+    root:
+      loadBalancer:
+        servers:
+          - url: "http://app:8080"
+    sub:
+      loadBalancer:
+        servers:
+          - url: "http://app-sub:8080"

@@ -147,6 +147,13 @@ curl http://localhost:8080/health
 # {"status":"healthy"}
 ```
 
+### Behind a reverse proxy
+
+Traefik, nginx and Caddy examples (HTTPS, host name or a sub-path such as `/deck`, WebSockets) and
+the `Proxy__*` settings for trusted proxies are in [docs/reverse-proxy.md](docs/reverse-proxy.md).
+Forwarded headers are honoured from private networks by default. Keep the service on your LAN or
+behind a VPN.
+
 ### Pulling the published image (GHCR)
 
 Releases publish a multi-arch image (`linux/amd64` + `linux/arm64`) to the GitHub Container
@@ -182,6 +189,8 @@ on every push to `master`. The suite includes the Testcontainers integration tes
 GitHub's `ubuntu-latest` runners provide it. The `Build and test` check is required before a PR
 can merge into `master`. The release workflow calls the same workflow as its first step.
 It also runs the web UI's browser tests (Playwright, Chromium) at phone, tablet and desktop sizes.
+A parallel `Reverse proxy (E2E)` job builds the image and smoke-tests it, web UI enabled, behind a
+Traefik container at the root of a host name and under a path base (`e2e/reverse-proxy/`).
 CI also collects code coverage. The summary appears on the workflow run page, and on pull
 requests `coverage-comment.yml` posts it as a single PR comment that is updated on each push.
 
@@ -227,6 +236,11 @@ read by `Program.cs`, `MqttOptions.cs` and `BrightnessOptions.cs`.
 | `Setpoint__DefaultConfirmTimeoutSeconds` | How long a published target waits for the target topic to report it, when the control sets no `confirmTimeoutSeconds` (1–600). | `30` |
 | `Setpoint__FailedFlashMilliseconds` | How long the value key shows the failed look after an unconfirmed target (0–10000). | `600` |
 | `Sparkline__MaxPoints` | Points kept per button for a `display.sparkline` trend (see the API guide). The window is split into this many buckets; values in the same bucket replace each other. | `240` |
+| `Proxy__TrustedNetworks__0`, `__1`, … | CIDR ranges allowed to set `X-Forwarded-*` headers; setting any entry replaces the defaults. See [docs/reverse-proxy.md](docs/reverse-proxy.md). | private ranges + loopback |
+| `Proxy__TrustedProxies__0`, `__1`, … | Single proxy addresses trusted in addition to the networks. | none |
+| `Proxy__ForwardLimit` | Proxy hops to unwind in `X-Forwarded-For`. | `1` |
+| `Proxy__PathBase` | Serve under a sub-path, e.g. `/deck` (the proxy must not strip it). | none (root) |
+| `AllowedHosts` | Host names the app answers to, `;`-separated; a forwarded host outside the list is ignored. | `*` |
 | `Web__Enabled` | Serve the read-only web UI under `/` (see [Web UI](#web-ui)). **Private networks only** until sign-in lands (v0.10.0). | `false` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP gRPC endpoint for metrics and traces (standard OpenTelemetry variable). | `http://localhost:4317` |
 

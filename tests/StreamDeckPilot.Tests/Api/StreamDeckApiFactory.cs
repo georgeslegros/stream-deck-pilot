@@ -6,14 +6,23 @@ using StreamDeckPilot.Infrastructure.Persistence;
 
 namespace StreamDeckPilot.Tests.Api;
 
-public sealed class StreamDeckApiFactory : WebApplicationFactory<Program>, IAsyncDisposable
+public sealed class StreamDeckApiFactory(Dictionary<string, string?>? settings = null)
+    : WebApplicationFactory<Program>, IAsyncDisposable
 {
     public const string TestApiKey = "test-api-key-12345";
     public string StorageDir { get; } = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
 
+    public StreamDeckApiFactory() : this(null) { }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
+        // UseSetting as well, so settings Program reads while building services (e.g. Web:Enabled)
+        // are already there; ConfigureAppConfiguration only applies once the app is built.
+        foreach (var (key, value) in settings ?? [])
+            builder.UseSetting(key, value);
+        if (string.Equals(settings?.GetValueOrDefault("Web:Enabled"), "true", StringComparison.OrdinalIgnoreCase))
+            builder.UseStaticWebAssets();
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
@@ -21,6 +30,8 @@ public sealed class StreamDeckApiFactory : WebApplicationFactory<Program>, IAsyn
                 ["ApiKey"] = TestApiKey,
                 ["Storage:BaseDirectory"] = StorageDir,
             });
+            if (settings is not null)
+                config.AddInMemoryCollection(settings);
         });
     }
 
