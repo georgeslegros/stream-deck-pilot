@@ -15,6 +15,14 @@
 
 <body>
     <Routes @rendermode="InteractiveServer" />
+    @* Reconnect banner (#108). Blazor finds it by id and sets components-reconnect-* classes on it
+       while the circuit's connection is down; app.css shows the matching line. Live state needs no
+       extra resync: a circuit that reconnects kept its subscription, and a rejected circuit (server
+       restarted) makes Blazor reload the page, which starts from a fresh snapshot. *@
+    <div id="components-reconnect-modal" class="sdp-reconnect" role="status" aria-live="polite" data-testid="reconnect-banner">
+        <span class="sdp-reconnect-retrying">Connection lost. Reconnecting…</span>
+        <span class="sdp-reconnect-failed">Can't reach the service. <a href="" class="sdp-reconnect-reload" onclick="location.reload(); return false;">Reload</a></span>
+    </div>
     <script src="@Assets["_framework/blazor.web.js"]"></script>
     <script src="@Assets["_content/MudBlazor/MudBlazor.min.js"]"></script>
 </body>

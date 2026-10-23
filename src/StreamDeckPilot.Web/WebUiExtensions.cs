@@ -23,7 +23,9 @@ public static class WebUiExtensions
 
         builder.Services.AddRazorComponents().AddInteractiveServerComponents();
         builder.Services.AddMudServices();
-        builder.Services.AddSingleton<IDeviceDirectory, DeviceDirectory>();
+        // Per circuit: each browser tab has its own live subscription, disposed with the circuit (#108).
+        builder.Services.AddScoped<LiveState>();
+        builder.Services.AddScoped<IDeviceDirectory, DeviceDirectory>();
         builder.Services.AddScoped<DeviceSelection>();
         return builder;
     }

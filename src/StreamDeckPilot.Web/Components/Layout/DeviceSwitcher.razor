@@ -3,7 +3,15 @@
 @inject DeviceSelection Selection
 @inject NavigationManager Navigation
 
-@* Picks the deck the pages show. Lists the catalogue (decks seen at least once), connected or not. *@
+@* Picks the deck the pages show. Lists the catalogue (decks seen at least once), connected or not.
+   The list and the connection icon of the chosen deck update live (#108). *@
+@if (Selected is { } selected)
+{
+    <MudIcon Icon="@(selected.IsConnected ? Icons.Material.Filled.Link : Icons.Material.Filled.LinkOff)"
+             Color="@(selected.IsConnected ? Color.Success : Color.Inherit)" Size="Size.Small"
+             aria-label="@(selected.IsConnected ? "Deck connected" : "Deck not connected")" role="img"
+             data-testid="connection-state" data-state="@(selected.IsConnected ? "connected" : "disconnected")" />
+}
 <MudMenu Label="@Label" EndIcon="@Icons.Material.Filled.ArrowDropDown" Color="Color.Inherit"
          AriaLabel="Choose a deck" Class="sdp-device-switcher" data-testid="device-switcher"
          AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
@@ -27,9 +35,12 @@
 
     private string Label => Selection.Serial ?? (_devices.Count == 0 ? "No decks" : "Choose a deck");
 
+    private DeviceSummary? Selected => _devices.FirstOrDefault(d => d.Serial == Selection.Serial);
+
     protected override async Task OnInitializedAsync()
     {
         Selection.Changed += OnSelectionChanged;
+        Directory.Changed += OnDirectoryChanged;
         _devices = await Directory.ListAsync();
         // One deck: nothing to choose, select it so the pages have something to show.
         if (Selection.Serial is null && _devices.Count == 1)
@@ -44,5 +55,16 @@
 
     private void OnSelectionChanged() => InvokeAsync(StateHasChanged);
 
-    public void Dispose() => Selection.Changed -= OnSelectionChanged;
+    // Pushed by the event bus: a deck connected, disconnected or was discovered.
+    private void OnDirectoryChanged() => InvokeAsync(async () =>
+    {
+        _devices = await Directory.ListAsync();
+        StateHasChanged();
+    });
+
+    public void Dispose()
+    {
+        Selection.Changed -= OnSelectionChanged;
+        Directory.Changed -= OnDirectoryChanged;
+    }
 }

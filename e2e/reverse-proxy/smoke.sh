@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Smoke checks for the app behind Traefik (see docker-compose.yml next to this file).
 # Usage: smoke.sh [proxy-url]   (default http://localhost:8088)
-# WS_PATH: when set (the CI job uses /_blazor, the web UI's circuit; later /hubs/live), also checks
-# that a WebSocket upgrade on that path gets 101 through the proxy at both addresses.
+# WS_PATH: space-separated paths (the CI job uses "/_blazor /hubs/live": the web UI's circuit and the
+# live events hub). For each, a WebSocket upgrade must get 101 through the proxy at both addresses.
 set -euo pipefail
 
 PROXY="${1:-http://localhost:8088}"
@@ -47,11 +47,18 @@ check() {   # check <host> <base>
   base_href="$(curl -s -H "Host: $host" "$PROXY$base/" | grep -o '<base href="[^"]*"' | head -1 || true)"
   expect "$label UI base href" "<base href=\"$base/\"" "$base_href"
 
-  if [[ -n "${WS_PATH:-}" ]]; then
-    expect "$label WebSocket upgrade" 101 "$(status "$host" "$base$WS_PATH" --max-time 3 \
+  for ws in ${WS_PATH:-}; do
+    expect "$label WebSocket upgrade $ws" 101 "$(status "$host" "$base$ws" --max-time 3 \
       -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' \
       -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H "X-Api-Key: $KEY" || true)"
-  fi
+  done
+
+  # Live events (#108) stream through the proxy unbuffered: the snapshot arrives within 2 s, while
+  # the response is still open (curl is cut off by --max-time, hence the || true).
+  local first_event
+  first_event="$(curl -sN --max-time 2 -H "Host: $host" -H "X-Api-Key: $KEY" "$PROXY$base/api/events" \
+    | grep -m1 '^event: ' || true)"
+  expect "$label live events stream" "event: snapshot" "$first_event"
 }
 
 check deck.example.test ""

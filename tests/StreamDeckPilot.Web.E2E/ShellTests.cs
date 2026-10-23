@@ -31,7 +31,7 @@ public sealed class ShellTests(WebAppFixture app)
         await page.AssertTouchTargetsAsync();   // with the drawer open too
         await nav.GetByText($"Deck {WebAppFixture.Serial}").ClickAsync();
 
-        await page.WaitForURLAsync($"**/board/{WebAppFixture.Serial}");
+        await page.WaitForInAppNavigationAsync($"/board/{WebAppFixture.Serial}");
         await Assertions.Expect(page.Locator("h1")).ToContainTextAsync(WebAppFixture.Serial);
     }
 
@@ -49,7 +49,7 @@ public sealed class ShellTests(WebAppFixture app)
         await page.AssertNoHorizontalScrollAsync();
         await option.ClickAsync();
 
-        await page.WaitForURLAsync($"**/board/{WebAppFixture.Serial}");
+        await page.WaitForInAppNavigationAsync($"/board/{WebAppFixture.Serial}");
         await Assertions.Expect(page.Locator("[data-testid=deck-summary]")).ToBeVisibleAsync();
     }
 

@@ -242,6 +242,7 @@ read by `Program.cs`, `MqttOptions.cs` and `BrightnessOptions.cs`.
 | `Proxy__PathBase` | Serve under a sub-path, e.g. `/deck` (the proxy must not strip it). | none (root) |
 | `AllowedHosts` | Host names the app answers to, `;`-separated; a forwarded host outside the list is ignored. | `*` |
 | `Web__Enabled` | Serve the read-only web UI under `/` (see [Web UI](#web-ui)). **Private networks only** until sign-in lands (v0.10.0). | `false` |
+| `Events__MaxPerSecondPerKey` | Live events: `KeyRendered` / `ValueReceived` deliveries per second per key or topic; the latest always arrives. Other `Events__*` settings are in [docs/live-events.md](docs/live-events.md). | `4` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP gRPC endpoint for metrics and traces (standard OpenTelemetry variable). | `http://localhost:4317` |
 
 All secrets (API key, MQTT credentials, OTLP endpoint) come from environment variables / Docker
@@ -257,7 +258,9 @@ under `/`, next to the REST API, which is unchanged and still needs its key.
 > from the internet. The pages are read-only for now.
 
 It works on a phone (from 360 px wide), a tablet and a desktop, and follows the OS light/dark
-setting. See [docs/web-ui.md](docs/web-ui.md) for running it locally and for the tests.
+setting. Everything on it updates live: changes are pushed over the page's connection, and a
+banner shows while that connection is down. See [docs/web-ui.md](docs/web-ui.md) for running it
+locally and for the tests.
 
 ### Persistent volume layout
 
@@ -720,6 +723,8 @@ key returns `401`. See `docs/api-guide.md` for full request/response shapes and 
 | GET | `/devices` | Yes | List catalogued devices (serial, model, key geometry, connection state). |
 | GET | `/devices/{serial}/status` | Yes | Connection state for one device. |
 | POST | `/devices/{serial}/force-render` | Yes | Rebuild desired state from config and full clear-and-redraw the current page. |
+| GET | `/api/events` | Yes | Live events as Server-Sent Events: a snapshot, then deltas (`?types=`, `?serial=`, `Last-Event-ID` resume). See [docs/live-events.md](docs/live-events.md). |
+| — | `/hubs/live` | Yes | The same events over SignalR (key as `X-Api-Key` or a Bearer token; never in the URL). |
 | GET | `/devices/{serial}/preview.png` | Yes | PNG of the deck as it looks now (`?page=`, `?scale=1\|2`); `/devices/{serial}/keys/{index}.png` for one key. ETag + `304`. Never touches the hardware. |
 | GET | `/devices/{serial}/active-page` | Yes | Current page + available navigation targets. |
 | POST | `/devices/{serial}/navigate` | Yes | Force navigation to a page (re-renders, clears stale keys). `400` unknown/empty page, `404` no config. |

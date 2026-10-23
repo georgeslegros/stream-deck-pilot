@@ -3,6 +3,7 @@ using OpenTelemetry.Trace;
 using Serilog;
 using Serilog.Formatting.Compact;
 using StreamDeckPilot.Api.Endpoints;
+using StreamDeckPilot.Api.Events;
 using StreamDeckPilot.Api.Middleware;
 using StreamDeckPilot.Api.Proxy;
 using StreamDeckPilot.Core.DeviceState;
@@ -118,6 +119,10 @@ builder.Services.AddSingleton<SetpointController>(sp =>
         broker: sp.GetRequiredService<BrokerIndicator>(),
         logger: sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SetpointController>>()));
 
+// Live events (#108): bus, SSE and hub. Before the supervisor's hosted service, so its bridge
+// hears the first connection.
+builder.AddLiveEvents();
+
 // Device supervision
 builder.Services.AddSingleton<IStreamDeckLibrary, StreamDeckLibrary>();
 builder.Services.AddSingleton<DeviceSupervisorService>(sp =>
@@ -225,6 +230,7 @@ app.MapDeviceEndpoints();
 app.MapConfigEndpoints();
 app.MapImageEndpoints();
 app.MapPreviewEndpoints();
+app.MapLiveEvents();
 app.MapWebUi();
 
 app.Run();

@@ -19,7 +19,7 @@ using StreamDeckPilot.Infrastructure.Supervision;
 
 namespace StreamDeckPilot.Infrastructure.Mqtt;
 
-public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
+public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier, IBrokerSession
 {
     private readonly MqttOptions _opts;
     private readonly ConfigStore _configStore;
@@ -81,6 +81,24 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
     private static readonly TimeSpan PingInterval = TimeSpan.FromSeconds(10);
 
     public bool IsConnected => _client.IsConnected;
+
+    // Session = connected AND subscribed (#108). Transitions are reported once each.
+    private int _sessionUp;
+
+    public bool IsSessionUp => Volatile.Read(ref _sessionUp) == 1;
+
+    /// <summary>Raised with true when the session is established (connected and subscribed), false when it's lost.</summary>
+    public event Action<bool>? SessionChanged;
+
+    /// <summary>Raised with (topic, payload) after a message on a bound topic was processed.</summary>
+    public event Action<string, string>? ValueReceived;
+
+    private void SetSession(bool up)
+    {
+        if (Interlocked.Exchange(ref _sessionUp, up ? 1 : 0) == (up ? 1 : 0)) return;
+        try { SessionChanged?.Invoke(up); }
+        catch (Exception ex) { _logger.LogWarning(ex, "A broker-session subscriber failed"); }
+    }
 
     public MqttClientService(
         IOptions<MqttOptions> opts,
@@ -241,6 +259,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
                 // is the documented trigger for the "connect/disconnect is pending" wedge (#2031/#1934).
                 if (!await _client.TryPingAsync(ct))
                 {
+                    SetSession(false);
                     _brokerIndicator?.ReportDisconnected();
                     await ConnectAndSubscribeAsync(ct);
                     attempt = 0;
@@ -271,6 +290,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
             }
             catch (Exception ex)
             {
+                SetSession(false);
                 _brokerIndicator?.ReportDisconnected();
                 var delay = BackoffWithJitter(attempt++);
                 _logger.LogWarning("MQTT connect/session failed ({Error}), retrying in {Delay:0.0}s (attempt {Attempt})",
@@ -302,6 +322,7 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
         // Connected and subscribed: the fresh wildcard subscription makes the broker resend every
         // retained value, which the pipeline paints; clearing the indicator repaints the rest.
         _brokerIndicator?.ReportConnected();
+        SetSession(true);
 
         _logger.LogInformation("MQTT session established and subscribed; entering keep-alive poll");
     }
@@ -357,7 +378,11 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
     private Task OnDisconnectedAsync(MqttClientDisconnectedEventArgs e)
     {
         // Starts the offline indicator's delay straight away rather than at the next ping.
-        if (e.ClientWasConnected) _brokerIndicator?.ReportDisconnected();
+        if (e.ClientWasConnected)
+        {
+            SetSession(false);
+            _brokerIndicator?.ReportDisconnected();
+        }
 
         if (e.Exception is not null)
             _logger.LogWarning(e.Exception, "MQTT disconnected (reason={Reason}, wasConnected={WasConnected}) — {Message}",
@@ -522,6 +547,10 @@ public sealed class MqttClientService : BackgroundService, IConfigChangeNotifier
                 _logger.LogWarning(ex, "Setpoint {ControlId} on {Serial} failed to take a value from {Topic}", control.ControlId, serial, topic);
             }
         }
+
+        // Live clients (#108) hear about bound topics only, after the keys took the value.
+        try { ValueReceived?.Invoke(topic, payload); }
+        catch (Exception ex) { _logger.LogWarning(ex, "A value subscriber failed for {Topic}", topic); }
         await Task.CompletedTask;
     }
 

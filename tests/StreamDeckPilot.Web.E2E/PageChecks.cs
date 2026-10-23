@@ -40,6 +40,17 @@ public static class PageChecks
         }
     }
 
+    /// <summary>
+    /// Waits until the page's URL ends with <paramref name="path"/> after an in-app navigation.
+    /// Blazor navigates with history.pushState: no new document and no load event, and when the
+    /// URL had already changed by the time WaitForURLAsync started, it never resolved (#140).
+    /// Checking the URL itself has no such race.
+    /// </summary>
+    public static Task WaitForInAppNavigationAsync(this IPage page, string path) =>
+        Assertions.Expect(page).ToHaveURLAsync(
+            new System.Text.RegularExpressions.Regex(System.Text.RegularExpressions.Regex.Escape(path) + "$"),
+            new() { Timeout = 10_000 });
+
     public static async Task AssertNoHorizontalScrollAsync(this IPage page)
     {
         var widths = await page.EvaluateAsync<int[]>(

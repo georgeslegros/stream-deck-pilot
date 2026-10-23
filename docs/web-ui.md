@@ -44,7 +44,10 @@ them from its `wwwroot`. Without a deck attached, the catalogue is whatever is i
   switcher, a side bar from 960 px up and a drawer below that, light/dark following the OS.
 - **Device switcher**: lists the catalogue (decks seen at least once) with their connection state.
   The chosen deck is per browser tab (`DeviceSelection`, scoped to the circuit). With one deck it is
-  chosen automatically.
+  chosen automatically. An icon next to it shows whether the chosen deck is connected.
+- **Live updates** (#108): each tab has a `LiveState` (scoped to the circuit) fed by the event bus.
+  Nothing polls; see [live-events.md](live-events.md#in-the-web-ui). A banner shows while the
+  circuit's connection is down (`#components-reconnect-modal` in `App.razor`).
 
 ### Adding a page
 
@@ -53,8 +56,9 @@ them from its `wwwroot`. Without a deck attached, the catalogue is whatever is i
    the example path base for running behind a proxy. Current pages: `/` (overview) and
    `/board/{serial}` (one deck).
 2. Add a `MudNavLink` in `Components/Layout/NavMenu.razor`.
-3. Use the injected services (`IDeviceDirectory`, `DeviceSelection`); register new ones in
-   `WebUiExtensions.AddWebUi`.
+3. Use the injected services (`LiveState` for live data, `IDeviceDirectory`, `DeviceSelection`);
+   register new ones in `WebUiExtensions.AddWebUi`. Subscribe to `Changed` events and re-render
+   with `InvokeAsync(StateHasChanged)`; never refresh on a timer.
 4. Give the page an `h1` (`<MudText Typo="Typo.h4" HtmlTag="h1">`), and add the path to
    `ShellTests.Pages` in the E2E project so it is checked at every viewport.
 

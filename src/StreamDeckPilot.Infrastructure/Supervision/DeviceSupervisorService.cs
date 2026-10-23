@@ -161,6 +161,18 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
         }
     }
 
+    /// <summary>Raised with (serial, new state) whenever a deck's connection state changes (#108).</summary>
+    public event Action<string, DeviceConnectionState>? ConnectionChanged;
+
+    private void SetState(string serial, DeviceConnectionState state)
+    {
+        var previous = _states.TryGetValue(serial, out var p) ? p : DeviceConnectionState.Unknown;
+        _states[serial] = state;
+        if (previous == state) return;
+        try { ConnectionChanged?.Invoke(serial, state); }
+        catch (Exception ex) { _logger.LogWarning(ex, "A connection-state subscriber failed for {Serial}", serial); }
+    }
+
     public DeviceConnectionState GetState(string serial) =>
         _states.TryGetValue(serial, out var s) ? s : DeviceConnectionState.Unknown;
 
@@ -218,7 +230,7 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
             if (_boardPaths.TryRemove(serial, out var path))
                 _openedPaths.TryRemove(path, out _);
 
-            _states[serial] = DeviceConnectionState.Disconnected;
+            SetState(serial, DeviceConnectionState.Disconnected);
             _logger.LogInformation("Device {Serial} released on shutdown", serial);
             // The host stops services in reverse registration order, so the MQTT and staleness
             // services (registered after this one) have already stopped; DisposeQuietly swallows
@@ -348,7 +360,7 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
             if (_boardPaths.TryRemove(serial, out var path))
                 _openedPaths.TryRemove(path, out _);
 
-            _states[serial] = DeviceConnectionState.Disconnected;
+            SetState(serial, DeviceConnectionState.Disconnected);
             _logger.LogInformation("Device {Serial} released — waiting for it to reappear", serial);
             DisposeQuietly(board);
         }
@@ -399,7 +411,7 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
         if (connected)
         {
             var isReconnect = _states.TryGetValue(serial, out var prev) && prev == DeviceConnectionState.Disconnected;
-            _states[serial] = DeviceConnectionState.Connected;
+            SetState(serial, DeviceConnectionState.Connected);
             if (isReconnect) _metrics?.DeviceReconnects.Add(1, [new("serial", serial)]);
             _logger.LogInformation("Device {Serial} connected — rendering from desired state", serial);
             try
@@ -411,7 +423,7 @@ public sealed class DeviceSupervisorService : BackgroundService, IDeviceStatePro
         }
         else
         {
-            _states[serial] = DeviceConnectionState.Disconnected;
+            SetState(serial, DeviceConnectionState.Disconnected);
             _logger.LogWarning("Device {Serial} disconnected", serial);
         }
     }

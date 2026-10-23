@@ -308,6 +308,17 @@ Use `"ref"` as `display.baseIcon` in a `ButtonDefinition`.
 ### `GET /devices/{serial}/images` / `DELETE /devices/{serial}/images/{filename}`
 List or remove custom icons.
 
+### `GET /api/events` and `/hubs/live`
+Live events: a snapshot of every deck, the broker and the latest values, then one event per change
+(`DeviceConnected`, `KeyRendered`, `ValueReceived`, `PageChanged`, `ConfigChanged`, …), pushed as
+it happens. `/api/events` is Server-Sent Events (`?types=`, `?serial=`, resume with
+`Last-Event-ID`); `/hubs/live` is the same over SignalR. Payloads, resume and coalescing rules are
+in [live-events.md](live-events.md).
+
+```bash
+curl -N -H "X-Api-Key: $KEY" "$API/api/events?types=KeyRendered,ValueReceived"
+```
+
 ### `GET /openapi.json`
 Full OpenAPI 3 schema (no auth required).
 

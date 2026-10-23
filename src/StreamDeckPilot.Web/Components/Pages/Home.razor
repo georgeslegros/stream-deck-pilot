@@ -1,4 +1,5 @@
 @page "/"
+@implements IDisposable
 @inject IDeviceDirectory Directory
 
 <PageTitle>Overview · Stream Deck Pilot</PageTitle>
@@ -40,5 +41,18 @@ else
 @code {
     private IReadOnlyList<DeviceSummary>? _devices;
 
-    protected override async Task OnInitializedAsync() => _devices = await Directory.ListAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        Directory.Changed += OnDirectoryChanged;
+        _devices = await Directory.ListAsync();
+    }
+
+    // Pushed by the event bus (#108): connection states update without a reload.
+    private void OnDirectoryChanged() => InvokeAsync(async () =>
+    {
+        _devices = await Directory.ListAsync();
+        StateHasChanged();
+    });
+
+    public void Dispose() => Directory.Changed -= OnDirectoryChanged;
 }
