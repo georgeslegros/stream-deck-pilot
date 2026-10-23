@@ -1,4 +1,5 @@
 @page "/board/{Serial}"
+@implements IDisposable
 @inject IDeviceDirectory Directory
 @inject DeviceSelection Selection
 
@@ -15,7 +16,7 @@ else
 {
     <MudPaper Class="pa-4" Elevation="1" data-testid="deck-summary">
         <MudText Typo="Typo.body1">@_device.Model · @_device.KeyColumns × @_device.KeyRows keys</MudText>
-        <MudText Typo="Typo.body1" Color="@(_device.IsConnected ? Color.Success : Color.Default)">
+        <MudText Typo="Typo.body1" Color="@(_device.IsConnected ? Color.Success : Color.Default)" data-testid="deck-state">
             @(_device.IsConnected ? "Connected" : "Not connected")
         </MudText>
     </MudPaper>
@@ -26,9 +27,23 @@ else
 
     private DeviceSummary? _device;
 
+    protected override void OnInitialized() => Directory.Changed += OnDirectoryChanged;
+
     protected override async Task OnParametersSetAsync()
     {
         Selection.Select(Serial);
-        _device = (await Directory.ListAsync()).FirstOrDefault(d => d.Serial == Serial);
+        await LoadAsync();
     }
+
+    private async Task LoadAsync() =>
+        _device = (await Directory.ListAsync()).FirstOrDefault(d => d.Serial == Serial);
+
+    // Pushed by the event bus (#108).
+    private void OnDirectoryChanged() => InvokeAsync(async () =>
+    {
+        await LoadAsync();
+        StateHasChanged();
+    });
+
+    public void Dispose() => Directory.Changed -= OnDirectoryChanged;
 }

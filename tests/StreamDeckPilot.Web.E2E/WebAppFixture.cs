@@ -23,6 +23,9 @@ public sealed class WebAppFixture : IAsyncLifetime
     private IPlaywright? _playwright;
 
     public string BaseUrl { get; private set; } = "";
+
+    /// <summary>The running app's services, e.g. to push a live event (#108).</summary>
+    public IServiceProvider Services => _factory.Services;
     public IBrowser? Browser { get; private set; }
     public string? Unavailable { get; private set; }
 

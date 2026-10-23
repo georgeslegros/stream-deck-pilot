@@ -7,6 +7,7 @@ namespace StreamDeckPilot.Api.Middleware;
 public sealed class ApiKeyMiddleware(RequestDelegate next, IConfiguration config)
 {
     public const string OpenApiPath = "/openapi.json";
+    public const string LiveHubPath = Events.LiveHub.Path;
 
     private static readonly byte[] _invalid = Encoding.UTF8.GetBytes("__invalid__");
 
@@ -33,6 +34,17 @@ public sealed class ApiKeyMiddleware(RequestDelegate next, IConfiguration config
 
         var expected = config["ApiKey"] ?? string.Empty;
         var provided = context.Request.Headers["X-Api-Key"].FirstOrDefault() ?? string.Empty;
+
+        // The live hub (#108) also takes the key the way SignalR clients send a token: as a Bearer
+        // header (negotiate, long polling, SSE) or an access_token query parameter (WebSockets, which
+        // browsers can't give headers). Only there, so the key isn't invited into other URLs.
+        if (provided.Length == 0 && context.Request.Path.StartsWithSegments(LiveHubPath))
+        {
+            var authorization = context.Request.Headers.Authorization.FirstOrDefault();
+            provided = authorization is not null && authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+                ? authorization["Bearer ".Length..].Trim()
+                : context.Request.Query["access_token"].FirstOrDefault() ?? string.Empty;
+        }
 
         var expectedBytes = expected.Length > 0 ? Encoding.UTF8.GetBytes(expected) : _invalid;
         var providedBytes = Encoding.UTF8.GetBytes(provided.Length > 0 ? provided : "__missing__");

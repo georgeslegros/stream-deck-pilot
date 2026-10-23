@@ -2,6 +2,7 @@ using StreamDeckPilot.Core.Json;
 using StreamDeckPilot.Core.Migration;
 using StreamDeckPilot.Core.Models.Config;
 using StreamDeckPilot.Core.Validation;
+using StreamDeckPilot.Infrastructure.Events;
 using StreamDeckPilot.Infrastructure.Mqtt;
 using StreamDeckPilot.Infrastructure.Persistence;
 using StreamDeckPilot.Infrastructure.Supervision;
@@ -25,7 +26,7 @@ public static class ConfigEndpoints
 
         app.MapPut("/devices/{serial}/config", async (string serial,
             HttpRequest request, CatalogueStore catalogue, ConfigStore configStore,
-            IConfigChangeNotifier notifier, DeviceSupervisorService supervisor, DeviceConfigGate gate) =>
+            IConfigChangeNotifier notifier, DeviceSupervisorService supervisor, DeviceConfigGate gate, IEventBus events) =>
         {
             var cat = await catalogue.LoadAsync();
             var device = cat.Devices.FirstOrDefault(d => d.Serial == serial);
@@ -41,21 +42,21 @@ public static class ConfigEndpoints
             }
             catch (JsonException ex)
             {
-                return ApiProblem.Invalid([$"Invalid JSON: {ex.Message}"]);
+                return Rejected([$"Invalid JSON: {ex.Message}"]);
             }
             catch (NotSupportedException ex)
             {
                 // A page or action without its type discriminator (pageType / type) can't be
                 // deserialised polymorphically; System.Text.Json reports that as NotSupported (#78).
-                return ApiProblem.Invalid([$"Invalid JSON: {ex.Message}"]);
+                return Rejected([$"Invalid JSON: {ex.Message}"]);
             }
 
             if (config.Serial != serial)
-                return ApiProblem.Invalid([$"Config serial '{config.Serial}' does not match URL serial '{serial}'."]);
+                return Rejected([$"Config serial '{config.Serial}' does not match URL serial '{serial}'."]);
 
             var validation = ConfigValidator.ValidateConfig(config, device);
             if (!validation.IsValid)
-                return ApiProblem.Invalid(validation.Errors);
+                return Rejected(validation.Errors);
 
             var resetPage = true;
             if (request.Query.TryGetValue("resetPage", out var rp) && bool.TryParse(rp, out var parsed))
@@ -75,7 +76,15 @@ public static class ConfigEndpoints
                 await notifier.RefreshRetainedAsync(serial);
             }
 
+            events.Publish(new ConfigChanged { Serial = serial });
             return Results.NoContent();
+
+            // A refused upload of a catalogued deck's config is a live event too (#108).
+            IResult Rejected(IReadOnlyList<string> errors)
+            {
+                events.Publish(new ConfigRejected(errors) { Serial = serial });
+                return ApiProblem.Invalid(errors);
+            }
         });
 
         app.MapPost("/config/upgrade", async (HttpRequest request, MigrationRunner migration) =>

@@ -115,11 +115,69 @@ public sealed class WebComponentTests : BunitContext
         Assert.NotNull(page.Find("[data-testid=unknown-device]"));
     }
 
+    // ── Live updates (#108) ─────────────────────────────────────────────────
+
+    [Fact]
+    public void Home_UpdatesWhenAConnectionStateIsPushed()
+    {
+        _directory.Devices = [Deck("EXAMPLE-A", DeviceConnectionState.Disconnected)];
+        var cut = Render<Home>();
+        Assert.Contains("Not connected", cut.Find("[data-testid=device-card]").TextContent);
+
+        _directory.Push([Deck("EXAMPLE-A")]);
+
+        cut.WaitForAssertion(() =>
+            Assert.DoesNotContain("Not connected", cut.Find("[data-testid=device-card]").TextContent));
+    }
+
+    [Fact]
+    public void Switcher_ShowsTheChosenDecksConnection_AndFollowsIt()
+    {
+        _directory.Devices = [Deck("EXAMPLE-A", DeviceConnectionState.Disconnected)];
+        var cut = Render<DeviceSwitcher>();
+        Assert.Equal("disconnected", cut.Find("[data-testid=connection-state]").GetAttribute("data-state"));
+
+        _directory.Push([Deck("EXAMPLE-A")]);
+
+        cut.WaitForAssertion(() =>
+            Assert.Equal("connected", cut.Find("[data-testid=connection-state]").GetAttribute("data-state")));
+    }
+
+    [Fact]
+    public async Task Components_StopListening_WhenDisposed()
+    {
+        _directory.Devices = [Deck("EXAMPLE-A")];
+        var home = Render<Home>();
+        var switcher = Render<DeviceSwitcher>();
+        Assert.Equal(2, _directory.Listeners);
+
+        await DisposeComponentsAsync();
+
+        Assert.Equal(0, _directory.Listeners);
+    }
+
     private sealed class FakeDeviceDirectory : IDeviceDirectory
     {
+        private Action? _changed;
+
         public IReadOnlyList<DeviceSummary> Devices { get; set; } = [];
+
+        public int Listeners => _changed?.GetInvocationList().Length ?? 0;
+
+        public event Action? Changed
+        {
+            add => _changed += value;
+            remove => _changed -= value;
+        }
 
         public Task<IReadOnlyList<DeviceSummary>> ListAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(Devices);
+
+        /// <summary>What the live state does when an event arrives: new data, then Changed (off the renderer's thread).</summary>
+        public void Push(IReadOnlyList<DeviceSummary> devices)
+        {
+            Devices = devices;
+            Task.Run(() => _changed?.Invoke()).Wait();
+        }
     }
 }

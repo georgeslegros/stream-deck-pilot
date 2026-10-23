@@ -110,7 +110,7 @@ jobs:
 
       - name: Smoke checks
         env:
-          WS_PATH: /_blazor   # the web UI's circuit: a WebSocket upgrade must get 101 through Traefik
+          WS_PATH: /_blazor /hubs/live   # the web UI's circuit and the live events hub: WebSocket upgrades must get 101 through Traefik
         run: e2e/reverse-proxy/smoke.sh
 
       - name: Container logs

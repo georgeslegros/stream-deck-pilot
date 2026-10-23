@@ -37,3 +37,48 @@ html, body {
         display: none;
     }
 }
+
+/* Reconnect banner (#108): hidden until Blazor marks the circuit's connection as down. */
+.sdp-reconnect {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 2000;
+    padding: 8px 16px;
+    text-align: center;
+    font: 500 0.9rem/1.5 Roboto, Helvetica, Arial, sans-serif;
+    background: #ffb300;
+    color: #000;
+}
+
+.sdp-reconnect > span {
+    display: none;
+}
+
+.sdp-reconnect.components-reconnect-show,
+.sdp-reconnect.components-reconnect-retrying,
+.sdp-reconnect.components-reconnect-failed,
+.sdp-reconnect.components-reconnect-paused,
+.sdp-reconnect.components-reconnect-resume-failed {
+    display: block;
+}
+
+.sdp-reconnect.components-reconnect-show .sdp-reconnect-retrying,
+.sdp-reconnect.components-reconnect-retrying .sdp-reconnect-retrying,
+.sdp-reconnect.components-reconnect-failed .sdp-reconnect-failed,
+.sdp-reconnect.components-reconnect-paused .sdp-reconnect-failed,
+.sdp-reconnect.components-reconnect-resume-failed .sdp-reconnect-failed {
+    display: inline;
+}
+
+.sdp-reconnect-reload {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0 8px;
+    color: inherit;
+    font-weight: 700;
+}
