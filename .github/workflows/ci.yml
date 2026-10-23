@@ -53,7 +53,14 @@ jobs:
       - name: Build
         run: dotnet build --no-restore --configuration Release
 
+      # Browser for the web UI's Playwright tests (tests/StreamDeckPilot.Web.E2E). E2E_REQUIRED
+      # makes a missing browser fail the run instead of skipping the tests, as it does locally.
+      - name: Install Playwright browser
+        run: pwsh tests/StreamDeckPilot.Web.E2E/bin/Release/net10.0/playwright.ps1 install --with-deps chromium
+
       - name: Test
+        env:
+          E2E_REQUIRED: "1"
         run: >-
           dotnet test --no-build --configuration Release
           --logger "trx;LogFileName=test-results.trx"

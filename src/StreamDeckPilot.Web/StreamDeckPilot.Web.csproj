@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <!-- The web UI (#95): Blazor components, Interactive Server only, hosted by StreamDeckPilot.Api.
+       A Razor class library keeps the components, their static assets and the UI wiring out of the
+       API project; the Api only calls AddWebUi/MapWebUi. -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Pinned to one exact version (one major); upgrade deliberately. -->
+    <PackageReference Include="MudBlazor" Version="9.11.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\StreamDeckPilot.Core\StreamDeckPilot.Core.csproj" />
+    <ProjectReference Include="..\StreamDeckPilot.Infrastructure\StreamDeckPilot.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

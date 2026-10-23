@@ -1,0 +1,34 @@
+@page "/board/{Serial}"
+@inject IDeviceDirectory Directory
+@inject DeviceSelection Selection
+
+<PageTitle>@Serial · Stream Deck Pilot</PageTitle>
+
+@* Placeholder for one deck; the rendered pages and live values come with the dashboard (#99). *@
+<MudText Typo="Typo.h4" HtmlTag="h1" GutterBottom="true" Class="sdp-break">Deck @Serial</MudText>
+
+@if (_device is null)
+{
+    <MudAlert Severity="Severity.Warning" data-testid="unknown-device">This deck is not in the catalogue.</MudAlert>
+}
+else
+{
+    <MudPaper Class="pa-4" Elevation="1" data-testid="deck-summary">
+        <MudText Typo="Typo.body1">@_device.Model · @_device.KeyColumns × @_device.KeyRows keys</MudText>
+        <MudText Typo="Typo.body1" Color="@(_device.IsConnected ? Color.Success : Color.Default)">
+            @(_device.IsConnected ? "Connected" : "Not connected")
+        </MudText>
+    </MudPaper>
+}
+
+@code {
+    [Parameter] public string Serial { get; set; } = "";
+
+    private DeviceSummary? _device;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        Selection.Select(Serial);
+        _device = (await Directory.ListAsync()).FirstOrDefault(d => d.Serial == Serial);
+    }
+}

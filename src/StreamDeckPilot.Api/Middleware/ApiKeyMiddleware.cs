@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using StreamDeckPilot.Web;
 
 namespace StreamDeckPilot.Api.Middleware;
 
@@ -16,6 +17,15 @@ public sealed class ApiKeyMiddleware(RequestDelegate next, IConfiguration config
         // describes the public API surface, nothing configured or stored.
         if (context.Request.Path.StartsWithSegments("/health") ||
             context.Request.Path.Equals(OpenApiPath, StringComparison.OrdinalIgnoreCase))
+        {
+            await next(context);
+            return;
+        }
+
+        // The web UI (only mapped when Web:Enabled=true) is exempt: pages, the Blazor circuit and
+        // static assets carry WebUiEndpointMetadata. Routing runs before this middleware, so the
+        // matched endpoint is known here. Until sign-in (#97) the UI is for private networks only.
+        if (context.GetEndpoint()?.Metadata.GetMetadata<WebUiEndpointMetadata>() is not null)
         {
             await next(context);
             return;
