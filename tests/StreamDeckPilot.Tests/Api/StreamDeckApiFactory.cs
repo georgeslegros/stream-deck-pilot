@@ -17,6 +17,12 @@ public sealed class StreamDeckApiFactory(Dictionary<string, string?>? settings =
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
+        // UseSetting as well, so settings Program reads while building services (e.g. Web:Enabled)
+        // are already there; ConfigureAppConfiguration only applies once the app is built.
+        foreach (var (key, value) in settings ?? [])
+            builder.UseSetting(key, value);
+        if (string.Equals(settings?.GetValueOrDefault("Web:Enabled"), "true", StringComparison.OrdinalIgnoreCase))
+            builder.UseStaticWebAssets();
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>

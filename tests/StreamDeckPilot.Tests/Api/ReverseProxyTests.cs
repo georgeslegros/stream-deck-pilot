@@ -171,6 +171,21 @@ public sealed class ReverseProxyTests
         Assert.Equal(HttpStatusCode.OK, (await factory.CreateClient().GetAsync("/health")).StatusCode);
     }
 
+    [Theory]
+    [InlineData(null, "/", "<base href=\"/\"")]
+    [InlineData("/deck", "/deck/", "<base href=\"/deck/\"")]
+    public async Task RealApp_WebUi_RendersWithThePathBaseInItsBaseHref(string? pathBase, string root, string baseHref)
+    {
+        await using var factory = new StreamDeckApiFactory(new()
+        {
+            ["Web:Enabled"] = "true",
+            ["Proxy:PathBase"] = pathBase,
+        });
+        var response = await factory.CreateClient().GetAsync(root);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains(baseHref, await response.Content.ReadAsStringAsync());
+    }
+
     [Fact]
     public async Task RealApp_WithoutAPathBase_HealthNeedsNoKey()
     {

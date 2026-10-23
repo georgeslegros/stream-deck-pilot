@@ -1,0 +1,44 @@
+@page "/"
+@inject IDeviceDirectory Directory
+
+<PageTitle>Overview · Stream Deck Pilot</PageTitle>
+
+@* Placeholder until the dashboard (#99). Read-only. *@
+<MudText Typo="Typo.h4" HtmlTag="h1" GutterBottom="true">Overview</MudText>
+<MudText Typo="Typo.body1" Class="mb-4">
+    A read-only view of your decks. The live dashboard is coming in a later version.
+</MudText>
+
+@if (_devices is null)
+{
+    <MudProgressCircular Indeterminate="true" aria-label="Loading" />
+}
+else if (_devices.Count == 0)
+{
+    <MudAlert Severity="Severity.Info" data-testid="no-devices">
+        No decks have been discovered yet. Plug one in; it appears here once the service has seen it.
+    </MudAlert>
+}
+else
+{
+    <MudGrid Spacing="2">
+        @foreach (var device in _devices)
+        {
+            <MudItem xs="12" sm="6" md="4">
+                <MudPaper Class="pa-4" Elevation="1" data-testid="device-card">
+                    <MudText Typo="Typo.h6" Class="sdp-break">@device.Serial</MudText>
+                    <MudText Typo="Typo.body2">@device.Model · @device.KeyColumns × @device.KeyRows keys</MudText>
+                    <MudText Typo="Typo.body2" Color="@(device.IsConnected ? Color.Success : Color.Default)">
+                        @(device.IsConnected ? "Connected" : "Not connected")
+                    </MudText>
+                </MudPaper>
+            </MudItem>
+        }
+    </MudGrid>
+}
+
+@code {
+    private IReadOnlyList<DeviceSummary>? _devices;
+
+    protected override async Task OnInitializedAsync() => _devices = await Directory.ListAsync();
+}

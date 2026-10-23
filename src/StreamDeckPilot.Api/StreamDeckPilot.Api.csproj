@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\StreamDeckPilot.Core\StreamDeckPilot.Core.csproj" />
     <ProjectReference Include="..\StreamDeckPilot.Infrastructure\StreamDeckPilot.Infrastructure.csproj" />
+    <ProjectReference Include="..\StreamDeckPilot.Web\StreamDeckPilot.Web.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -22,6 +23,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- The web UI's components live in StreamDeckPilot.Web; this host has no .razor files of its own,
+         so the SDK would not ship the framework's _framework/blazor.web.js. Ask for it explicitly. -->
+    <RequiresAspNetWebAssets>true</RequiresAspNetWebAssets>
   </PropertyGroup>
 
 </Project>

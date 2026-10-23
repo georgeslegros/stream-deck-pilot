@@ -53,7 +53,15 @@ public sealed class SparklineRefreshTests : IDisposable
             pollInterval: TimeSpan.FromMinutes(60));
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
         await supervisor.StartAsync(cts.Token);
-        await Task.Delay(200, CancellationToken.None);
+        // Wait for the connect-time paint to finish (every key drawn or blanked once): a fixed
+        // delay let a late initial paint land after the tests clear the render log (#135).
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (board.RenderedKeyCount() < board.Keys.Count)
+        {
+            if (DateTime.UtcNow > deadline)
+                throw new TimeoutException($"Initial paint incomplete: {board.RenderedKeyCount()}/{board.Keys.Count} keys");
+            await Task.Delay(10, CancellationToken.None);
+        }
 
         var history = new SparklineHistory(Options.Create(new SparklineOptions()), _time);
         var monitor = new StalenessMonitor(configStore, new LastUpdatedStore(), desired, new DeviceRenderer(),

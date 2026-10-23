@@ -22,6 +22,7 @@ using StreamDeckPilot.Infrastructure.Sparkline;
 using StreamDeckPilot.Infrastructure.Staleness;
 using StreamDeckPilot.Infrastructure.StreamDeck;
 using StreamDeckPilot.Infrastructure.Supervision;
+using StreamDeckPilot.Web;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddReverseProxySupport();
@@ -194,6 +195,9 @@ builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.WriteIndented = JsonOptions.Default.WriteIndented;
 });
 
+// Web UI (#96): off unless Web:Enabled=true; see WebUiExtensions.
+builder.AddWebUi();
+
 var app = builder.Build();
 
 // Wire observable gauges using lazy lambdas — avoids circular DI dependency
@@ -215,6 +219,7 @@ app.MapOpenApi(ApiKeyMiddleware.OpenApiPath);
 app.MapDeviceEndpoints();
 app.MapConfigEndpoints();
 app.MapImageEndpoints();
+app.MapWebUi();
 
 app.Run();
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Smoke checks for the app behind Traefik (see docker-compose.yml next to this file).
 # Usage: smoke.sh [proxy-url]   (default http://localhost:8088)
-# WS_PATH: when set (e.g. /_blazor once the web UI lands, or /hubs/live), also checks that a
-# WebSocket upgrade on that path gets 101 through the proxy at both addresses.
+# WS_PATH: when set (the CI job uses /_blazor, the web UI's circuit; later /hubs/live), also checks
+# that a WebSocket upgrade on that path gets 101 through the proxy at both addresses.
 set -euo pipefail
 
 PROXY="${1:-http://localhost:8088}"
@@ -40,6 +40,13 @@ check() {   # check <host> <base>
   server="$(curl -s -H "Host: $host" "$PROXY$base/openapi.json" | jq -r '.servers[0].url')"
   expect "$label OpenAPI server URL" "http://$host$base" "${server%/}"
 
+  # The web UI (Web__Enabled=true) renders at the base, with a <base href> that carries it, so its
+  # relative asset and circuit URLs resolve behind the proxy.
+  expect "$label UI root" 200 "$(status "$host" "$base/")"
+  local base_href
+  base_href="$(curl -s -H "Host: $host" "$PROXY$base/" | grep -o '<base href="[^"]*"' | head -1 || true)"
+  expect "$label UI base href" "<base href=\"$base/\"" "$base_href"
+
   if [[ -n "${WS_PATH:-}" ]]; then
     expect "$label WebSocket upgrade" 101 "$(status "$host" "$base$WS_PATH" --max-time 3 \
       -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' \
@@ -51,7 +58,7 @@ check deck.example.test ""
 check apps.example.test /deck
 
 if [[ -z "${WS_PATH:-}" ]]; then
-  echo "skip WebSocket upgrade: no WebSocket endpoint yet (set WS_PATH once the web UI or live hub lands)"
+  echo "skip WebSocket upgrade: WS_PATH not set"
 fi
 
 if (( failures > 0 )); then echo "$failures check(s) failed"; exit 1; fi

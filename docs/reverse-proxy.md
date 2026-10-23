@@ -135,6 +135,8 @@ and keep `ApiKey` long and secret.
 
 ## Tested in CI
 
-The `Reverse proxy (E2E)` job builds the image and runs it behind a Traefik container twice, at the
-root of a host name and under `/deck`, and checks health, the API key, the OpenAPI document and
-the forwarded host and path base (`e2e/reverse-proxy/`).
+The `Reverse proxy (E2E)` job builds the image and runs it, with the web UI enabled, behind a
+Traefik container twice: at the root of a host name and under `/deck`. It checks health, the API
+key, the OpenAPI document and the forwarded host and path base, that the UI renders with the
+right `<base href>`, and that a WebSocket upgrade of the UI's circuit (`/_blazor`) gets `101`
+through the proxy (`e2e/reverse-proxy/`).

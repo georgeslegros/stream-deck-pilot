@@ -24,6 +24,7 @@ services:
       - ApiKey=e2e-test-key
       - Storage__BaseDirectory=/data
       - Mqtt__Host=mqtt.invalid   # no broker: the app must still serve its API
+      - Web__Enabled=true
     tmpfs:
       - /data
 
@@ -33,6 +34,7 @@ services:
       - ApiKey=e2e-test-key
       - Storage__BaseDirectory=/data
       - Mqtt__Host=mqtt.invalid
+      - Web__Enabled=true
       - Proxy__PathBase=/deck
     tmpfs:
       - /data
