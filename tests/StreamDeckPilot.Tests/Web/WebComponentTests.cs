@@ -17,9 +17,11 @@ public sealed class WebComponentTests : BunitContext
 {
     private readonly FakeDeviceDirectory _directory = new();
     private readonly FakeDashboardSource _dashboard = new();
+    private readonly Bunit.TestDoubles.BunitAuthorizationContext _auth;
 
     public WebComponentTests()
     {
+        _auth = AddAuthorization();   // the nav shows admin-only links through AuthorizeView (#98)
         JSInterop.Mode = JSRuntimeMode.Loose;   // MudBlazor calls JS for popovers, theme detection…
         Services.AddMudServices();
         Services.AddSingleton<IDeviceDirectory>(_directory);
@@ -97,6 +99,21 @@ public sealed class WebComponentTests : BunitContext
     {
         var cut = Render<DeviceSwitcher>();
         Assert.Contains("No decks", cut.Markup);
+    }
+
+    // ── Admin-only navigation (#98) ─────────────────────────────────────────
+
+    [Fact]
+    public void Nav_ShowsApiKeys_ToAdminsOnly()
+    {
+        _auth.SetAuthorized("viewer");
+        _auth.SetRoles(StreamDeckPilot.Web.Auth.AuthRoles.Viewer);
+        Assert.Empty(Render<NavMenu>().FindAll("[data-testid=nav-api-keys]"));
+
+        _auth.SetAuthorized("admin");
+        _auth.SetRoles(StreamDeckPilot.Web.Auth.AuthRoles.Admin);
+        _auth.SetPolicies(StreamDeckPilot.Web.Auth.AuthRoles.AdminPolicy);
+        Assert.Single(Render<NavMenu>().FindAll("[data-testid=nav-api-keys]"));
     }
 
     // ── Deck page and navigation ────────────────────────────────────────────

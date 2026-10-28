@@ -6,13 +6,24 @@ This service is designed to be driven by Claude Code or scripts. All endpoints a
 
 ## Authentication
 
-Every endpoint except `/health` and `/openapi.json` requires:
+Every endpoint except `/health` and `/openapi.json` requires an API key:
 
 ```
-X-Api-Key: <value of the API_KEY environment variable>
+X-Api-Key: <the ApiKey setting, or a named key such as sdp_0123456789ab_…>
 ```
 
-Missing or wrong key → `401 Unauthorized` (a problem body with `"error": "invalid_api_key"`; see [Error reference](#error-reference)).
+- The bootstrap key is the `ApiKey` setting. Admins create **named keys** in the web UI (read-only or
+  full, optional expiry, revocable at once); see [auth](auth.md#api-keys).
+- A **read-only** key can only `GET`/`HEAD` (plus the event stream and live hub); a change gets
+  `403` with `"error": "read_only_key"`.
+- A key is never accepted from the query string.
+- Missing, wrong, revoked or expired key → `401 Unauthorized` (a problem body with
+  `"error": "invalid_api_key"`; see [Error reference](#error-reference)).
+
+A signed-in web UI session works too, without a key: admins fully, viewers read-only
+(`"error": "read_only_session"`). A change made with a session must send an `X-Requested-With`
+header (any value) or it gets `403` (`"error": "csrf_header_required"`); see
+[sessions on the API](auth.md#sessions-on-the-api).
 
 ---
 
@@ -617,13 +628,15 @@ Every error is an [RFC 7807](https://www.rfc-editor.org/rfc/rfc7807) problem, se
 
 `status`, `title` and `type` are always present; `detail` explains this occurrence. Extra members:
 `errors` (every validation message) on config validation failures, `error` (a stable code:
-`invalid_api_key`, `unsupported_schema_version`) where clients branch on it, and `availablePages` on
+`invalid_api_key`, `read_only_key`, `read_only_session`, `csrf_header_required`, `cross_origin`,
+`unsupported_schema_version`) where clients branch on it, and `availablePages` on
 navigate. An unexpected server error is a `500` problem with no exception details.
 
 | Code | Meaning |
 |------|---------|
 | 400 | Validation error or malformed body (`errors` on config writes), bad/unknown `pageId` on navigate, bad upload |
-| 401 | Missing or wrong `X-Api-Key` |
+| 401 | Missing, wrong, revoked or expired `X-Api-Key` (and no signed-in session) |
+| 403 | A read-only key or viewer session tried a change (`read_only_key`, `read_only_session`), or a session's change lacked `X-Requested-With` or came from another origin (`csrf_header_required`, `cross_origin`) |
 | 404 | Serial not in catalogue, no config for that serial, unknown image, unknown preview page or key, unknown route |
 | 409 | `force-render` while the device isn't connected |
 | 422 | Schema version too old for `POST /config/upgrade` |

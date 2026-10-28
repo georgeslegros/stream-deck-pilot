@@ -81,6 +81,16 @@ public sealed record BrightnessChanged(int Level) : LiveEvent;
 /// <param name="Reason"><c>invalid_credentials</c>, <c>rate_limited</c>, <c>invalid_api_key</c> (setup), <c>accounts_unreadable</c>, <c>no_role</c> or <c>remote_failure</c>.</param>
 public sealed record SignInFailed(string Method, string Reason) : LiveEvent;
 
+/// <summary>
+/// An admin created a named API key (#98). Service-wide. Never carries the key or its hash: only the
+/// id (the public part of the key), name, scope and expiry.
+/// </summary>
+/// <param name="Scope"><c>ReadOnly</c> or <c>Full</c>.</param>
+public sealed record ApiKeyCreated(string Id, string Name, string Scope, DateTimeOffset? ExpiresAt) : LiveEvent;
+
+/// <summary>An admin revoked a named API key (#98): requests with it now get 401 and its open streams end.</summary>
+public sealed record ApiKeyRevoked(string Id, string Name) : LiveEvent;
+
 /// <summary>The event names clients can filter on, and whether each one concerns a single deck.</summary>
 public static class LiveEventTypes
 {
@@ -98,6 +108,8 @@ public static class LiveEventTypes
             [nameof(PageChanged)] = true,
             [nameof(BrightnessChanged)] = false,
             [nameof(SignInFailed)] = false,
+            [nameof(ApiKeyCreated)] = false,
+            [nameof(ApiKeyRevoked)] = false,
         };
 
     public static IEnumerable<string> All => PerDevice.Keys;
