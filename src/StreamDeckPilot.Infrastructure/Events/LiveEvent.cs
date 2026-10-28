@@ -6,7 +6,7 @@ namespace StreamDeckPilot.Infrastructure.Events;
 /// <summary>
 /// Something that happened in the service, pushed to live clients (#108): the web UI's circuits,
 /// the SSE stream (<c>/api/events</c>) and the SignalR hub (<c>/hubs/live</c>). Events are deltas
-/// against a <see cref="LiveSnapshot"/>. The hierarchy is open: later sources (profiles, sign-in)
+/// against a <see cref="LiveSnapshot"/>. The hierarchy is open: later sources (profiles)
 /// add their own records and a line in <see cref="LiveEventTypes"/>.
 /// </summary>
 public abstract record LiveEvent
@@ -72,6 +72,15 @@ public sealed record PageChanged(string PageId) : LiveEvent;
 /// <summary>The brightness the decks run at changed (0–100). Service-wide.</summary>
 public sealed record BrightnessChanged(int Level) : LiveEvent;
 
+/// <summary>
+/// A sign-in or first-run setup attempt on the web UI failed (#97). Service-wide. Carries no user
+/// name, password or token: only how the attempt was made and why it was refused. The client
+/// address is in the audit log, not here.
+/// </summary>
+/// <param name="Method"><c>local</c>, <c>setup</c> or <c>oidc:&lt;provider&gt;</c>.</param>
+/// <param name="Reason"><c>invalid_credentials</c>, <c>rate_limited</c>, <c>invalid_api_key</c> (setup), <c>accounts_unreadable</c>, <c>no_role</c> or <c>remote_failure</c>.</param>
+public sealed record SignInFailed(string Method, string Reason) : LiveEvent;
+
 /// <summary>The event names clients can filter on, and whether each one concerns a single deck.</summary>
 public static class LiveEventTypes
 {
@@ -88,6 +97,7 @@ public static class LiveEventTypes
             [nameof(ConfigRejected)] = true,
             [nameof(PageChanged)] = true,
             [nameof(BrightnessChanged)] = false,
+            [nameof(SignInFailed)] = false,
         };
 
     public static IEnumerable<string> All => PerDevice.Keys;

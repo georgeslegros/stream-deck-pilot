@@ -8,9 +8,9 @@ how it is put together, and its tests.
 The UI is **off by default**. Set `Web__Enabled=true` (environment variable) or `"Web": { "Enabled": true }`
 (appsettings) and it is served under `/` by the same process and port as the REST API.
 
-> **Private networks only, for now.** Sign-in arrives with #97 (v0.10.0). Until then anyone who can
-> reach the UI can see your decks, so only enable it where the service is reachable from your LAN or
-> VPN, never from the internet. Every page is read-only in the meantime.
+**Every page needs a signed-in user** (#97): an OpenID Connect provider or a local account. On a
+fresh install the first visit leads to setup, which creates the admin once you enter the service's
+API key. See [Signing in](auth.md). The pages are read-only for both roles so far.
 
 What doesn't change:
 
@@ -18,8 +18,10 @@ What doesn't change:
   `X-Api-Key` header.
 - Unknown paths still answer `401` without the key, as they always did.
 
-UI pages, the Blazor connection (`/_blazor`) and static files (`/_framework/…`, `/_content/…`) don't
-need the key: a browser doesn't send one. UI routes never overlap API routes (`/devices…`, `/config…`).
+UI pages and the Blazor connection (`/_blazor`) need a session instead of the key: a browser doesn't
+send one. Signed out, a page redirects to `account/signin`; the connection answers `401`. Static
+files (`/_framework/…`, `/_content/…`) are public, as the sign-in page uses them. UI routes never
+overlap API routes (`/devices…`, `/config…`).
 
 ## Running it locally
 
@@ -71,8 +73,8 @@ The overview (`/`) and each deck's page (`/board/{serial}`) show the same read-o
 
 **Images** are rendered in-process (`DevicePreviewService`, the same code as the preview endpoint)
 and sent over the circuit as `data:` URIs. The browser never fetches an image URL, so no image
-endpoint is opened without the API key; when sign-in arrives (#97) it covers the images along with
-the rest of the circuit.
+endpoint is opened without the API key; the images are covered by the circuit's sign-in like
+everything else on the page.
 
 **Times and ages**: times are shown in the browser's time zone (asked once per tab). Ages ("2 min
 ago") are worked out when the page renders, which it does on every pushed update; nothing refreshes
@@ -94,6 +96,10 @@ event). Bursts are folded into at most one refresh in flight (`CoalescingRunner`
    with `InvokeAsync(StateHasChanged)`; never refresh on a timer.
 4. Give the page an `h1` (`<MudText Typo="Typo.h4" HtmlTag="h1">`), and add the path to
    `ShellTests.Pages` in the E2E project so it is checked at every viewport.
+5. Pages need a viewer by default (the `Viewer` policy on every UI endpoint). A page that changes
+   anything adds `@attribute [Authorize(Policy = AuthRoles.AdminPolicy)]`. Pages under
+   `Components/Account` are the exception: `[AllowAnonymous]` and server-rendered
+   (`[ExcludeFromInteractiveRouting]`), because they set the session cookie.
 
 ### Responsive rules
 
@@ -105,7 +111,7 @@ serials and topics). The E2E tests check both at three sizes.
 
 | Project | What | Needs |
 |---|---|---|
-| `tests/StreamDeckPilot.Tests/Web` | bUnit component tests (`WebComponentTests`, `DashboardComponentTests` with `FakeDashboardSource`) and hosting tests (`WebUiHostingTests`: off by default, API unchanged, UI exempt from the key) | nothing |
+| `tests/StreamDeckPilot.Tests/Web` | bUnit component tests (`WebComponentTests`, `DashboardComponentTests` with `FakeDashboardSource`), hosting tests (`WebUiHostingTests`: off by default, API unchanged, UI exempt from the key) and sign-in (`AuthTests`, `OidcTests` against `FakeOidcProvider`, with `WebAuthFactory` and its `FormClient` for server-rendered forms) | nothing |
 | `tests/StreamDeckPilot.Web.E2E` | Playwright (Chromium) against the real app on a Kestrel port, at phone 360×740, tablet 768×1024 and desktop 1440×900 | the Playwright browser |
 
 Install the browser once after a build:
@@ -121,7 +127,10 @@ Helpers for new tests:
 
 - `WebAppFixture`: one app (UI on, one generic deck `EXAMPLE-0001` in the catalogue with a
   two-page sample config, `SampleConfig`) and one browser for the whole run. `Services` reaches
-  the app's services, e.g. to publish a live event or write desired state. `NewPageAsync(viewport, colourScheme)` gives a fresh page.
+  the app's services, e.g. to publish a live event or write desired state. It has one local admin
+  (`AdminUser`/`AdminPassword`). `NewPageAsync(viewport, colourScheme)` gives a fresh page, already
+  signed in; pass `signedIn: false` for a signed-out one. `page.SignInAsync(user, password)` signs in
+  through the form.
 - `PageChecks.GotoInteractiveAsync(path)`: loads a page and waits for the circuit (the layout sets
   `data-interactive="true"` once it is live). On timeout it reports the browser console.
 - `AssertNoHorizontalScrollAsync()`, `AssertTouchTargetsAsync()`, `OpenNavAsync(viewport)`.

@@ -64,6 +64,16 @@ public static class PageChecks
         }
     }
 
+    /// <summary>Signs in with a local account on the sign-in page and waits for the app shell.</summary>
+    public static async Task SignInAsync(this IPage page, string user, string password, string path = "account/signin")
+    {
+        await page.GotoInteractiveAsync(path);
+        await page.FillAsync("[data-testid=signin-username]", user);
+        await page.FillAsync("[data-testid=signin-password]", password);
+        await page.ClickAsync("[data-testid=signin-submit]");
+        await page.WaitForSelectorAsync("[data-testid=nav-menu]", new() { State = WaitForSelectorState.Attached, Timeout = 15_000 });
+    }
+
     /// <summary>
     /// Waits until the page's URL ends with <paramref name="path"/> after an in-app navigation.
     /// Blazor navigates with history.pushState: no new document and no load event, and when the
@@ -110,7 +120,20 @@ public static class PageChecks
         var nav = page.Locator("[data-testid=nav-menu]");
         if (viewport.HasDrawer)
         {
-            await page.Locator("[data-testid=nav-toggle]").ClickAsync();
+            // The drawer is in the DOM (and "visible") even when slid off-screen, so wait until it
+            // is actually on screen. If MudBlazor settled the drawer's starting state after the
+            // first click (it can open it at load before it sees the breakpoint), the click closed
+            // it: click again. A CI run on #146 hit this (the link stayed "outside of the viewport").
+            for (var attempt = 0; attempt < 3; attempt++)
+            {
+                await page.Locator("[data-testid=nav-toggle]").ClickAsync();
+                try
+                {
+                    await Assertions.Expect(nav).ToBeInViewportAsync(new() { Timeout = 3_000 });
+                    break;
+                }
+                catch (PlaywrightException) when (attempt < 2) { }
+            }
         }
         await nav.WaitForAsync(new() { State = WaitForSelectorState.Visible });
         return nav;

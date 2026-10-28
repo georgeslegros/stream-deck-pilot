@@ -9,8 +9,9 @@ One in-process event bus carries the events. The web UI listens to it directly; 
 | `GET /api/events` | Server-Sent Events (`text/event-stream`) | `curl`, scripts, anything that reads an HTTP stream |
 | `/hubs/live` | SignalR (WebSockets, falling back to SSE / long polling) | .NET / JavaScript clients that want SignalR's reconnect and groups |
 
-Both need the API key. Both start with a **snapshot** of the current state, then send **events**,
-each a delta to apply on top.
+Both need the API key, or a signed-in web UI session ([auth](auth.md)) for a page served by this
+app; a request whose `Origin` is another site is refused. Both start with a **snapshot** of the
+current state, then send **events**, each a delta to apply on top.
 
 ## Events
 
@@ -35,6 +36,7 @@ Every event is a JSON object with these common fields:
 | `ConfigRejected` | `errors` | yes | A config upload was refused; nothing changed. |
 | `PageChanged` | `pageId` | yes | The deck shows another page (navigation, config change, inactivity). |
 | `BrightnessChanged` | `level` (0–100) | no | The brightness the decks run at changed. |
+| `SignInFailed` | `method`, `reason` | no | A web UI sign-in or setup attempt was refused ([auth](auth.md)). `method`: `local`, `setup` or `oidc:<provider>`; `reason`: `invalid_credentials`, `rate_limited`, `invalid_api_key` (setup), `accounts_unreadable`, `no_role` or `remote_failure`. No user name, password or address. |
 
 Example:
 

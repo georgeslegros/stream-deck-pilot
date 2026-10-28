@@ -8,8 +8,9 @@ What the app does for you:
 
 - **Forwarded headers.** `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host` are honoured
   when the request comes from a trusted proxy, so the app sees the client's address, `https` and the
-  public host name. Generated links (the OpenAPI document's `servers` entry, and later the web UI and
-  sign-in redirects) use them. Headers from any other peer are ignored.
+  public host name. Generated links (the OpenAPI document's `servers` entry, the web UI's redirects
+  to sign-in) use them; provider redirect URIs use `Web__PublicOrigin` instead ([auth](auth.md)).
+  Headers from any other peer are ignored.
 - **Path base.** Without a dedicated host name, serve the app under a sub-path such as `/deck`
   (`Proxy__PathBase=/deck`). The REST API, `/health`, `/openapi.json`, static files, the web UI and
   its live connection all live under that path.
@@ -127,16 +128,31 @@ its own.
 
 ## Keep it private
 
-The REST API is protected by the API key, but the service controls physical devices and, until
-sign-in arrives, the web UI has no login of its own. Expose it on your LAN or over a VPN
-(WireGuard, Tailscale…) rather than to the internet. If it must be reachable from outside, add
-authentication at the proxy (e.g. Traefik `forwardAuth`, an OAuth2 proxy, or Caddy `basic_auth`)
-and keep `ApiKey` long and secret.
+The REST API is protected by the API key and the web UI by [sign-in](auth.md), but the service
+controls physical devices. Expose it on your LAN or over a VPN (WireGuard, Tailscale…) rather than
+to the internet. If it must be reachable from outside, consider authentication at the proxy too
+(e.g. Traefik `forwardAuth`, an OAuth2 proxy) and keep `ApiKey` long and secret.
+
+For the web UI's sign-in, the proxy should:
+
+- **Serve HTTPS** and send `X-Forwarded-Proto`, so session cookies are marked `Secure`. Sign-in
+  with an OpenID Connect provider doesn't complete over plain HTTP.
+- **Be the only trusted peer.** Sign-in attempts are rate-limited per client address, taken from
+  `X-Forwarded-For` when the peer is trusted. The default `Proxy:TrustedNetworks` (every private
+  range) lets any host on the LAN set that header and pick a new address per attempt. Set
+  `Proxy__TrustedProxies__0` to the proxy's address and narrow `Proxy__TrustedNetworks__0` (e.g. to
+  the proxy's Docker network).
+- **Have `Web__PublicOrigin` set** to the address people type. Provider redirect URIs are built from
+  it (never from the `Host` header), and the Blazor circuit and live hub accept WebSocket requests
+  from that origin only. Without it they accept the request's own scheme and host, which is right
+  only when the forwarded headers are trusted.
 
 ## Tested in CI
 
 The `Reverse proxy (E2E)` job builds the image and runs it, with the web UI enabled, behind a
 Traefik container twice: at the root of a host name and under `/deck`. It checks health, the API
-key, the OpenAPI document and the forwarded host and path base, that the UI renders with the
-right `<base href>`, and that a WebSocket upgrade of the UI's circuit (`/_blazor`) gets `101`
-through the proxy (`e2e/reverse-proxy/`).
+key, the OpenAPI document and the forwarded host and path base, that the UI redirects to sign-in
+under the same base and its first-run setup page renders with the right `<base href>`, that a
+WebSocket upgrade of the live hub (`/hubs/live`, with the key) gets `101` through the proxy, that
+the UI's circuit (`/_blazor`) refuses one without a session (`401`) and that the hub refuses one
+from another site's origin (`403`) (`e2e/reverse-proxy/`).

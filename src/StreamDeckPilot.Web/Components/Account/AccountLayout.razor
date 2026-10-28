@@ -1,0 +1,12 @@
+@inherits LayoutComponentBase
+
+@* The sign-in, setup and denied pages: server-rendered forms on one centred card, without the app
+   shell (the shell needs a signed-in user). Plain HTML and app.css, so they work without a circuit.
+   data-interactive marks the page as ready for the end-to-end tests, as MainLayout does once its
+   circuit is up; there is no circuit to wait for here. *@
+<div class="sdp-account" data-interactive="true">
+    <main class="sdp-account-card">
+        <p class="sdp-account-brand" data-testid="app-title">Stream Deck Pilot</p>
+        @Body
+    </main>
+</div>

@@ -151,8 +151,9 @@ curl http://localhost:8080/health
 
 Traefik, nginx and Caddy examples (HTTPS, host name or a sub-path such as `/deck`, WebSockets) and
 the `Proxy__*` settings for trusted proxies are in [docs/reverse-proxy.md](docs/reverse-proxy.md).
-Forwarded headers are honoured from private networks by default. Keep the service on your LAN or
-behind a VPN.
+Forwarded headers are honoured from private networks by default; with the web UI on, trust only
+the proxy (`Proxy__TrustedProxies`) so sign-in rate limiting sees real client addresses. Keep the
+service on your LAN or behind a VPN.
 
 ### Pulling the published image (GHCR)
 
@@ -242,7 +243,10 @@ read by `Program.cs`, `MqttOptions.cs` and `BrightnessOptions.cs`.
 | `Proxy__ForwardLimit` | Proxy hops to unwind in `X-Forwarded-For`. | `1` |
 | `Proxy__PathBase` | Serve under a sub-path, e.g. `/deck` (the proxy must not strip it). | none (root) |
 | `AllowedHosts` | Host names the app answers to, `;`-separated; a forwarded host outside the list is ignored. | `*` |
-| `Web__Enabled` | Serve the read-only web UI under `/` (see [Web UI](#web-ui)). **Private networks only** until sign-in lands (v0.10.0). | `false` |
+| `Web__Enabled` | Serve the web UI under `/` (see [Web UI](#web-ui)). Every page then needs a signed-in user. | `false` |
+| `Web__PublicOrigin` | The UI's public address, scheme and host only (e.g. `https://deck.example.com`). Required with an OpenID Connect provider. | unset |
+| `Auth__…` | Sign-in: OpenID Connect providers, local accounts, session lifetime, rate limit. See [docs/auth.md](docs/auth.md). | local accounts when no provider |
+| `DataProtection__CertificatePath`, `__CertificatePassword` | PFX that encrypts the session-signing keys on the data volume. See [docs/auth.md](docs/auth.md#sessions-and-security). | unset (unencrypted) |
 | `Events__MaxPerSecondPerKey` | Live events: `KeyRendered` / `ValueReceived` deliveries per second per key or topic; the latest always arrives. Other `Events__*` settings are in [docs/live-events.md](docs/live-events.md). | `4` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP gRPC endpoint for metrics and traces (standard OpenTelemetry variable). | `http://localhost:4317` |
 
@@ -254,9 +258,10 @@ secrets only. They are never written to persisted config files or baked into the
 A browser UI is being built (epic #95). It is **off by default**; `Web__Enabled=true` serves it
 under `/`, next to the REST API, which is unchanged and still needs its key.
 
-> **Until sign-in (#97, v0.10.0) lands, the UI has no login.** Anyone who can reach it can see your
-> decks. Only turn it on where the service is reachable from a private network (LAN or VPN), never
-> from the internet. The pages are read-only for now.
+**Every page needs a signed-in user**: sign in with an OpenID Connect provider (Entra ID, Keycloak,
+Authentik…) or a local account. On a fresh install with no provider, the first visit creates the
+admin; it asks for the service's API key (`ApiKey`) to prove you run it. Roles are `admin` and `viewer`;
+the pages are read-only for both so far. See [docs/auth.md](docs/auth.md).
 
 The first screen is a read-only dashboard: the MQTT broker's status, and for each deck its
 connection, brightness, the page on screen as live key images, its other pages on demand, and the
@@ -279,6 +284,9 @@ Everything the service persists lives under `Storage__BaseDirectory` (`/data` in
   images/
     <serial>/
       <filename>             # uploaded custom icons, referenced as custom:<filename>
+  auth/
+    users.json               # local web UI accounts (hashed passwords), when the UI is on
+  dataprotection-keys/       # keys that sign sessions and anti-forgery tokens: keep them private
 ```
 
 - `catalog.json` is the authority for which serials may be configured. It is populated only by

@@ -6,6 +6,8 @@ using StreamDeckPilot.Api.Endpoints;
 using StreamDeckPilot.Api.Events;
 using StreamDeckPilot.Api.Middleware;
 using StreamDeckPilot.Api.Proxy;
+using StreamDeckPilot.Api.Security;
+using StreamDeckPilot.Core.Security;
 using StreamDeckPilot.Core.DeviceState;
 using StreamDeckPilot.Core.Json;
 using StreamDeckPilot.Core.Migration;
@@ -24,6 +26,7 @@ using StreamDeckPilot.Infrastructure.Staleness;
 using StreamDeckPilot.Infrastructure.StreamDeck;
 using StreamDeckPilot.Infrastructure.Supervision;
 using StreamDeckPilot.Web;
+using StreamDeckPilot.Web.Auth;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddReverseProxySupport();
@@ -206,7 +209,13 @@ builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.WriteIndented = JsonOptions.Default.WriteIndented;
 });
 
-// Web UI (#96): off unless Web:Enabled=true; see WebUiExtensions.
+// API keys: one from configuration today; named, revocable keys (#98) replace this registration.
+builder.Services.AddSingleton<IApiKeyValidator, ConfiguredApiKeyValidator>();
+
+// Data Protection keys on the data volume, so sessions and anti-forgery tokens survive restarts (#97).
+builder.AddPersistentDataProtection();
+
+// Web UI (#96): off unless Web:Enabled=true; then sign-in is required (#97). See WebUiExtensions.
 builder.AddWebUi();
 
 var app = builder.Build();
@@ -216,6 +225,8 @@ app.Services.GetRequiredService<StreamDeckMetrics>().RegisterObservableGauges(
     () => app.Services.GetRequiredService<DeviceSupervisorService>().GetAllStates(),
     () => app.Services.GetRequiredService<MqttClientService>().IsConnected);
 
+app.LogDataProtectionMode();
+
 if (string.IsNullOrWhiteSpace(app.Configuration["ApiKey"]))
     app.Logger.LogWarning("ApiKey is not configured — all requests will be rejected with 401. Set the ApiKey environment variable.");
 
@@ -223,6 +234,9 @@ if (string.IsNullOrWhiteSpace(app.Configuration["ApiKey"]))
 app.UseReverseProxySupport();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+// Web UI sign-in (#97): session cookie, the cross-site WebSocket guard on the circuit and the live
+// endpoints, and page authorization. A no-op while the UI is off.
+app.UseWebAuth(ApiKeyMiddleware.LiveHubPath, ApiKeyMiddleware.EventStreamPath);
 app.UseMiddleware<ApiKeyMiddleware>();
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));

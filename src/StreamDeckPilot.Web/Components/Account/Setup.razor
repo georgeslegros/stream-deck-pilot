@@ -1,0 +1,127 @@
+@page "/account/setup"
+@attribute [AllowAnonymous]
+@attribute [ExcludeFromInteractiveRouting]
+@layout AccountLayout
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authentication.Cookies
+@using Microsoft.Extensions.Options
+@using StreamDeckPilot.Core.Security
+@inject IOptions<AuthOptions> Options
+@inject LocalUserStore Users
+@inject IApiKeyValidator Keys
+@inject SignInThrottle Throttle
+@inject SignInAudit Audit
+@inject TimeProvider Time
+@inject NavigationManager Navigation
+
+<PageTitle>Set up · Stream Deck Pilot</PageTitle>
+
+<h1 class="sdp-account-title">Create the admin account</h1>
+
+@if (!Keys.BootstrapKeyAvailable)
+{
+    <p class="sdp-account-error" role="alert" data-testid="setup-unavailable">
+        Setup needs the service's API key (the <code>ApiKey</code> setting), and none is set. Set it and restart the
+        service, or sign in with an OpenID Connect provider instead. See docs/auth.md.
+    </p>
+}
+else
+{
+    <p class="sdp-account-hint">
+        This install has no account yet. Prove you run it by entering its API key (the <code>ApiKey</code> setting),
+        then choose the admin's user name and password.
+    </p>
+
+    @if (_message is not null)
+    {
+        <p class="sdp-account-error" role="alert" data-testid="setup-error">@_message</p>
+    }
+
+    @* The key is only read from this form's body: never from the URL, and never written back into the page. *@
+    <EditForm Model="Input" method="post" OnSubmit="SubmitAsync" FormName="setup" class="sdp-account-form">
+        <label for="setup-key">API key</label>
+        <InputText id="setup-key" type="password" @bind-Value="Input!.ApiKey" autocomplete="off" required data-testid="setup-key" />
+        <label for="setup-username">User name</label>
+        <InputText id="setup-username" @bind-Value="Input!.UserName" autocomplete="username" required maxlength="64" data-testid="setup-username" />
+        <label for="setup-password">Password (at least @Options.Value.Local.MinimumPasswordLength characters)</label>
+        <InputText id="setup-password" type="password" @bind-Value="Input!.Password" autocomplete="new-password" required data-testid="setup-password" />
+        <label for="setup-confirm">Repeat the password</label>
+        <InputText id="setup-confirm" type="password" @bind-Value="Input!.Confirm" autocomplete="new-password" required data-testid="setup-confirm" />
+        <button type="submit" class="sdp-account-button" data-testid="setup-submit">Create admin and sign in</button>
+    </EditForm>
+}
+
+@code {
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+    [SupplyParameterFromForm] private SetupInput? Input { get; set; }
+
+    private string? _message;
+
+    protected override void OnInitialized() => Input ??= new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Setup exists only while local accounts are on and there is provably no account. An
+        // unreadable accounts file keeps it shut: setup would overwrite it.
+        if (!Options.Value.LocalEnabled || await Users.StateAsync() != LocalUsersState.Empty)
+            Navigation.NavigateTo("account/signin");
+    }
+
+    private async Task SubmitAsync()
+    {
+        var key = Input!.ApiKey ?? "";
+        var password = Input.Password ?? "";
+        var confirm = Input.Confirm ?? "";
+        // None of these is ever rendered back into the page.
+        Input.ApiKey = Input.Password = Input.Confirm = null;
+
+        var address = HttpContext.Connection.RemoteIpAddress;
+        if (!Keys.BootstrapKeyAvailable) return;
+        if (!Throttle.TryAcquire("setup", address, out var wait))
+        {
+            Audit.Failed("setup", "rate_limited", address);
+            HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+            _message = $"Too many attempts. Try again in {Math.Max(1, (int)Math.Ceiling(wait.TotalMinutes))} min.";
+            return;
+        }
+        if (Keys.Validate(key) is not { IsBootstrap: true })
+        {
+            Audit.Failed("setup", "invalid_api_key", address);
+            _message = "That isn't the service's API key.";
+            return;
+        }
+
+        var userName = Input.UserName?.Trim() ?? "";
+        var minimum = Options.Value.Local.MinimumPasswordLength;
+        if (userName.Length is 0 or > 64 || userName.Any(char.IsControl))
+            _message = "Choose a user name of 1 to 64 characters.";
+        else if (password.Length < minimum)
+            _message = $"The password needs at least {minimum} characters.";
+        else if (password != confirm)
+            _message = "The two passwords don't match.";
+        if (_message is not null) return;
+
+        if (!await Users.CreateFirstAdminAsync(userName, password))
+        {
+            // Someone finished setup a moment ago, or the accounts file became unreadable.
+            Navigation.NavigateTo("account/signin");
+            return;
+        }
+        var admin = (await Users.FindAsync(userName))!;
+        Audit.SetupCompleted(userName, address);
+
+        await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme,
+            AuthRoles.Principal(admin, Time.GetUtcNow()),
+            new AuthenticationProperties { IsPersistent = true });
+        Audit.Succeeded("local", userName, AuthRoles.Admin, address);
+        Navigation.NavigateTo("");
+    }
+
+    private sealed class SetupInput
+    {
+        public string? ApiKey { get; set; }
+        public string? UserName { get; set; }
+        public string? Password { get; set; }
+        public string? Confirm { get; set; }
+    }
+}

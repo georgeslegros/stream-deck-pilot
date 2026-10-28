@@ -10,11 +10,11 @@
     <title>Stream Deck Pilot</title>
     <link rel="stylesheet" href="@Assets["_content/MudBlazor/MudBlazor.min.css"]" />
     <link rel="stylesheet" href="@Assets["_content/StreamDeckPilot.Web/app.css"]" />
-    <HeadOutlet @rendermode="InteractiveServer" />
+    <HeadOutlet @rendermode="PageRenderMode" />
 </head>
 
 <body>
-    <Routes @rendermode="InteractiveServer" />
+    <Routes @rendermode="PageRenderMode" />
     @* Reconnect banner (#108). Blazor finds it by id and sets components-reconnect-* classes on it
        while the circuit's connection is down; app.css shows the matching line. Live state needs no
        extra resync: a circuit that reconnects kept its subscription, and a rejected circuit (server
@@ -32,4 +32,9 @@
 
 @code {
     [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    // The account pages (sign-in, setup, denied) are plain server-rendered forms: they set the
+    // session cookie, which an interactive circuit can't. Everything else runs interactively.
+    private IComponentRenderMode? PageRenderMode =>
+        HttpContext?.AcceptsInteractiveRouting() == false ? null : InteractiveServer;
 }
