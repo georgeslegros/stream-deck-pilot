@@ -237,6 +237,7 @@ read by `Program.cs`, `MqttOptions.cs` and `BrightnessOptions.cs`.
 | `Setpoint__DefaultConfirmTimeoutSeconds` | How long a published target waits for the target topic to report it, when the control sets no `confirmTimeoutSeconds` (1–600). | `30` |
 | `Setpoint__FailedFlashMilliseconds` | How long the value key shows the failed look after an unconfirmed target (0–10000). | `600` |
 | `Sparkline__MaxPoints` | Points kept per button for a `display.sparkline` trend (see the API guide). The window is split into this many buckets; values in the same bucket replace each other. | `240` |
+| `Sparkline__SaveIntervalSeconds` | How often sparkline history is saved to the data volume when it changed, in seconds. It is also saved on shutdown and loaded at startup. `0` saves on shutdown only. | `300` |
 | `Proxy__TrustedNetworks__0`, `__1`, … | CIDR ranges allowed to set `X-Forwarded-*` headers; setting any entry replaces the defaults. See [docs/reverse-proxy.md](docs/reverse-proxy.md). | private ranges + loopback |
 | `Proxy__TrustedProxies__0`, `__1`, … | Single proxy addresses trusted in addition to the networks. | none |
 | `Proxy__ForwardLimit` | Proxy hops to unwind in `X-Forwarded-For`. | `1` |
