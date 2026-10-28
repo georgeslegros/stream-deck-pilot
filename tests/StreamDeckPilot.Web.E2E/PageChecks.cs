@@ -32,7 +32,11 @@ public static class PageChecks
                 }
                 catch (Exception ex) when (attempt == 1 && ex is TimeoutException or PlaywrightException && NetworkChanged(ex))
                 {
-                    lock (console) console.Clear();
+                    lock (console)
+                    {
+                        console.Clear();
+                        console.Add("(retried once after ERR_NETWORK_CHANGED on the first load)");
+                    }
                 }
             }
 
