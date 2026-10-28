@@ -19,8 +19,28 @@ public static class PageChecks
         page.Response += OnResponse;
         try
         {
-            await page.GotoAsync(path);
-            await page.WaitForSelectorAsync("[data-interactive=true]", new() { State = WaitForSelectorState.Attached, Timeout = 15_000 });
+            // Chromium aborts in-flight loads with ERR_NETWORK_CHANGED when the host's interfaces
+            // change, which happens on CI runners while Docker sets up the MQTT test containers
+            // (#143). That's the runner, not the app: start the load again, once.
+            for (var attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    await page.GotoAsync(path);
+                    await page.WaitForSelectorAsync("[data-interactive=true]", new() { State = WaitForSelectorState.Attached, Timeout = 15_000 });
+                    break;
+                }
+                catch (Exception ex) when (attempt == 1 && ex is TimeoutException or PlaywrightException && NetworkChanged(ex))
+                {
+                    lock (console) console.Clear();
+                }
+            }
+
+            bool NetworkChanged(Exception ex)
+            {
+                if (ex.Message.Contains("ERR_NETWORK_CHANGED")) return true;
+                lock (console) return console.Exists(line => line.Contains("ERR_NETWORK_CHANGED"));
+            }
         }
         catch (TimeoutException ex)
         {
