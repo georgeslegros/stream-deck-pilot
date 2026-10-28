@@ -23,9 +23,16 @@ public sealed class SignInThrottle(IOptions<AuthOptions> options, TimeProvider? 
     public bool TryAcquire(string purpose, IPAddress? address, out TimeSpan retryAfter) =>
         TryAcquire(purpose, address?.ToString() ?? "unknown", options.Value.AttemptLimit, out retryAfter);
 
-    /// <summary>Counts a sign-in attempt for a user name (case-insensitive), whatever the address.</summary>
-    public bool TryAcquireForUser(string userName, out TimeSpan retryAfter) =>
-        TryAcquire("signin-user", userName.Trim().ToLowerInvariant(), options.Value.UserAttemptLimit, out retryAfter);
+    /// <summary>Counts a sign-in attempt for a user name (case-insensitive), whatever the address. Always true when the limit is 0 (off).</summary>
+    public bool TryAcquireForUser(string userName, out TimeSpan retryAfter)
+    {
+        if (options.Value.UserAttemptLimit == 0)
+        {
+            retryAfter = TimeSpan.Zero;
+            return true;
+        }
+        return TryAcquire("signin-user", userName.Trim().ToLowerInvariant(), options.Value.UserAttemptLimit, out retryAfter);
+    }
 
     private bool TryAcquire(string purpose, string subject, int limit, out TimeSpan retryAfter)
     {

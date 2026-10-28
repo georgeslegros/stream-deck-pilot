@@ -28,7 +28,7 @@ public sealed class FirstRunAnnouncer(
         if (keys.BootstrapKeyAvailable)
             logger.LogWarning("No local account exists yet. Open {SetupUrl} and enter the API key (the ApiKey setting) to create the admin.", where);
         else
-            logger.LogError("No local account exists yet, and first-run setup needs the bootstrap API key, which isn't set. Set ApiKey and restart, or configure an OpenID Connect provider (docs/auth.md).");
+            logger.LogError("No local account exists yet, and first-run setup needs the bootstrap API key, which isn't set or is disabled (Auth:BootstrapKeyEnabled=false). Set ApiKey (and Auth:BootstrapKeyEnabled=true) and restart, or configure an OpenID Connect provider (docs/auth.md).");
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

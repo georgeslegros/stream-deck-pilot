@@ -31,6 +31,11 @@ internal static class ApiProblem
     public static IResult Conflict(string detail) =>
         Results.Problem(detail: detail, statusCode: StatusCodes.Status409Conflict);
 
+    /// <summary>A 403 with a stable <c>error</c> code: the caller is known but may not do this.</summary>
+    public static IResult Forbidden(string error, string detail) =>
+        Results.Problem(detail: detail, statusCode: StatusCodes.Status403Forbidden,
+            extensions: new Dictionary<string, object?> { ["error"] = error });
+
     public static IResult Unprocessable(string error, string detail) =>
         Results.Problem(detail: detail, statusCode: StatusCodes.Status422UnprocessableEntity,
             extensions: new Dictionary<string, object?> { ["error"] = error });

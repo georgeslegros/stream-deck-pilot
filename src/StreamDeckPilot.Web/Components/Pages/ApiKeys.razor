@@ -1,0 +1,196 @@
+@page "/admin/api-keys"
+@attribute [Authorize(Policy = AuthRoles.AdminPolicy)]
+@using StreamDeckPilot.Infrastructure.Security
+@inject ApiKeyStore Keys
+@inject BrowserClock Clock
+@inject IJSRuntime JS
+
+<PageTitle>API keys · Stream Deck Pilot</PageTitle>
+
+@* Named, revocable API keys (#98). Admins only: the page needs the Admin policy at the endpoint and
+   in the router, and every action checks the role again. A new key is shown once, here, and never
+   stored or logged; only its hash is kept. *@
+<MudText Typo="Typo.h4" HtmlTag="h1" GutterBottom="true">API keys</MudText>
+<MudText Class="mb-4">
+    Keys let scripts and other programs use the API (send one in the <code>X-Api-Key</code> header).
+    A read-only key can only read; a full key can change configuration too. Keys can't manage keys:
+    that's only possible here.
+</MudText>
+
+@if (Keys.Unreadable)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-4" data-testid="keys-unreadable">
+        The API keys file can't be read, so named keys are refused and none can be created or revoked.
+        See the service log, fix or remove the file, and restart.
+    </MudAlert>
+}
+
+@if (_created is { } created)
+{
+    <MudAlert Severity="Severity.Success" Class="mb-4" data-testid="new-key-panel">
+        <MudText Typo="Typo.subtitle1" HtmlTag="h2">Key “@created.Record.Name” created</MudText>
+        <MudText Class="mb-2"><strong>Copy it now: you won't see it again.</strong> Only a hash is kept.</MudText>
+        <div class="sdp-new-key">
+            <input class="sdp-new-key-value" readonly value="@created.Key" aria-label="New API key" data-testid="new-key"
+                   @onfocus="@(() => JS.InvokeVoidAsync("sdpClipboard.select", ".sdp-new-key-value"))" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.ContentCopy"
+                       OnClick="CopyAsync" Class="sdp-touch" data-testid="copy-key">@(_copied ? "Copied" : "Copy")</MudButton>
+            <MudButton Variant="Variant.Outlined" OnClick="Dismiss" Class="sdp-touch" data-testid="dismiss-key">Done</MudButton>
+        </div>
+        @if (_copyFailed)
+        {
+            <MudText Typo="Typo.caption">This browser didn't allow copying; select the key and copy it yourself.</MudText>
+        }
+    </MudAlert>
+}
+
+<MudPaper Outlined="true" Class="pa-4 mb-4">
+    <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-2">New key</MudText>
+    <div class="sdp-key-form">
+        <MudTextField T="string" @bind-Value="_name" Label="Name" Variant="Variant.Outlined" MaxLength="ApiKeyStore.MaxNameLength"
+                      HelperText="What will use it, e.g. backup script" Immediate="true" data-testid="key-name" />
+        <MudSelect T="ApiKeyScope" @bind-Value="_scope" Label="Access" Variant="Variant.Outlined" data-testid="key-scope">
+            <MudSelectItem Value="ApiKeyScope.ReadOnly">Read-only</MudSelectItem>
+            <MudSelectItem Value="ApiKeyScope.Full">Full</MudSelectItem>
+        </MudSelect>
+        <MudSelect T="int" @bind-Value="_expiryDays" Label="Expires" Variant="Variant.Outlined" data-testid="key-expiry">
+            <MudSelectItem Value="0">Never</MudSelectItem>
+            <MudSelectItem Value="30">In 30 days</MudSelectItem>
+            <MudSelectItem Value="90">In 90 days</MudSelectItem>
+            <MudSelectItem Value="365">In a year</MudSelectItem>
+        </MudSelect>
+    </div>
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mt-2" data-testid="key-error">@_error</MudAlert>
+    }
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3 sdp-touch" OnClick="CreateAsync"
+               Disabled="_busy" data-testid="create-key">Create key</MudButton>
+</MudPaper>
+
+<MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-2">Keys</MudText>
+@if (_keys.Count == 0)
+{
+    <MudText data-testid="no-keys">No named keys yet.</MudText>
+}
+else
+{
+    <ul class="sdp-keys" data-testid="key-list">
+        @foreach (var key in _keys)
+        {
+            var status = Status(key);
+            <li class="sdp-key @(status == "Active" ? "" : "sdp-key-inactive")" data-testid="key-row" data-key-name="@key.Name" data-status="@status">
+                <div class="sdp-key-head">
+                    <span class="sdp-key-name sdp-break">@key.Name</span>
+                    <span>
+                        <MudChip T="string" Size="Size.Small" Color="@(key.Scope == ApiKeyScope.Full ? Color.Warning : Color.Default)">@(key.Scope == ApiKeyScope.Full ? "Full" : "Read-only")</MudChip>
+                        <MudChip T="string" Size="Size.Small" Color="@(status == "Active" ? Color.Success : Color.Default)" data-testid="key-status">@status</MudChip>
+                    </span>
+                </div>
+                <div class="sdp-key-meta">
+                    <span>Created <time datetime="@key.CreatedAt.ToString("O")">@Clock.Time(key.CreatedAt)</time>@(key.CreatedBy is { } by ? $" by {by}" : "")</span>
+                    <span>@(key.ExpiresAt is { } e ? $"Expires {Clock.Time(e)}" : "Never expires")</span>
+                    <span>@(key.LastUsedAt is { } u ? $"Last used {Clock.Time(u)} ({Clock.Age(u)})" : "Never used")</span>
+                    @if (key.RevokedAt is { } r)
+                    {
+                        <span>Revoked @Clock.Time(r)@(key.RevokedBy is { } rb ? $" by {rb}" : "")</span>
+                    }
+                </div>
+                @if (key.RevokedAt is null)
+                {
+                    <div class="sdp-key-actions">
+                        @if (_confirming == key.Id)
+                        {
+                            <MudText Typo="Typo.body2">Revoke “@key.Name”? Programs using it stop working at once.</MudText>
+                            <MudButton Variant="Variant.Filled" Color="Color.Error" Class="sdp-touch" OnClick="() => RevokeAsync(key)"
+                                       Disabled="_busy" data-testid="confirm-revoke">Revoke</MudButton>
+                            <MudButton Variant="Variant.Text" Class="sdp-touch" OnClick="() => _confirming = null" data-testid="cancel-revoke">Cancel</MudButton>
+                        }
+                        else
+                        {
+                            <MudButton Variant="Variant.Outlined" Color="Color.Error" Class="sdp-touch" OnClick="() => _confirming = key.Id"
+                                       data-testid="revoke">Revoke…</MudButton>
+                        }
+                    </div>
+                }
+            </li>
+        }
+    </ul>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
+
+    private IReadOnlyList<ApiKeyRecord> _keys = [];
+    private CreatedApiKey? _created;
+    private string? _name;
+    private ApiKeyScope _scope = ApiKeyScope.ReadOnly;
+    private int _expiryDays;
+    private string? _error;
+    private string? _confirming;
+    private bool _busy, _copied, _copyFailed;
+
+    protected override void OnInitialized() => _keys = Keys.List();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && await Clock.LoadAsync()) StateHasChanged();
+    }
+
+    private async Task CreateAsync()
+    {
+        if (await AdminAsync() is not { } admin) return;
+        _busy = true;
+        try
+        {
+            var expires = _expiryDays > 0 ? Clock.Now.AddDays(_expiryDays) : (DateTimeOffset?)null;
+            var result = await Keys.CreateAsync(_name ?? "", _scope, expires, admin);
+            _error = result.Error;
+            if (result.Created is { } created)
+            {
+                _created = created;
+                _copied = _copyFailed = false;
+                _name = null;
+            }
+            _keys = Keys.List();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task RevokeAsync(ApiKeyRecord key)
+    {
+        if (await AdminAsync() is not { } admin) return;
+        _busy = true;
+        try
+        {
+            if (!await Keys.RevokeAsync(key.Id, admin))
+                _error = $"“{key.Name}” couldn't be revoked: it may already be revoked, or the keys file can't be read.";
+            _confirming = null;
+            _keys = Keys.List();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task CopyAsync()
+    {
+        if (_created is null) return;
+        try { _copied = await JS.InvokeAsync<bool>("sdpClipboard.copy", _created.Key); }
+        catch (JSException) { _copied = false; }
+        _copyFailed = !_copied;
+    }
+
+    // The key leaves the component's state: it can't be shown again.
+    private void Dismiss() => _created = null;
+
+    /// <summary>The signed-in admin's name, or null (with a message) if the session isn't an admin's any more.</summary>
+    private async Task<string?> AdminAsync()
+    {
+        var user = AuthenticationState is null ? null : (await AuthenticationState).User;
+        if (user?.IsInRole(AuthRoles.Admin) == true) return user.Identity?.Name ?? "admin";
+        _error = "Only admins can manage API keys.";
+        return null;
+    }
+
+    private string Status(ApiKeyRecord key) =>
+        key.RevokedAt is not null ? "Revoked" : key.IsExpired(Clock.Now) ? "Expired" : "Active";
+}

@@ -6,12 +6,14 @@ namespace StreamDeckPilot.Core.Security;
 /// <summary>
 /// A key that was accepted: its name (for audit and last-used tracking), whether it may only read,
 /// and whether it is the bootstrap key from configuration (the only key that may run first-run setup).
+/// Named keys (#98) also carry their id and expiry, so long-lived connections they opened (the
+/// event stream, the hub) can be cut when the key is revoked or expires.
 /// </summary>
-public sealed record ApiKeyIdentity(string Name, bool ReadOnly, bool IsBootstrap);
+public sealed record ApiKeyIdentity(string Name, bool ReadOnly, bool IsBootstrap, string? KeyId = null, DateTimeOffset? ExpiresAt = null);
 
 /// <summary>
-/// Decides whether an API key is valid. Today one key from configuration (<c>ApiKey</c>), the
-/// bootstrap key; named, revocable keys (#98) plug in here by replacing the registration.
+/// Decides whether an API key is valid: the bootstrap key from configuration (<c>ApiKey</c>) or a
+/// named, revocable key (#98).
 /// </summary>
 public interface IApiKeyValidator
 {

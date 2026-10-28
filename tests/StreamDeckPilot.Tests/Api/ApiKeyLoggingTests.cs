@@ -71,4 +71,50 @@ public sealed class ApiKeyLoggingTests : IAsyncDisposable
         Assert.DoesNotContain(lines, l => l.Contains(StreamDeckApiFactory.TestApiKey));
         Assert.DoesNotContain(lines, l => l.Contains(WrongKey));
     }
+
+    [Fact]
+    public async Task NamedKeys_CreatedUsedAndRevoked_NeverReachTheLogs()
+    {
+        // #98: an sdp_ key is shown once and never logged, nor is its hash; only its name and id.
+        _factory.CreateClient();   // starts the host
+        var store = _factory.Services.GetRequiredService<StreamDeckPilot.Infrastructure.Security.ApiKeyStore>();
+        var created = (await store.CreateAsync("logging test", StreamDeckPilot.Infrastructure.Security.ApiKeyScope.ReadOnly, null, "admin")).Created!;
+        var key = created.Key;
+        var secret = key[(StreamDeckPilot.Infrastructure.Security.ApiKeyFormat.Prefix.Length + StreamDeckPilot.Infrastructure.Security.ApiKeyFormat.IdLength + 1)..];
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Api-Key", key);
+        await client.GetAsync("/devices");
+        await client.PostAsync("/devices/SN1/force-render", null);   // refused: read-only
+        await using (var sse = await SseClient.OpenAsync(client, "/api/events"))
+            Assert.Equal("snapshot", (await sse.NextAsync()).Event);
+        await using (var hub = new HubConnectionBuilder()
+                         .WithUrl(new Uri(_factory.Server.BaseAddress, "hubs/live"), o =>
+                         {
+                             o.HttpMessageHandlerFactory = _ => _factory.Server.CreateHandler();
+                             o.Transports = HttpTransportType.LongPolling;
+                             o.AccessTokenProvider = () => Task.FromResult<string?>(key);
+                         })
+                         .Build())
+        {
+            await hub.StartAsync();
+            await hub.InvokeAsync<JsonElement>("Subscribe", (string[]?)null, (string?)null);
+        }
+
+        // A wrong named key is refused, and isn't logged either.
+        var wrongNamed = key[..^4] + "AAAA";
+        var anonymous = _factory.CreateClient();
+        anonymous.DefaultRequestHeaders.Add("X-Api-Key", wrongNamed);
+        await anonymous.GetAsync("/devices");
+
+        await store.RevokeAsync(created.Record.Id, "admin");
+        await client.GetAsync("/devices");   // now 401
+
+        var lines = _logs.Lines;
+        Assert.Contains(lines, l => l.Contains("logging test") && l.Contains("created"));   // the audit line was captured
+        Assert.Contains(lines, l => l.Contains("logging test") && l.Contains("revoked"));
+        Assert.DoesNotContain(lines, l => l.Contains(secret));
+        Assert.DoesNotContain(lines, l => l.Contains(created.Record.Hash));
+        Assert.DoesNotContain(lines, l => l.Contains(wrongNamed[^30..]));
+    }
 }

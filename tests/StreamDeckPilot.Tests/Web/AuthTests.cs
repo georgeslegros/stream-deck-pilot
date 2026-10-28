@@ -211,8 +211,8 @@ public sealed class AuthTests
         await using var sse = await StreamDeckPilot.Tests.Api.SseClient.OpenAsync(browser.Http, "/api/events");
         Assert.Equal("snapshot", (await sse.NextAsync()).Event);
 
-        // The REST API itself still needs the key (#98 adds sessions there).
-        Assert.Equal(HttpStatusCode.Unauthorized, (await browser.Http.GetAsync("/devices")).StatusCode);
+        // Since #98 the REST API takes a session too; a viewer's is read-only (ApiKeysApiTests).
+        Assert.Equal(HttpStatusCode.OK, (await browser.Http.GetAsync("/devices")).StatusCode);
     }
 
     // ── Sign-out ─────────────────────────────────────────────────────────────

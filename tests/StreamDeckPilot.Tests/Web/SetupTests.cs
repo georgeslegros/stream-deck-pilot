@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 using StreamDeckPilot.Core.Security;
 using StreamDeckPilot.Web.Auth;
@@ -114,6 +115,34 @@ public sealed class SetupTests
 
         var limited = await browser.SubmitAsync("account/setup", "setup", Fields(WebAuthFactory.ApiKey));
         Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
+        Assert.False(await factory.Users.AnyAsync());
+    }
+
+    [Fact]
+    public async Task NamedKey_EvenAFullOne_CantRunSetup()
+    {
+        // #98: only the bootstrap key proves you run the service.
+        await using var factory = new WebAuthFactory();
+        var store = factory.Services.GetRequiredService<StreamDeckPilot.Infrastructure.Security.ApiKeyStore>();
+        var named = (await store.CreateAsync("ci", StreamDeckPilot.Infrastructure.Security.ApiKeyScope.Full, null, "admin")).Created!;
+
+        var response = await factory.CreateFormClient().SubmitAsync("account/setup", "setup", Fields(named.Key));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.False(await factory.Users.AnyAsync());
+    }
+
+    [Fact]
+    public async Task DisabledBootstrapKey_SetupIsImpossible()
+    {
+        await using var factory = new WebAuthFactory(new() { ["Auth:BootstrapKeyEnabled"] = "false" });
+        var browser = factory.CreateFormClient();
+
+        var html = await browser.GetHtmlAsync("account/setup");
+        Assert.Contains("data-testid=\"setup-unavailable\"", html);
+        Assert.Contains(factory.Logs.Lines, l => l.Contains("Auth:BootstrapKeyEnabled"));
+
+        // Even a hand-made post with the (disabled) key creates nobody.
+        await browser.PostAsync("account/setup", await browser.GetHtmlAsync("account/denied"), "setup", Fields(WebAuthFactory.ApiKey));
         Assert.False(await factory.Users.AnyAsync());
     }
 
