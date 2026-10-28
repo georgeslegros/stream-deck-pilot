@@ -64,7 +64,9 @@ public sealed class SparklinePersistence(
 
     /// <summary>
     /// Writes every device's history when it changed since the last save; returns whether it
-    /// wrote. Files of devices with no history left are removed.
+    /// wrote. A file with no history in memory is removed only when the device's config loads and
+    /// has no sparkline left: history that is merely dormant (config missing or unreadable, file
+    /// not loaded) is kept so it can come back.
     /// </summary>
     public async Task<bool> SaveAsync(CancellationToken cancellationToken = default)
     {
@@ -78,6 +80,11 @@ public sealed class SparklinePersistence(
             var savedAt = _time.GetUtcNow();
             foreach (var (serial, buttons) in snapshot)
             {
+                if (!IsSafeFileName(serial))
+                {
+                    logger.LogWarning("Not saving the sparkline history of device '{Serial}': unsafe as a file name", serial);
+                    continue;
+                }
                 var file = new SparklineFile(SchemaVersion, savedAt.ToUnixTimeMilliseconds(),
                     buttons.ToDictionary(b => b.Key,
                         b => b.Value.Select(p => new SparklinePointFile(p.At.ToUnixTimeMilliseconds(), p.Value)).ToList(),
@@ -87,8 +94,11 @@ public sealed class SparklinePersistence(
 
             if (System.IO.Directory.Exists(Directory))
                 foreach (var path in System.IO.Directory.GetFiles(Directory, "*.json"))
-                    if (!snapshot.ContainsKey(Path.GetFileNameWithoutExtension(path)))
+                {
+                    var serial = Path.GetFileNameWithoutExtension(path);
+                    if (!snapshot.ContainsKey(serial) && await HasNoSparklinesAsync(serial))
                         File.Delete(path);
+                }
 
             _savedVersion = version;
             return true;
@@ -96,6 +106,21 @@ public sealed class SparklinePersistence(
         finally
         {
             _saveLock.Release();
+        }
+    }
+
+    private async Task<bool> HasNoSparklinesAsync(string serial)
+    {
+        try
+        {
+            var config = await configStore.LoadAsync(serial);
+            return config is not null && !config.Pages.OfType<ButtonGridPage>()
+                .SelectMany(p => p.Buttons).Any(b => b.Display?.Sparkline is not null);
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Keeping the sparkline history of {Serial}: its config could not be read", serial);
+            return false;
         }
     }
 
@@ -158,6 +183,11 @@ public sealed class SparklinePersistence(
     }
 
     private string PathFor(string serial) => Path.Combine(Directory, $"{serial}.json");
+
+    // Serials are hardware serials from the catalogue; refuse anything that could leave the directory.
+    internal static bool IsSafeFileName(string serial) =>
+        serial.Length > 0 && serial is not ("." or "..")
+        && serial.IndexOfAny([.. Path.GetInvalidFileNameChars(), '/', '\\']) < 0;
 
     // File format, versioned like the other persisted files. Points are [time, value] pairs in
     // Unix milliseconds (UTC), oldest first.

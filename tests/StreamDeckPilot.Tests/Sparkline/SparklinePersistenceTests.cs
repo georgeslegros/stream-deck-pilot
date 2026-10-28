@@ -200,16 +200,79 @@ public sealed class SparklinePersistenceTests : IDisposable
     }
 
     [Fact]
-    public async Task Save_RemovesFilesOfDevicesWithNoHistoryLeft()
+    public async Task Save_RemovesTheFile_WhenTheDeviceNoLongerHasSparklines()
     {
         var trend = Trend();
         var (history, store) = await RecordAndSaveAsync(trend);
         var persistence = NewPersistence(history, store);
 
+        await SaveConfigAsync(trend with { Display = trend.Display with { Sparkline = null } });
         history.Retain(Serial, new HashSet<string>());
         Assert.True(await persistence.SaveAsync());
 
         Assert.False(File.Exists(FilePath));
+    }
+
+    [Fact]
+    public async Task Save_KeepsDormantHistory_WhenTheConfigIsMissing()
+    {
+        var (_, store) = await RecordAndSaveAsync(Trend());
+        File.Delete(Path.Combine(_dir, "config", $"{Serial}.json"));
+
+        // Next start: nothing loads for this device, then another device's change triggers a save.
+        var after = NewHistory();
+        var persistence = NewPersistence(after, store);
+        await persistence.LoadAsync();
+        after.Record("OTHER", Trend(), "1");
+        Assert.True(await persistence.SaveAsync());
+
+        Assert.True(File.Exists(FilePath));
+    }
+
+    [Fact]
+    public async Task Save_KeepsDormantHistory_WhenTheConfigCannotBeRead()
+    {
+        var (_, store) = await RecordAndSaveAsync(Trend());
+        await File.WriteAllTextAsync(Path.Combine(_dir, "config", $"{Serial}.json"), "{ broken");
+
+        var after = NewHistory();
+        var persistence = NewPersistence(after, store);
+        await persistence.LoadAsync();
+        after.Record("OTHER", Trend(), "1");
+        Assert.True(await persistence.SaveAsync());
+
+        Assert.True(File.Exists(FilePath));
+    }
+
+    [Fact]
+    public async Task Save_KeepsAFileThatFailedToLoad_WhileTheConfigStillHasSparklines()
+    {
+        var store = await SaveConfigAsync(Trend());
+        Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+        await File.WriteAllTextAsync(FilePath, """{"schemaVersion":99,"savedAt":0,"buttons":{}}""");
+
+        var history = NewHistory();
+        var persistence = NewPersistence(history, store);
+        await persistence.LoadAsync();
+        history.Record("OTHER", Trend(), "1");
+        Assert.True(await persistence.SaveAsync());
+
+        Assert.True(File.Exists(FilePath));
+    }
+
+    [Fact]
+    public async Task Save_SkipsASerialThatIsUnsafeAsAFileName_AndSavesTheOthers()
+    {
+        var store = await SaveConfigAsync(Trend());
+        var history = NewHistory();
+        history.Record("../escape", Trend(), "1");
+        history.Record(Serial, Trend(), "2");
+
+        Assert.True(await NewPersistence(history, store).SaveAsync());
+
+        Assert.True(File.Exists(FilePath));
+        Assert.False(File.Exists(Path.Combine(_dir, "escape.json")));
+        Assert.Contains(_log.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("unsafe"));
     }
 
     [Fact]
