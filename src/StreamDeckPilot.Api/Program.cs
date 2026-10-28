@@ -157,6 +157,7 @@ builder.Services.AddOptions<GestureOptions>()
 builder.Services.AddSingleton<ButtonTopicIndex>();
 builder.Services.Configure<SparklineOptions>(builder.Configuration.GetSection("Sparkline"));
 builder.Services.AddSingleton<SparklineHistory>();
+builder.Services.AddHostedService<SparklinePersistence>();   // loads before MQTT starts, saves before the decks are released (#144)
 builder.Services.AddSingleton<MqttClientService>(sp =>
     new MqttClientService(
         sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<MqttOptions>>(),

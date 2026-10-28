@@ -94,7 +94,13 @@ rule background colour.
 - Only buttons with a `sparkline` keep history, and only numeric values are recorded (text values
   such as `unavailable` leave the trend as it is). It needs an `inbound` binding; without one the
   `PUT` succeeds with a warning.
-- History is kept in memory only: after a restart the trend starts empty and fills as values arrive.
+- History is saved to the data volume (`sparklines/<serial>.json`) every `Sparkline__SaveIntervalSeconds`
+  (default 300) when it changed, and on shutdown, then loaded back at startup. After a restart the
+  trend picks up where it left off; only the values received since the last save are lost after a
+  crash. On load, points older than the window are dropped, buttons that no longer exist or no
+  longer have a `sparkline` are forgotten, and the points are re-bucketed if `hours` or
+  `Sparkline__MaxPoints` changed. A corrupt file, or one from another version, is logged and ignored.
+  Each file holds at most `MaxPoints + 1` points per button: about 8 KB per button at the default.
 - At most `Sparkline__MaxPoints` points (default 240) are kept per button. The window is split into
   that many buckets, and a value arriving in the same bucket as the previous one replaces it, so a
   spike shorter than a bucket (90 s for a 6 h window) may not show.
