@@ -126,102 +126,6 @@ public sealed class AuthTests
         Assert.Equal(HttpStatusCode.Redirect, (await browser.Http.GetAsync("/")).StatusCode);
     }
 
-    // ── First-run setup ──────────────────────────────────────────────────────
-
-    [Fact]
-    public async Task FreshInstall_SignInLeadsToSetup_WhichNeedsTheTokenFromTheLog_AndWorksOnce()
-    {
-        await using var factory = new WebAuthFactory();
-        var browser = factory.CreateFormClient();
-        _ = factory.Server;   // start the host: the token is issued at startup
-        var token = factory.Services.GetRequiredService<SetupToken>();
-        Assert.True(token.IsIssued);
-
-        var signIn = await browser.Http.GetAsync("account/signin");
-        Assert.Equal(HttpStatusCode.Redirect, signIn.StatusCode);
-        Assert.Equal("/account/setup", signIn.Headers.Location!.AbsolutePath);
-
-        Dictionary<string, string> Fields(string setupToken) => new()
-        {
-            ["Input.Token"] = setupToken,
-            ["Input.UserName"] = "owner",
-            ["Input.Password"] = "a long enough password",
-            ["Input.Confirm"] = "a long enough password",
-        };
-
-        var wrong = await browser.SubmitAsync("account/setup", "setup", Fields("not-the-token"));
-        Assert.Equal(HttpStatusCode.OK, wrong.StatusCode);
-        Assert.Contains("setup token isn", await wrong.Content.ReadAsStringAsync());
-        Assert.False(await factory.Users.AnyAsync());
-
-        // The real token, as printed in the log.
-        var issued = Assert.Single(factory.Logs.Lines, l => l.Contains("one-time setup token")).Split("SetupToken=")[1].Split(';')[0].Trim();
-        var created = await browser.SubmitAsync("account/setup", "setup", Fields(issued));
-        Assert.Equal(HttpStatusCode.Redirect, created.StatusCode);
-        Assert.Equal("/", created.Headers.Location!.OriginalString.Replace("http://localhost", ""));
-        Assert.NotNull(await factory.Users.VerifyAsync("owner", "a long enough password"));
-        Assert.Equal(AuthRoles.Admin, (await factory.Users.VerifyAsync("owner", "a long enough password"))!.Role);
-        Assert.Equal(HttpStatusCode.OK, (await browser.Http.GetAsync("/")).StatusCode);
-
-        // Once only: the page is gone and the token no longer works.
-        Assert.False(token.IsIssued);
-        var again = factory.CreateFormClient();
-        var setupPage = await again.Http.GetAsync("account/setup");
-        Assert.Equal(HttpStatusCode.Redirect, setupPage.StatusCode);
-        Assert.Equal("/account/signin", setupPage.Headers.Location!.AbsolutePath);
-    }
-
-    [Fact]
-    public async Task Setup_RefusesAShortPassword_AndMismatchedConfirmation()
-    {
-        await using var factory = new WebAuthFactory();
-        var browser = factory.CreateFormClient();
-        _ = factory.Server;
-        var token = factory.Services.GetRequiredService<SetupToken>();
-        var issued = token.Issue();
-
-        var shortPassword = await browser.SubmitAsync("account/setup", "setup", new Dictionary<string, string>
-        {
-            ["Input.Token"] = issued, ["Input.UserName"] = "owner", ["Input.Password"] = "short", ["Input.Confirm"] = "short",
-        });
-        Assert.Contains("at least 12 characters", await shortPassword.Content.ReadAsStringAsync());
-
-        var mismatch = await browser.SubmitAsync("account/setup", "setup", new Dictionary<string, string>
-        {
-            ["Input.Token"] = issued, ["Input.UserName"] = "owner", ["Input.Password"] = "a long enough password", ["Input.Confirm"] = "something else entirely",
-        });
-        Assert.Contains("don&#x27;t match", await mismatch.Content.ReadAsStringAsync());
-        Assert.False(await factory.Users.AnyAsync());
-    }
-
-    [Fact]
-    public async Task AuditLog_RecordsSignIns_WithoutPasswords_AndTheSetupTokenOnlyInItsAnnouncement()
-    {
-        const string wrongPassword = "a wrong password 456";
-        await using var factory = new WebAuthFactory();
-        var browser = factory.CreateFormClient();
-        _ = factory.Server;
-
-        var announcement = Assert.Single(factory.Logs.Lines, l => l.Contains("one-time setup token"));
-        var token = announcement.Split("SetupToken=")[1].Split(';')[0].Trim();
-        await browser.SubmitAsync("account/setup", "setup", new Dictionary<string, string>
-        {
-            ["Input.Token"] = token, ["Input.UserName"] = "owner",
-            ["Input.Password"] = WebAuthFactory.AdminPassword, ["Input.Confirm"] = WebAuthFactory.AdminPassword,
-        });
-        var other = factory.CreateFormClient();
-        await other.SignInAsync("owner", wrongPassword);
-        await other.SignInAsync("owner", WebAuthFactory.AdminPassword);
-
-        var lines = factory.Logs.Lines;
-        Assert.Contains(lines, l => l.Contains("StreamDeckPilot.Audit") && l.Contains("admin account owner created"));
-        Assert.Contains(lines, l => l.Contains("StreamDeckPilot.Audit") && l.Contains("owner signed in with local as admin"));
-        Assert.Contains(lines, l => l.Contains("StreamDeckPilot.Audit") && l.Contains("invalid_credentials"));
-        Assert.DoesNotContain(lines, l => l.Contains(WebAuthFactory.AdminPassword));
-        Assert.DoesNotContain(lines, l => l.Contains(wrongPassword));
-        Assert.Single(lines, l => l.Contains(token));
-    }
-
     // ── Roles ────────────────────────────────────────────────────────────────
 
     [Fact]
@@ -234,8 +138,8 @@ public sealed class AuthTests
         async Task<bool> Allowed(System.Security.Claims.ClaimsPrincipal user, string policy) =>
             (await authorization.AuthorizeAsync(user, policy)).Succeeded;
 
-        var admin = AuthRoles.Principal("local:a", "a", AuthRoles.Admin, "local");
-        var viewer = AuthRoles.Principal("local:v", "v", AuthRoles.Viewer, "local");
+        var admin = AuthRoles.Principal("oidc:p:a", "a", AuthRoles.Admin, "oidc:p", DateTimeOffset.UtcNow);
+        var viewer = AuthRoles.Principal("oidc:p:v", "v", AuthRoles.Viewer, "oidc:p", DateTimeOffset.UtcNow);
         var noRole = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(
             [new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Name, "x")], "oidc"));
 

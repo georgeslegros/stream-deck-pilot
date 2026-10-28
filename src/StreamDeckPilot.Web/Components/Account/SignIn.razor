@@ -10,6 +10,7 @@
 @inject SignInThrottle Throttle
 @inject SignInAudit Audit
 @inject NavigationManager Navigation
+@inject TimeProvider Time
 
 <PageTitle>Sign in · Stream Deck Pilot</PageTitle>
 
@@ -60,11 +61,18 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // A fresh install with local accounts and no account yet: create the admin first.
-        if (HttpMethods.IsGet(HttpContext.Request.Method) && Options.Value.LocalEnabled && !await Users.AnyAsync())
+        if (Options.Value.LocalEnabled)
         {
-            Navigation.NavigateTo("account/setup");
-            return;
+            switch (await Users.StateAsync())
+            {
+                // A fresh install with local accounts and no account yet: create the admin first.
+                case LocalUsersState.Empty when HttpMethods.IsGet(HttpContext.Request.Method):
+                    Navigation.NavigateTo("account/setup");
+                    return;
+                case LocalUsersState.Unreadable:
+                    _message = LocalUnavailable;
+                    return;
+            }
         }
         _message = Error switch
         {
@@ -74,23 +82,34 @@
         };
     }
 
+    private const string LocalUnavailable = "Local sign-in is unavailable: the accounts file can't be read. The service log says why.";
+
     private async Task SubmitAsync()
     {
+        var userName = Input!.UserName ?? "";
+        var password = Input.Password ?? "";
+        Input.Password = null;   // never rendered back into the page
         var address = HttpContext.Connection.RemoteIpAddress;
         if (!Options.Value.LocalEnabled)
         {
             _message = "Local accounts are turned off.";
             return;
         }
-        if (!Throttle.TryAcquire("signin", address, out var wait))
+        if (!Throttle.TryAcquire("signin", address, out var wait) || !Throttle.TryAcquireForUser(userName, out wait))
         {
             Audit.Failed("local", "rate_limited", address);
             HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
             _message = $"Too many attempts. Try again in {Math.Max(1, (int)Math.Ceiling(wait.TotalMinutes))} min.";
             return;
         }
+        if (await Users.StateAsync() == LocalUsersState.Unreadable)
+        {
+            Audit.Failed("local", "accounts_unreadable", address);
+            _message = LocalUnavailable;
+            return;
+        }
 
-        var user = await Users.VerifyAsync(Input!.UserName ?? "", Input!.Password ?? "");
+        var user = await Users.VerifyAsync(userName, password);
         if (user is null)
         {
             Audit.Failed("local", "invalid_credentials", address);
@@ -99,7 +118,7 @@
         }
 
         await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme,
-            AuthRoles.Principal($"local:{user.UserName}", user.UserName, user.Role, "local"),
+            AuthRoles.Principal(user, Time.GetUtcNow()),
             new AuthenticationProperties { IsPersistent = true });
         Audit.Succeeded("local", user.UserName, user.Role, address);
         if (!HttpContext.Request.IsHttps) Audit.PlainHttp(user.UserName);

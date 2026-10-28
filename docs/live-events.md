@@ -36,7 +36,7 @@ Every event is a JSON object with these common fields:
 | `ConfigRejected` | `errors` | yes | A config upload was refused; nothing changed. |
 | `PageChanged` | `pageId` | yes | The deck shows another page (navigation, config change, inactivity). |
 | `BrightnessChanged` | `level` (0–100) | no | The brightness the decks run at changed. |
-| `SignInFailed` | `method`, `reason` | no | A web UI sign-in or setup attempt was refused ([auth](auth.md)). `method`: `local`, `setup` or `oidc:<provider>`; `reason`: `invalid_credentials`, `rate_limited`, `invalid_setup_token`, `no_role` or `remote_failure`. No user name, password or address. |
+| `SignInFailed` | `method`, `reason` | no | A web UI sign-in or setup attempt was refused ([auth](auth.md)). `method`: `local`, `setup` or `oidc:<provider>`; `reason`: `invalid_credentials`, `rate_limited`, `invalid_api_key` (setup), `accounts_unreadable`, `no_role` or `remote_failure`. No user name, password or address. |
 
 Example:
 

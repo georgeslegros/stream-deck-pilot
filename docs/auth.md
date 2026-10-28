@@ -26,20 +26,28 @@ neither role is refused (see `DefaultRole` below).
 
 A fresh install is never locked out. When local accounts are on (the default when no provider is
 configured) and no account exists yet, the sign-in page leads to **first-run setup**, which creates
-the admin. Setup asks for a **one-time setup token** that the service prints to its log at startup:
+the admin. Setup asks for the service's **API key** (the `ApiKey` setting, the bootstrap key): only
+whoever configured the service has it, so a stranger on your network who opens the page first
+can't claim the install. The startup log points at the page (never at the key):
 
 ```
-No local account exists yet. Open https://deck.example.com/account/setup and enter this one-time setup token to create the admin: 3q2-…
+No local account exists yet. Open https://deck.example.com/account/setup and enter the API key (the ApiKey setting) to create the admin.
 ```
 
-```bash
-docker logs stream-deck-pilot 2>&1 | grep "setup token"
-```
+- The key is read only from the setup form's body (anti-forgery token and the
+  [Origin check](#sessions-and-security) apply), never from the URL. It is compared in constant time
+  (both values hashed with SHA-256 first, so not even its length leaks), never written back into the
+  page after an error, and never logged.
+- Setup attempts are [rate-limited](#sessions-and-security) like sign-ins.
+- **Once an admin exists, setup is gone for good**: the page sends you to sign-in and a post creates
+  nobody.
+- **No bootstrap key, no setup.** With `ApiKey` unset the setup page says so and the startup log
+  reports an error. Set `ApiKey` and restart, or configure an OpenID Connect provider.
+- **An unreadable `auth/users.json`** (damaged, or from a newer version) fails closed: the service
+  logs an error, local sign-in is refused and setup stays shut, so it can never start over on top of
+  your accounts. Fix or move the file aside and restart.
 
-Only someone who can read the service's logs can finish setup, so a stranger on your network who
-opens the page first can't claim the install. The token works once; every restart before setup
-prints a new one. After setup the page is gone. The URL in the message uses `Web__PublicOrigin`
-when it is set.
+The URL in the message uses `Web__PublicOrigin` when it is set.
 
 ## Local accounts
 
@@ -53,6 +61,9 @@ them off. With no provider and local accounts off, the service refuses to start.
 
 There is no account management page yet: setup creates one admin. More users come with the
 settings pages; until then, people sign in with a provider.
+
+Each account has a **security stamp** that changes when its password or role changes. A session
+remembers the stamp it started with; see [revalidation](#sessions-and-security).
 
 ## OpenID Connect providers
 
@@ -141,6 +152,12 @@ The defaults (`RoleClaim=roles`, `admin`, `viewer`) match those app role values.
   `X-Forwarded-Proto`, so the proxy must be trusted ([reverse proxy](reverse-proxy.md)). A sign-in
   over plain HTTP logs a warning. The session lasts `Auth__SessionHours` (12) without activity and
   renews while used; it survives browser restarts.
+- **Sessions end when they should.**
+  - Every `Auth__RevalidateMinutes` (5) a session is checked again: a local account that was
+    deleted, or whose password or role changed (its security stamp), loses access. An open tab is
+    re-checked on the same interval and sent to sign-in.
+  - However active, a session ends `Auth__MaxSessionDays` (7) after sign-in. Provider users then
+    sign in again, which picks up a role or group removed at the provider.
 - **Sessions survive service restarts and upgrades**: the keys that sign cookies, anti-forgery
   tokens and the Blazor circuit (ASP.NET Core Data Protection) are kept on the data volume, in
   `{Storage__BaseDirectory}/dataprotection-keys`. They are **unencrypted at rest** unless you set
@@ -149,12 +166,14 @@ The defaults (`RoleClaim=roles`, `admin`, `viewer`) match those app role values.
   encryptor configured". Protect the volume: anyone who can read those files can forge a session.
 - **Anti-forgery**: the sign-in, setup and sign-out forms carry an anti-forgery token. Sign-out is a
   form post, not a link, so another site can't sign you out.
-- **Cross-site WebSocket hijacking**: the Blazor circuit (`/_blazor`), the live hub (`/hubs/live`)
-  and the event stream (`/api/events`) refuse a request whose `Origin` isn't the app's own:
+- **Origin check (cross-site WebSocket hijacking, cross-site form posts)**: the Blazor circuit
+  (`/_blazor`), the live hub (`/hubs/live`), the event stream (`/api/events`) and the account forms
+  (`/account/…`) refuse a request whose `Origin` isn't the app's own:
   `Web__PublicOrigin` when set, otherwise the request's scheme and host (as resolved through trusted
   proxies). Requests without an `Origin` (scripts using the API key) pass.
 - **Rate limiting**: `Auth__AttemptLimit` (5) sign-in attempts, and as many setup attempts, per
-  client address per `Auth__AttemptWindowSeconds` (300). The address is the one resolved through
+  client address per `Auth__AttemptWindowSeconds` (300), and `Auth__UserAttemptLimit` (10) sign-in
+  attempts per user name from any address. The address is the one resolved through
   **trusted** proxies only. The default `Proxy__TrustedNetworks` trusts every private range, which
   lets any host on your LAN set `X-Forwarded-For` and pick a new address per attempt; set
   `Proxy__TrustedProxies__0` to your proxy's address (and `Proxy__TrustedNetworks__0` to a narrow
@@ -175,8 +194,12 @@ The defaults (`RoleClaim=roles`, `admin`, `viewer`) match those app role values.
 | `Auth__Local__Enabled` | Local accounts: unset = on when no provider; `true`/`false`. | unset |
 | `Auth__Local__MinimumPasswordLength` | Minimum local password length. | `12` |
 | `Auth__SessionHours` | Session lifetime without activity (sliding). | `12` |
+| `Auth__RevalidateMinutes` | How often a session is checked against the accounts (1–60). | `5` |
+| `Auth__MaxSessionDays` | Longest a session lasts, however active (at least `SessionHours`, at most 90). | `7` |
 | `Auth__AttemptLimit` | Sign-in (and setup) attempts per address per window. | `5` |
+| `Auth__UserAttemptLimit` | Sign-in attempts per user name per window, from any address. | `10` |
 | `Auth__AttemptWindowSeconds` | The rate-limit window. | `300` |
+| `ApiKey` | The API key; also the bootstrap key that first-run setup asks for. | required |
 | `DataProtection__CertificatePath` | PFX that encrypts the Data Protection keys at rest. | unset (unencrypted) |
 | `DataProtection__CertificatePassword` | Its password. | unset |
 

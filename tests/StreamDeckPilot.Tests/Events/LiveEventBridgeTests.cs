@@ -123,6 +123,9 @@ public sealed class LiveEventBridgeTests : IAsyncLifetime
     {
         await _supervisor.StartAsync(CancellationToken.None);
         await WaitForAsync(() => _supervisor.GetActivePage(Serial) == "main", "deck connected");
+        // The active page is set before the connect-time paint, which records each key as it goes:
+        // wait for all of them, or the snapshot can catch it halfway (as in #135).
+        await WaitForAsync(() => Enumerable.Range(0, 15).All(k => _frames.Get(Serial, k) is not null), "first paint");
 
         using var view = new LiveView(_bus, _snapshots);
         var changes = 0;

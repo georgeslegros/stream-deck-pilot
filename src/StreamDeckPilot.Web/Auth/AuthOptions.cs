@@ -21,6 +21,24 @@ public sealed class AuthOptions
 
     public int AttemptWindowSeconds { get; set; } = 300;
 
+    /// <summary>
+    /// Sign-in attempts allowed per user name within <see cref="AttemptWindowSeconds"/>, on top of the
+    /// per-address limit, so spreading guesses over many addresses doesn't help.
+    /// </summary>
+    public int UserAttemptLimit { get; set; } = 10;
+
+    /// <summary>
+    /// How often a session is checked against the accounts file: a deleted account, a changed
+    /// password or a changed role ends it within this many minutes.
+    /// </summary>
+    public double RevalidateMinutes { get; set; } = 5;
+
+    /// <summary>
+    /// The longest a session can last however active it is. Then the user signs in again, which for
+    /// a provider user picks up a role or group removed at the provider.
+    /// </summary>
+    public double MaxSessionDays { get; set; } = 7;
+
     /// <summary>Local accounts are on when configured so, or automatically when no provider is configured.</summary>
     public bool LocalEnabled => Local.Enabled ?? Providers.Count == 0;
 
@@ -31,8 +49,12 @@ public sealed class AuthOptions
             return "Auth: no way to sign in. Configure an OpenID Connect provider (Auth:Providers) or enable local accounts (Auth:Local:Enabled).";
         if (SessionHours is <= 0 or > 24 * 90)
             return "Auth:SessionHours must be between 0 and 2160 (90 days).";
-        if (AttemptLimit < 1 || AttemptWindowSeconds < 1)
-            return "Auth:AttemptLimit and Auth:AttemptWindowSeconds must be at least 1.";
+        if (AttemptLimit < 1 || UserAttemptLimit < 1 || AttemptWindowSeconds < 1)
+            return "Auth:AttemptLimit, Auth:UserAttemptLimit and Auth:AttemptWindowSeconds must be at least 1.";
+        if (RevalidateMinutes is <= 0 or > 60)
+            return "Auth:RevalidateMinutes must be more than 0 and at most 60.";
+        if (MaxSessionDays <= 0 || MaxSessionDays * 24 < SessionHours || MaxSessionDays > 90)
+            return "Auth:MaxSessionDays must be at least Auth:SessionHours and at most 90.";
         if (Providers.Count > 0 && publicOrigin is null)
             return "Web:PublicOrigin is required when an OpenID Connect provider is configured: redirect URIs are built from it, never from request headers.";
 

@@ -259,7 +259,7 @@ under `/`, next to the REST API, which is unchanged and still needs its key.
 
 **Every page needs a signed-in user**: sign in with an OpenID Connect provider (Entra ID, Keycloak,
 Authentik…) or a local account. On a fresh install with no provider, the first visit creates the
-admin, using a one-time setup token the service prints to its log. Roles are `admin` and `viewer`;
+admin; it asks for the service's API key (`ApiKey`) to prove you run it. Roles are `admin` and `viewer`;
 the pages are read-only for both so far. See [docs/auth.md](docs/auth.md).
 
 The first screen is a read-only dashboard: the MQTT broker's status, and for each deck its

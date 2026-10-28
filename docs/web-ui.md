@@ -9,8 +9,8 @@ The UI is **off by default**. Set `Web__Enabled=true` (environment variable) or 
 (appsettings) and it is served under `/` by the same process and port as the REST API.
 
 **Every page needs a signed-in user** (#97): an OpenID Connect provider or a local account. On a
-fresh install the first visit leads to setup, which creates the admin with a one-time token from
-the service log. See [Signing in](auth.md). The pages are read-only for both roles so far.
+fresh install the first visit leads to setup, which creates the admin once you enter the service's
+API key. See [Signing in](auth.md). The pages are read-only for both roles so far.
 
 What doesn't change:
 

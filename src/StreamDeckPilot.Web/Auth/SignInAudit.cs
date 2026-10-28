@@ -30,6 +30,9 @@ public sealed class SignInAudit(ILoggerFactory loggers, IEventBus? bus = null)
     public void SetupCompleted(string user, IPAddress? address) =>
         _log.LogWarning("First-run setup: admin account {User} created from {Address}", user, address?.ToString());
 
+    public void SessionEnded(string? user, string reason, IPAddress? address) =>
+        _log.LogInformation("Session ended: {User} from {Address} ({Reason})", user, address?.ToString(), reason);
+
     public void SignedOut(string? user, IPAddress? address) =>
         _log.LogInformation("Sign-out: {User} from {Address}", user, address?.ToString());
 

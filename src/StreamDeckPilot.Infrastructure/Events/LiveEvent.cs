@@ -78,7 +78,7 @@ public sealed record BrightnessChanged(int Level) : LiveEvent;
 /// address is in the audit log, not here.
 /// </summary>
 /// <param name="Method"><c>local</c>, <c>setup</c> or <c>oidc:&lt;provider&gt;</c>.</param>
-/// <param name="Reason"><c>invalid_credentials</c>, <c>rate_limited</c>, <c>invalid_setup_token</c>, <c>no_role</c> or <c>remote_failure</c>.</param>
+/// <param name="Reason"><c>invalid_credentials</c>, <c>rate_limited</c>, <c>invalid_api_key</c> (setup), <c>accounts_unreadable</c>, <c>no_role</c> or <c>remote_failure</c>.</param>
 public sealed record SignInFailed(string Method, string Reason) : LiveEvent;
 
 /// <summary>The event names clients can filter on, and whether each one concerns a single deck.</summary>

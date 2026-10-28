@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
@@ -26,6 +27,9 @@ public static class AuthExtensions
     /// <summary>The Blazor circuit; the live endpoints are added by the host (they live in the Api).</summary>
     public static readonly PathString CircuitPath = "/_blazor";
 
+    /// <summary>The sign-in, setup and sign-out forms, which the Origin check also covers.</summary>
+    public static readonly PathString AccountPath = "/account";
+
     internal static IServiceCollection AddWebAuth(this IServiceCollection services, IConfiguration configuration)
     {
         var web = configuration.GetSection(WebOptions.Section).Get<WebOptions>() ?? new();
@@ -35,11 +39,13 @@ public static class AuthExtensions
 
         services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.Section));
         services.AddSingleton<LocalUserStore>();
-        services.AddSingleton<SetupToken>();
         services.AddSingleton<SignInThrottle>();
         services.AddSingleton<SignInAudit>();
-        services.AddHostedService<SetupTokenAnnouncer>();
+        services.AddSingleton<SessionValidator>();
+        services.AddHostedService<FirstRunAnnouncer>();
         services.AddCascadingAuthenticationState();
+        // Before AddRazorComponents, whose default provider is only added when none is registered.
+        services.AddScoped<AuthenticationStateProvider, SessionRevalidatingAuthenticationStateProvider>();
 
         var builder = services
             .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
@@ -61,6 +67,8 @@ public static class AuthExtensions
                 // Pages redirect to sign-in; the circuit, hub, API and assets answer 401/403 instead.
                 o.Events.OnRedirectToLogin = ctx => RedirectOrStatus(ctx, StatusCodes.Status401Unauthorized);
                 o.Events.OnRedirectToAccessDenied = ctx => RedirectOrStatus(ctx, StatusCodes.Status403Forbidden);
+                // Maximum lifetime, and deleted or changed local accounts (SessionValidator).
+                o.Events.OnValidatePrincipal = ctx => ctx.HttpContext.RequestServices.GetRequiredService<SessionValidator>().ValidateCookieAsync(ctx);
             });
 
         foreach (var provider in auth.Providers)
@@ -80,7 +88,7 @@ public static class AuthExtensions
     {
         if (!app.Configuration.IsWebUiEnabled()) return app;
         app.UseAuthentication();
-        app.UseMiddleware<OriginCheckMiddleware>((IReadOnlyList<PathString>)[CircuitPath, .. livePaths]);
+        app.UseMiddleware<OriginCheckMiddleware>((IReadOnlyList<PathString>)[CircuitPath, AccountPath, .. livePaths]);
         app.UseAuthorization();
         return app;
     }
@@ -185,7 +193,8 @@ public static class AuthExtensions
 
             var name = OidcClaims.DisplayName(context.Principal!);
             var subject = context.Principal!.FindFirst("sub")?.Value ?? name;
-            context.Principal = AuthRoles.Principal($"{method}:{subject}", name, role, method);
+            var now = context.HttpContext.RequestServices.GetRequiredService<TimeProvider>().GetUtcNow();
+            context.Principal = AuthRoles.Principal($"{method}:{subject}", name, role, method, now);
             context.Properties!.IsPersistent = true;
             audit.Succeeded(method, name, role, address);
             return Task.CompletedTask;

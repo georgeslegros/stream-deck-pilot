@@ -66,7 +66,6 @@ public sealed class AuthTests(WebAppFixture app)
         fresh.UseKestrel(0);
         fresh.StartServer();
         var baseUrl = fresh.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First().TrimEnd('/');
-        var token = fresh.Services.GetRequiredService<SetupToken>().Issue();   // as printed in the log
 
         if (app.Browser is null) Assert.Skip(app.Unavailable ?? "No browser");
         await using var context = await app.Browser.NewContextAsync(new()
@@ -82,7 +81,7 @@ public sealed class AuthTests(WebAppFixture app)
         await page.AssertNoHorizontalScrollAsync();
         await page.AssertTouchTargetsAsync();
 
-        await page.FillAsync("[data-testid=setup-token]", token);
+        await page.FillAsync("[data-testid=setup-key]", WebAppFixture.ApiKey);
         await page.FillAsync("[data-testid=setup-username]", "owner");
         await page.FillAsync("[data-testid=setup-password]", "a long enough password");
         await page.FillAsync("[data-testid=setup-confirm]", "a long enough password");

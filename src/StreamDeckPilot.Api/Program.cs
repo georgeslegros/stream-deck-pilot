@@ -7,6 +7,7 @@ using StreamDeckPilot.Api.Events;
 using StreamDeckPilot.Api.Middleware;
 using StreamDeckPilot.Api.Proxy;
 using StreamDeckPilot.Api.Security;
+using StreamDeckPilot.Core.Security;
 using StreamDeckPilot.Core.DeviceState;
 using StreamDeckPilot.Core.Json;
 using StreamDeckPilot.Core.Migration;

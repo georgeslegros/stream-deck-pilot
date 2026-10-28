@@ -1,3 +1,4 @@
+using StreamDeckPilot.Core.Security;
 using StreamDeckPilot.Web;
 using StreamDeckPilot.Web.Auth;
 
