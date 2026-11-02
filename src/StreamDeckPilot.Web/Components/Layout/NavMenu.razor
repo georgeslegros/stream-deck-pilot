@@ -5,6 +5,10 @@
     {
         <MudNavLink Href="@($"board/{Uri.EscapeDataString(serial)}")" Icon="@Icons.Material.Filled.GridView">Deck @serial</MudNavLink>
     }
+    @* Admin pages: hidden from viewers, who would get "can't open this page" anyway. *@
+    <AuthorizeView Policy="@AuthRoles.AdminPolicy">
+        <MudNavLink Href="admin/api-keys" Icon="@Icons.Material.Filled.Key" data-testid="nav-api-keys">API keys</MudNavLink>
+    </AuthorizeView>
 </MudNavMenu>
 
 @implements IDisposable

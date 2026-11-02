@@ -23,7 +23,9 @@ public sealed class AuthOptions
 
     /// <summary>
     /// Sign-in attempts allowed per user name within <see cref="AttemptWindowSeconds"/>, on top of the
-    /// per-address limit, so spreading guesses over many addresses doesn't help.
+    /// per-address limit, so spreading guesses over many addresses doesn't help. The flip side: anyone
+    /// who can reach the sign-in page can keep a known user (e.g. <c>admin</c>) locked out by failing
+    /// on purpose. 0 turns this limit off; the per-address limit still applies.
     /// </summary>
     public int UserAttemptLimit { get; set; } = 10;
 
@@ -49,8 +51,10 @@ public sealed class AuthOptions
             return "Auth: no way to sign in. Configure an OpenID Connect provider (Auth:Providers) or enable local accounts (Auth:Local:Enabled).";
         if (SessionHours is <= 0 or > 24 * 90)
             return "Auth:SessionHours must be between 0 and 2160 (90 days).";
-        if (AttemptLimit < 1 || UserAttemptLimit < 1 || AttemptWindowSeconds < 1)
-            return "Auth:AttemptLimit, Auth:UserAttemptLimit and Auth:AttemptWindowSeconds must be at least 1.";
+        if (AttemptLimit < 1 || AttemptWindowSeconds < 1)
+            return "Auth:AttemptLimit and Auth:AttemptWindowSeconds must be at least 1.";
+        if (UserAttemptLimit < 0)
+            return "Auth:UserAttemptLimit must be 0 (off) or more.";
         if (RevalidateMinutes is <= 0 or > 60)
             return "Auth:RevalidateMinutes must be more than 0 and at most 60.";
         if (MaxSessionDays <= 0 || MaxSessionDays * 24 < SessionHours || MaxSessionDays > 90)

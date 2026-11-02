@@ -314,3 +314,85 @@ html, body {
 .sdp-signout {
     display: contents;
 }
+
+/* ── API keys (#98) ─────────────────────────────────────────────────────── */
+.sdp-key-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+}
+
+@media (min-width: 960px) {
+    .sdp-key-form {
+        grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
+    }
+}
+
+.sdp-new-key {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.sdp-new-key-value {
+    flex: 1 1 260px;
+    min-width: 0;
+    min-height: 44px;
+    box-sizing: border-box;
+    padding: 0 10px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.85rem;
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: 4px;
+    background: var(--mud-palette-surface);
+    color: var(--mud-palette-text-primary);
+}
+
+.sdp-keys {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+}
+
+.sdp-key {
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--mud-palette-lines-default);
+    min-width: 0;
+}
+
+.sdp-key-inactive {
+    opacity: 0.7;
+}
+
+.sdp-key-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+}
+
+.sdp-key-name {
+    font-weight: 500;
+}
+
+.sdp-key-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 16px;
+    font-size: 0.85rem;
+    opacity: 0.8;
+}
+
+.sdp-key-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+}

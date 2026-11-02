@@ -1,5 +1,6 @@
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Serilog;
 using Serilog.Formatting.Compact;
 using StreamDeckPilot.Api.Endpoints;
@@ -21,6 +22,7 @@ using StreamDeckPilot.Infrastructure.Navigation;
 using StreamDeckPilot.Infrastructure.Observability;
 using StreamDeckPilot.Infrastructure.Persistence;
 using StreamDeckPilot.Infrastructure.Rendering;
+using StreamDeckPilot.Infrastructure.Security;
 using StreamDeckPilot.Infrastructure.Sparkline;
 using StreamDeckPilot.Infrastructure.Staleness;
 using StreamDeckPilot.Infrastructure.StreamDeck;
@@ -209,8 +211,16 @@ builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.WriteIndented = JsonOptions.Default.WriteIndented;
 });
 
-// API keys: one from configuration today; named, revocable keys (#98) replace this registration.
-builder.Services.AddSingleton<IApiKeyValidator, ConfiguredApiKeyValidator>();
+// API keys: the bootstrap key from configuration and named, revocable keys (#98, docs/auth.md).
+builder.Services.TryAddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<ApiKeyStore>(sp => new ApiKeyStore(
+    sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<StorageOptions>>(),
+    sp.GetRequiredService<TimeProvider>(),
+    sp.GetRequiredService<ILoggerFactory>(),
+    sp.GetRequiredService<StreamDeckPilot.Infrastructure.Events.IEventBus>()));
+builder.Services.AddHostedService<ApiKeyLastUsedWriter>();
+builder.Services.AddSingleton<ApiKeyValidator>();
+builder.Services.AddSingleton<IApiKeyValidator>(sp => sp.GetRequiredService<ApiKeyValidator>());
 
 // Data Protection keys on the data volume, so sessions and anti-forgery tokens survive restarts (#97).
 builder.AddPersistentDataProtection();
@@ -227,8 +237,10 @@ app.Services.GetRequiredService<StreamDeckMetrics>().RegisterObservableGauges(
 
 app.LogDataProtectionMode();
 
-if (string.IsNullOrWhiteSpace(app.Configuration["ApiKey"]))
-    app.Logger.LogWarning("ApiKey is not configured — all requests will be rejected with 401. Set the ApiKey environment variable.");
+if (!app.Services.GetRequiredService<ApiKeyValidator>().BootstrapKeyAvailable)
+    app.Logger.LogWarning(app.Services.GetRequiredService<ApiKeyValidator>().BootstrapKeyEnabled
+        ? "ApiKey is not configured: only named API keys and signed-in web UI sessions are accepted, so with neither every API request gets 401. Set the ApiKey environment variable."
+        : "The bootstrap API key is disabled (Auth:BootstrapKeyEnabled=false): only named API keys and signed-in web UI sessions are accepted, and first-run setup can't run.");
 
 // First: forwarded headers, the optional path base and WebSockets (#109, docs/reverse-proxy.md).
 app.UseReverseProxySupport();

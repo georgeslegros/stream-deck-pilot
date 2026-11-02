@@ -5,7 +5,7 @@ namespace StreamDeckPilot.Web.E2E;
 /// <summary>The app shell (#96) at phone, tablet and desktop sizes.</summary>
 public sealed class ShellTests(WebAppFixture app)
 {
-    private static readonly string[] Pages = ["/", $"/board/{WebAppFixture.Serial}"];
+    private static readonly string[] Pages = ["/", $"/board/{WebAppFixture.Serial}", "/admin/api-keys"];
 
     [Theory]
     [MemberData(nameof(Viewport.All), MemberType = typeof(Viewport))]

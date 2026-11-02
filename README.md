@@ -206,7 +206,8 @@ read by `Program.cs`, `MqttOptions.cs` and `BrightnessOptions.cs`.
 
 | Variable | Purpose | Default / Required |
 |---|---|---|
-| `ApiKey` | Static API key checked (constant-time) on every request via the `X-Api-Key` header. If unset, every request is rejected with 401 and a warning is logged. | **Required** |
+| `ApiKey` | The bootstrap API key, checked (constant-time) via the `X-Api-Key` header; also what first-run setup of the web UI asks for. Admins can add named, revocable keys in the web UI ([docs/auth.md](docs/auth.md#api-keys)). Without any key or session every request gets 401, and a warning is logged. | **Required** (first run) |
+| `Auth__BootstrapKeyEnabled` | `false` refuses the bootstrap key everywhere, once named keys exist; first-run setup then can't run. | `true` |
 | `Storage__BaseDirectory` | Base directory for all persisted files (catalogue, configs, images). | `/data` in container |
 | `Mqtt__Host` | MQTT broker hostname. | `localhost` |
 | `Mqtt__Port` | MQTT broker port. | `1883` |
@@ -256,12 +257,13 @@ secrets only. They are never written to persisted config files or baked into the
 ### Web UI
 
 A browser UI is being built (epic #95). It is **off by default**; `Web__Enabled=true` serves it
-under `/`, next to the REST API, which is unchanged and still needs its key.
+under `/`, next to the REST API, which takes an API key or a signed-in session.
 
 **Every page needs a signed-in user**: sign in with an OpenID Connect provider (Entra ID, Keycloak,
 Authentik…) or a local account. On a fresh install with no provider, the first visit creates the
 admin; it asks for the service's API key (`ApiKey`) to prove you run it. Roles are `admin` and `viewer`;
-the pages are read-only for both so far. See [docs/auth.md](docs/auth.md).
+admins also manage **named API keys** (read-only or full, optional expiry, shown once, revocable at
+once). See [docs/auth.md](docs/auth.md).
 
 The first screen is a read-only dashboard: the MQTT broker's status, and for each deck its
 connection, brightness, the page on screen as live key images, its other pages on demand, and the

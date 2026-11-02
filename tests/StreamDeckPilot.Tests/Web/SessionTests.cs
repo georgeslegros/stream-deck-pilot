@@ -121,4 +121,20 @@ public sealed class SessionTests
         // Another user isn't affected.
         Assert.Equal(HttpStatusCode.Redirect, (await factory.CreateFormClient().SignInAsync(WebAuthFactory.ViewerUser, WebAuthFactory.ViewerPassword)).StatusCode);
     }
+
+    [Fact]
+    public async Task PerUserNameLimit_ZeroTurnsItOff()
+    {
+        // The per-user-name limit lets anyone keep a known user locked out; 0 switches it off (#98 docs).
+        await using var factory = new WebAuthFactory(new() { ["Auth:AttemptLimit"] = "100", ["Auth:UserAttemptLimit"] = "0" });
+        await factory.SeedUsersAsync();
+
+        for (var i = 0; i < 5; i++)
+            Assert.Equal(HttpStatusCode.OK, (await factory.CreateFormClient().SignInAsync(WebAuthFactory.AdminUser, "wrong password 123")).StatusCode);
+        Assert.Equal(HttpStatusCode.Redirect, (await factory.CreateFormClient().SignInAsync(WebAuthFactory.AdminUser, WebAuthFactory.AdminPassword)).StatusCode);
+    }
+
+    [Fact]
+    public void NegativePerUserNameLimit_IsAConfigurationError() =>
+        Assert.NotNull(new AuthOptions { UserAttemptLimit = -1 }.Error(null));
 }

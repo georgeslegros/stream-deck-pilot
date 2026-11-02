@@ -26,7 +26,8 @@ public static class EventStreamEndpoints
                 "A `text/event-stream`. The first event is `snapshot` (devices with connection state, active page " +
                 "and key content hashes; broker state; brightness; latest value per bound topic). Then one event per " +
                 "change: `DeviceConnected`, `DeviceDisconnected`, `KeyRendered`, `ValueReceived`, `BrokerOnline`, " +
-                "`BrokerOffline`, `ConfigChanged`, `ConfigRejected`, `PageChanged`, `BrightnessChanged`. Each has " +
+                "`BrokerOffline`, `ConfigChanged`, `ConfigRejected`, `PageChanged`, `BrightnessChanged`, `SignInFailed`, " +
+                "`ApiKeyCreated`, `ApiKeyRevoked`. Each has " +
                 "`id: {bootId}:{sequence}`; send it back as `Last-Event-ID` to resume. `types` is a comma-separated " +
                 "list of event names; `serial` limits per-device events (and the snapshot) to one deck. " +
                 "Payloads are described in docs/live-events.md.")

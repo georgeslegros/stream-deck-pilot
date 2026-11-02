@@ -23,6 +23,8 @@ public sealed class WebAppFixture : IAsyncLifetime
     public const string Serial = "EXAMPLE-0001";
     public const string AdminUser = "admin";
     public const string AdminPassword = "e2e admin password";
+    public const string ViewerUser = "viewer";
+    public const string ViewerPassword = "e2e viewer password";
 
     private readonly AppFactory _factory = new();
     private IPlaywright? _playwright;
@@ -58,8 +60,9 @@ public sealed class WebAppFixture : IAsyncLifetime
     public IBrowser? Browser { get; private set; }
     public string? Unavailable { get; private set; }
 
-    // Cookies of a signed-in session, shared by every page that starts signed in.
-    private string? _signedIn;
+    // Cookies of a signed-in session per user, shared by every page that starts signed in as them.
+    private readonly Dictionary<string, string> _signedIn = [];
+    private readonly SemaphoreSlim _signInLock = new(1, 1);
 
     public async ValueTask InitializeAsync()
     {
@@ -72,6 +75,7 @@ public sealed class WebAppFixture : IAsyncLifetime
             new(Serial, "Stream Deck MK.2", 3, 5, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
         await _factory.Services.GetRequiredService<ConfigStore>().SaveAsync(SampleConfig);
         await _factory.Services.GetRequiredService<LocalUserStore>().CreateAsync(AdminUser, AdminPassword, AuthRoles.Admin);
+        await _factory.Services.GetRequiredService<LocalUserStore>().CreateAsync(ViewerUser, ViewerPassword, AuthRoles.Viewer);
 
         try
         {
@@ -86,13 +90,25 @@ public sealed class WebAppFixture : IAsyncLifetime
     }
 
     /// <summary>
-    /// A fresh page at the given viewport, signed in as the admin unless <paramref name="signedIn"/>
-    /// is false, or a skip when no browser is available.
+    /// A fresh page at the given viewport, signed in as the admin (or the viewer, with
+    /// <paramref name="asViewer"/>) unless <paramref name="signedIn"/> is false, or a skip when no
+    /// browser is available.
     /// </summary>
-    public async Task<IPage> NewPageAsync(Viewport viewport, ColorScheme scheme = ColorScheme.Light, bool signedIn = true)
+    public async Task<IPage> NewPageAsync(Viewport viewport, ColorScheme scheme = ColorScheme.Light, bool signedIn = true, bool asViewer = false)
     {
         if (Browser is null) Assert.Skip(Unavailable ?? "No browser");
-        if (signedIn) _signedIn ??= await SignInOnceAsync();
+        string? state = null;
+        if (signedIn)
+        {
+            var (user, password) = asViewer ? (ViewerUser, ViewerPassword) : (AdminUser, AdminPassword);
+            await _signInLock.WaitAsync();
+            try
+            {
+                if (!_signedIn.TryGetValue(user, out state))
+                    _signedIn[user] = state = await SignInOnceAsync(user, password);
+            }
+            finally { _signInLock.Release(); }
+        }
         var context = await Browser.NewContextAsync(new()
         {
             BaseURL = BaseUrl,
@@ -100,16 +116,16 @@ public sealed class WebAppFixture : IAsyncLifetime
             IsMobile = viewport.IsMobile,
             HasTouch = viewport.IsMobile,
             ColorScheme = scheme,
-            StorageState = signedIn ? _signedIn : null,
+            StorageState = state,
         });
         return await context.NewPageAsync();
     }
 
-    private async Task<string> SignInOnceAsync()
+    private async Task<string> SignInOnceAsync(string user, string password)
     {
         await using var context = await Browser!.NewContextAsync(new() { BaseURL = BaseUrl });
         var page = await context.NewPageAsync();
-        await page.SignInAsync(AdminUser, AdminPassword);
+        await page.SignInAsync(user, password);
         return await context.StorageStateAsync();
     }
 

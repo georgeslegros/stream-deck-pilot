@@ -87,8 +87,8 @@ event). Bursts are folded into at most one refresh in flight (`CoalescingRunner`
 
 1. Add `Components/Pages/MyPage.razor` with `@page "/my-page"`. Don't use a route the API uses
    (`/devices…`, `/config…`, `/health`, `/openapi.json`), and don't start one with `/deck`: that is
-   the example path base for running behind a proxy. Current pages: `/` (overview) and
-   `/board/{serial}` (one deck).
+   the example path base for running behind a proxy. Current pages: `/` (overview),
+   `/board/{serial}` (one deck) and `/admin/api-keys` (admins only, [API keys](auth.md#api-keys)).
 2. Add a `MudNavLink` in `Components/Layout/NavMenu.razor`.
 3. Use the injected services (`LiveState` for live data, `IDashboardSource` for the dashboard's
    data and images, `BrowserClock` for local times, `IDeviceDirectory`, `DeviceSelection`);

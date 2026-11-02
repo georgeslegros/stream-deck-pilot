@@ -18,6 +18,29 @@ public sealed class LiveHub(LiveSnapshotService snapshots) : Hub
     public const string EventMethod = "event";
     public const string ResyncMethod = "resync";
     private const string GroupsKey = "groups";
+    private const string KeyEndedKey = "keyEnded";
+
+    /// <summary>
+    /// A connection opened with a named API key ends when the key is revoked or expires (#98): the
+    /// middleware hands over a token for that, and the connection is aborted when it fires.
+    /// </summary>
+    public override Task OnConnectedAsync()
+    {
+        if (Context.GetHttpContext() is { } http &&
+            http.Items.TryGetValue(Middleware.ApiKeyMiddleware.KeyEndedItem, out var item) && item is CancellationToken ended)
+        {
+            var context = Context;
+            Context.Items[KeyEndedKey] = ended.Register(context.Abort);
+        }
+        return base.OnConnectedAsync();
+    }
+
+    public override Task OnDisconnectedAsync(Exception? exception)
+    {
+        if (Context.Items.TryGetValue(KeyEndedKey, out var registration) && registration is CancellationTokenRegistration r)
+            r.Dispose();
+        return base.OnDisconnectedAsync(exception);
+    }
 
     /// <summary>
     /// Replaces this connection's subscription. <paramref name="types"/>: event names (null or
